@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sagebook · Test Shell</title>
+    <style>
+        :root {
+            color-scheme: light dark;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+        body { margin: 0; padding: 1.5rem; max-width: 880px; margin-inline: auto; }
+        h1   { margin-top: 0; }
+        fieldset { border: 1px solid #8884; border-radius: 8px; margin-block: 1rem; padding: 1rem; }
+        legend { padding: 0 .4rem; font-weight: 600; }
+        label  { display: block; margin-block: .35rem; font-size: .9rem; }
+        input, textarea, button {
+            font: inherit; padding: .45rem .6rem; border-radius: 6px;
+            border: 1px solid #8886; width: 100%; box-sizing: border-box;
+        }
+        textarea { min-height: 5rem; resize: vertical; }
+        button   { cursor: pointer; background: #2563eb; color: white; border-color: #1d4ed8; width: auto; }
+        button:disabled { opacity: .6; cursor: progress; }
+        pre {
+            background: #1118; color: #eaeaea; padding: 1rem; border-radius: 8px;
+            overflow: auto; max-height: 480px; font-size: .82rem;
+        }
+        .row { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+        small { opacity: .7; }
+    </style>
+</head>
+<body>
+    <h1>Sagebook · Test Shell</h1>
+    <p><small>Barebones harness for invoking the <code>process-media</code> edge function.</small></p>
+
+    <fieldset>
+        <legend>Supabase Connection</legend>
+        <div class="row">
+            <label>Project URL
+                <input id="supabaseUrl" placeholder="https://xxxx.supabase.co" />
+            </label>
+            <label>Anon Key
+                <input id="supabaseAnonKey" placeholder="eyJhbGciOi..." />
+            </label>
+        </div>
+    </fieldset>
+
+    <fieldset>
+        <legend>Authentication</legend>
+        <div class="row">
+            <label>Email
+                <input id="authEmail" type="email" autocomplete="username" value="russ@test.com" />
+            </label>
+            <label>Password
+                <input id="authPassword" type="password" autocomplete="current-password" value="password" />
+            </label>
+        </div>
+        <button id="btnSignIn" type="button">Sign In</button>
+        <button id="btnSignUp" type="button">Sign Up</button>
+        <button id="btnSignOut" type="button">Sign Out</button>
+        <p><small id="authStatus">Not signed in.</small></p>
+    </fieldset>
+
+    <fieldset>
+        <legend>Submit Media</legend>
+        <label>File (image / audio / video / pdf)
+            <input id="mediaFile" type="file" />
+        </label>
+        <label>Free-form text (optional)
+            <textarea id="mediaText" placeholder="Paste a receipt, statement excerpt, or voice-note transcript..."></textarea>
+        </label>
+        <label>Prompt hint (optional)
+            <input id="promptHint" placeholder="e.g. Whole Foods receipt in EUR" />
+        </label>
+        <label>Base currency (optional)
+            <input id="baseCurrency" placeholder="USD" />
+        </label>
+        <button id="btnSubmit" type="button">Process</button>
+    </fieldset>
+
+    <fieldset>
+        <legend>Response <small id="responseMeta"></small></legend>
+        <pre id="output">// Output will appear here</pre>
+    </fieldset>
+
+    <script type="module" src="/main.ts"></script>
+</body>
+</html>
