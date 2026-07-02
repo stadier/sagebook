@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sagebook · Dashboard</title>
+    <style>
+        :root {
+            color-scheme: light dark;
+            --bg:        #0f172a;
+            --surface:   #1e293b;
+            --border:    #334155;
+            --muted:     #94a3b8;
+            --text:      #f1f5f9;
+            --green:     #22c55e;
+            --red:       #ef4444;
+            --blue:      #3b82f6;
+            --amber:     #f59e0b;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+        @media (prefers-color-scheme: light) {
+            :root {
+                --bg:      #f8fafc;
+                --surface: #ffffff;
+                --border:  #e2e8f0;
+                --muted:   #64748b;
+                --text:    #0f172a;
+            }
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 1.5rem;
+        }
+
+        /* ── Layout ── */
+        .shell {
+            max-width: 960px;
+            margin-inline: auto;
+        }
+
+        header {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: .5rem;
+            margin-bottom: 1.75rem;
+        }
+        header h1 { font-size: 1.5rem; }
+        header .meta { color: var(--muted); font-size: .9rem; }
+        .nav-links { display: flex; gap: .75rem; font-size: .85rem; }
+        .nav-links a {
+            color: var(--blue);
+            text-decoration: none;
+            padding: .3rem .65rem;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+        }
+        .nav-links a:hover { background: var(--surface); }
+
+        /* ── KPI cards ── */
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        .kpi {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.2rem 1.4rem;
+        }
+        .kpi .label {
+            font-size: .78rem;
+            text-transform: uppercase;
+            letter-spacing: .06em;
+            color: var(--muted);
+            margin-bottom: .5rem;
+        }
+        .kpi .value {
+            font-size: 2rem;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            line-height: 1;
+        }
+        .kpi .sub {
+            font-size: .8rem;
+            color: var(--muted);
+            margin-top: .4rem;
+        }
+        .kpi.income .value  { color: var(--green); }
+        .kpi.expense .value { color: var(--red);   }
+        .kpi.net.positive .value { color: var(--green); }
+        .kpi.net.negative .value { color: var(--red);   }
+        .kpi.pending { border-color: var(--amber); }
+        .kpi.pending .value { color: var(--amber); }
+
+        /* ── Panels ── */
+        .panels {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+        @media (max-width: 600px) { .panels { grid-template-columns: 1fr; } }
+
+        .panel {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.2rem 1.4rem;
+        }
+        .panel h2 {
+            font-size: .85rem;
+            text-transform: uppercase;
+            letter-spacing: .06em;
+            color: var(--muted);
+            margin-bottom: 1rem;
+        }
+
+        /* Category rows */
+        .cat-row {
+            display: flex;
+            align-items: center;
+            gap: .65rem;
+            margin-bottom: .65rem;
+        }
+        .cat-icon { font-size: 1.1rem; width: 1.4rem; text-align: center; }
+        .cat-bar-wrap {
+            flex: 1;
+        }
+        .cat-name { font-size: .85rem; margin-bottom: .2rem; display: flex; justify-content: space-between; }
+        .cat-bar-bg {
+            height: 6px; border-radius: 3px;
+            background: var(--border);
+            overflow: hidden;
+        }
+        .cat-bar { height: 100%; border-radius: 3px; transition: width .4s; }
+        .cat-amount { font-size: .82rem; color: var(--muted); white-space: nowrap; }
+
+        /* Recent tx rows */
+        .tx-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            padding: .5rem 0;
+            border-bottom: 1px solid var(--border);
+            gap: .5rem;
+        }
+        .tx-row:last-child { border-bottom: none; }
+        .tx-payee { font-size: .9rem; font-weight: 500; }
+        .tx-meta  { font-size: .75rem; color: var(--muted); margin-top: .1rem; }
+        .tx-amount {
+            font-size: .9rem;
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+            white-space: nowrap;
+        }
+        .tx-amount.expense { color: var(--red); }
+        .tx-amount.income  { color: var(--green); }
+
+        /* Misc */
+        .empty { color: var(--muted); font-size: .85rem; font-style: italic; }
+        .spinner {
+            display: inline-block;
+            width: 18px; height: 18px;
+            border: 2px solid var(--border);
+            border-top-color: var(--blue);
+            border-radius: 50%;
+            animation: spin .7s linear infinite;
+            vertical-align: middle;
+            margin-right: .4rem;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .error-card {
+            background: var(--surface);
+            border: 1px solid var(--red);
+            border-radius: 12px;
+            padding: 2rem;
+            text-align: center;
+        }
+        .error-card a { color: var(--blue); }
+
+        .refresh-btn {
+            cursor: pointer;
+            background: none;
+            border: 1px solid var(--border);
+            color: var(--muted);
+            border-radius: 6px;
+            padding: .3rem .65rem;
+            font-size: .82rem;
+            font-family: inherit;
+        }
+        .refresh-btn:hover { background: var(--surface); }
+
+        .pending-link {
+            display: inline-block;
+            margin-top: .6rem;
+            font-size: .8rem;
+            color: var(--blue);
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+<div class="shell">
+    <header>
+        <div>
+            <h1>Sagebook</h1>
+            <p class="meta" id="headerMeta">Loading…</p>
+        </div>
+        <div style="display:flex;align-items:center;gap:.6rem">
+            <button class="refresh-btn" id="btnRefresh">↻ Refresh</button>
+            <nav class="nav-links">
+                <a href="/">⚙ Test Shell</a>
+            </nav>
+        </div>
+    </header>
+
+    <div id="app">
+        <p><span class="spinner"></span> Connecting…</p>
+    </div>
+</div>
+
+<script type="module" src="/dashboard.ts"></script>
+</body>
+</html>

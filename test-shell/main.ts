@@ -224,6 +224,9 @@ els.btnSubmit.addEventListener("click", async () => {
             : "";
 
         els.output.textContent = `${providerLine}${JSON.stringify(data, null, 2)}`;
+
+        // Auto-load inbox after successful extraction
+        await loadInbox();
     } catch (err) {
         await renderError(err);
     } finally {
@@ -282,5 +285,129 @@ async function extractErrorDetails(err: unknown): Promise<string> {
     }
 }
 
+// -----------------------------------------------------------------------------
+// Inbox
+// -----------------------------------------------------------------------------
+
+interface InboxRow {
+    id: string;
+    payee: string | null;
+    amount: number;
+    currency: string;
+    occurred_at: string;
+    kind: string;
+    memo: string | null;
+    category_name: string | null;
+    category_color: string | null;
+    category_icon: string | null;
+    duplicate_group_id: string | null;
+}
+
+const inboxSection   = document.getElementById("inboxSection") as HTMLElement;
+const inboxList      = document.getElementById("inboxList")    as HTMLElement;
+const inboxMeta      = document.getElementById("inboxMeta")    as HTMLElement;
+const btnAcceptAll   = document.getElementById("btnAcceptAll")  as HTMLButtonElement;
+const btnRefreshInbox = document.getElementById("btnRefreshInbox") as HTMLButtonElement;
+
+btnRefreshInbox.addEventListener("click", () => { void loadInbox(); });
+btnAcceptAll.addEventListener("click",    () => { void acceptAll(); });
+
+async function loadInbox(): Promise<void> {
+    if (!client) return;
+    const { data: txs, error } = await client
+        .from("v_pending_review")
+        .select("id, payee, amount, currency, occurred_at, kind, memo, category_name, category_color, category_icon, duplicate_group_id")
+        .order("occurred_at", { ascending: false });
+
+    if (error) {
+        console.warn("[inbox] load error", error.message);
+        return;
+    }
+
+    inboxSection.hidden = false;
+    renderInbox((txs ?? []) as InboxRow[]);
+}
+
+function renderInbox(txs: InboxRow[]): void {
+    inboxMeta.textContent = `(${txs.length} pending)`;
+    if (!txs.length) {
+        inboxList.innerHTML = "<p style='opacity:.6;font-size:.9rem'>No pending transactions.</p>";
+        return;
+    }
+
+    inboxList.innerHTML = txs.map(tx => {
+        const isDup = !!tx.duplicate_group_id;
+        const amountClass = tx.kind === "income" ? "income" : "expense";
+        const sign = tx.kind === "income" ? "+" : "-";
+        const date = new Date(tx.occurred_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+        const cat = tx.category_icon
+            ? `${tx.category_icon} ${tx.category_name ?? ""}`
+            : (tx.category_name ?? "Uncategorized");
+        const dupBadge = isDup ? `<span class="badge">⚠ possible duplicate</span>` : "";
+
+        return `
+        <div class="inbox-item${isDup ? " dup" : ""}" data-id="${tx.id}">
+            <div>
+                <span class="tx-payee">${escHtml(tx.payee ?? "Unknown payee")}</span>${dupBadge}
+                <div class="inbox-meta">${date} · ${escHtml(cat)} · ${escHtml(tx.kind)}</div>
+                ${tx.memo ? `<div class="inbox-meta">${escHtml(tx.memo)}</div>` : ""}
+            </div>
+            <div style="text-align:right">
+                <div class="tx-amount ${amountClass}">${sign}${tx.amount.toFixed(2)} ${escHtml(tx.currency)}</div>
+                <div class="inbox-actions" style="justify-content:flex-end;margin-top:.4rem">
+                    <button class="btn-accept" data-txid="${tx.id}" data-action="accept">✓ Accept</button>
+                    <button class="btn-reject" data-txid="${tx.id}" data-action="reject">✗ Reject</button>
+                </div>
+            </div>
+        </div>`;
+    }).join("");
+
+    // Wire buttons
+    inboxList.querySelectorAll<HTMLButtonElement>("[data-txid]").forEach(btn => {
+        btn.addEventListener("click", async () => {
+            const txId   = btn.dataset.txid!;
+            const action = btn.dataset.action as "accept" | "reject";
+            btn.disabled = true;
+            await reviewTransaction(txId, action);
+        });
+    });
+}
+
+async function reviewTransaction(txId: string, action: "accept" | "reject"): Promise<void> {
+    if (!client) return;
+    const { error } = await client.functions.invoke("review-transaction", {
+        body: { transactionId: txId, action },
+    });
+    if (error) {
+        console.error("[review] error", error);
+    }
+    await loadInbox();
+}
+
+async function acceptAll(): Promise<void> {
+    if (!client) return;
+    const { data: txs } = await client
+        .from("v_pending_review")
+        .select("id");
+    const ids = (txs ?? []).map((t: { id: string }) => t.id);
+    if (!ids.length) return;
+    btnAcceptAll.disabled = true;
+    const { error } = await client.functions.invoke("review-transaction/bulk", {
+        body: { transactionIds: ids, action: "accept" },
+    });
+    if (error) console.error("[accept-all] error", error);
+    await loadInbox();
+    btnAcceptAll.disabled = false;
+}
+
+function escHtml(s: string): string {
+    return s
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+}
+
 // Boot.
 void refreshAuthStatus();
+void loadInbox();
