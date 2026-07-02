@@ -30,7 +30,10 @@
     </style>
 </head>
 <body>
-    <h1>Sagebook · Test Shell</h1>
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:.5rem;flex-wrap:wrap">
+        <h1>Sagebook · Test Shell</h1>
+        <a href="/dashboard.html" style="font-size:.85rem;color:#3b82f6;text-decoration:none;border:1px solid #334155;border-radius:6px;padding:.3rem .65rem">📊 Dashboard</a>
+    </div>
     <p><small>Barebones harness for invoking the <code>process-media</code> edge function.</small></p>
 
     <fieldset>
@@ -82,6 +85,40 @@
         <legend>Response <small id="responseMeta"></small></legend>
         <pre id="output">// Output will appear here</pre>
     </fieldset>
+
+    <fieldset id="inboxSection" hidden>
+        <legend>
+            Inbox
+            <small id="inboxMeta"></small>
+            <button id="btnAcceptAll" type="button" style="margin-left:.75rem;font-size:.78rem;padding:.2rem .55rem;">Accept All</button>
+            <button id="btnRefreshInbox" type="button" style="margin-left:.35rem;font-size:.78rem;padding:.2rem .55rem;background:#64748b;border-color:#475569;">Refresh</button>
+        </legend>
+        <div id="inboxList"></div>
+    </fieldset>
+
+    <style>
+        .inbox-item {
+            border: 1px solid #8884; border-radius: 8px; padding: .7rem 1rem;
+            margin-block: .5rem; display: grid;
+            grid-template-columns: 1fr auto; gap: .25rem .75rem;
+        }
+        .inbox-item.dup  { border-color: #f59e0b; background: #fef3c722; }
+        .inbox-item .row { grid-column: 1 / -1; }
+        .inbox-meta { font-size: .8rem; opacity: .65; }
+        .tx-payee   { font-weight: 600; }
+        .tx-amount  { font-variant-numeric: tabular-nums; text-align: right; font-weight: 600; }
+        .tx-amount.expense { color: #ef4444; }
+        .tx-amount.income  { color: #22c55e; }
+        .badge {
+            display: inline-block; font-size: .7rem; padding: .1rem .4rem;
+            border-radius: 999px; background: #f59e0b22; color: #b45309;
+            margin-left: .4rem; vertical-align: middle;
+        }
+        .inbox-actions { display: flex; gap: .4rem; align-items: flex-start; }
+        .btn-accept { background: #16a34a; border-color: #15803d; }
+        .btn-reject { background: #dc2626; border-color: #b91c1c; }
+        .btn-accept, .btn-reject { font-size: .8rem; padding: .25rem .65rem; width: auto; }
+    </style>
 
     <script type="module" src="/main.ts"></script>
 </body>
