@@ -115,8 +115,30 @@ Rules:
 - 'amount' is a positive decimal. Sign is conveyed by 'kind'.
 - 'currency' is an ISO 4217 three-letter code; infer from symbols / locale cues.
 - 'kind' must be one of: income, expense, transfer, adjustment.
+- 'category' must be chosen from the user's category list when one is provided;
+  pick the most specific match (e.g. prefer 'Land Purchase' over 'Real Estate
+  Investment' for a land receipt) and return only the category name itself,
+  never the group or parent prefix. Only invent a new category name if nothing
+  in the list plausibly fits.
 - 'confidence' reflects overall extraction certainty (0..1).
 - If nothing extractable, return an empty transactions array with a short summary.`;
+
+/** Renders the user's custom taxonomy as a prompt hint, grouped for readability. */
+function buildCategoryHint(
+    cats: Array<{ name: string; parent?: { name: string } | null; group?: { name: string } | null }>,
+): string | null {
+    if (!cats.length) return null;
+    const byGroup = new Map<string, string[]>();
+    for (const c of cats) {
+        const group = c.group?.name ?? "Other";
+        const label = c.parent ? `${c.parent.name} > ${c.name}` : c.name;
+        if (!byGroup.has(group)) byGroup.set(group, []);
+        byGroup.get(group)!.push(label);
+    }
+    const lines = [...byGroup.entries()]
+        .map(([group, names]) => `- ${group}: ${names.join(", ")}`);
+    return `User's category list (grouped):\n${lines.join("\n")}`;
+}
 
 function detectMediaKind(mimeType: string): MediaKind {
     if (mimeType.startsWith("image/"))            return "image";
@@ -194,6 +216,28 @@ app.post("/process-media", async (c) => {
         }, 503);
     }
 
+    // 0) Load the user's taxonomy so the model classifies into their categories.
+    let categoryHint: string | null = null;
+    try {
+        const [{ data: cats }, { data: groups }] = await Promise.all([
+            admin.from("categories")
+                .select("id, name, parent_id, group_id")
+                .eq("user_id", userId),
+            admin.from("category_groups")
+                .select("id, name")
+                .eq("user_id", userId),
+        ]);
+        const catById   = new Map((cats ?? []).map((c) => [c.id, c]));
+        const groupById = new Map((groups ?? []).map((g) => [g.id, g]));
+        categoryHint = buildCategoryHint((cats ?? []).map((c) => ({
+            name:   c.name,
+            parent: c.parent_id ? catById.get(c.parent_id) ?? null : null,
+            group:  c.group_id  ? groupById.get(c.group_id) ?? null : null,
+        })));
+    } catch (err) {
+        console.warn("[process-media] category hint fetch failed", err);
+    }
+
     // 1) Record the ingestion as pending.
     const { data: ingestion, error: ingErr } = await admin
         .from("media_ingestions")
@@ -224,8 +268,8 @@ app.post("/process-media", async (c) => {
     // 2) Call model provider.
     try {
         const raw = useOpenRouter
-            ? await extractWithOpenRouter(body)
-            : await extractWithGemini(body);
+            ? await extractWithOpenRouter(body, categoryHint)
+            : await extractWithGemini(body, categoryHint);
         const parsed = safeParse<ParsedPayload>(raw);
 
         if (!parsed) {
@@ -307,10 +351,13 @@ function estimateBase64Bytes(b64: string): number {
     return Math.floor((len * 3) / 4) - pad;
 }
 
-async function extractWithGemini(body: ProcessMediaRequest): Promise<string> {
+async function extractWithGemini(body: ProcessMediaRequest, categoryHint?: string | null): Promise<string> {
     if (!genai) throw new Error("GEMINI_API_KEY is not configured");
 
     const parts: Part[] = [];
+    if (categoryHint) {
+        parts.push({ text: categoryHint });
+    }
     if (body.promptHint) {
         parts.push({ text: `User hint: ${body.promptHint}` });
     }
@@ -343,9 +390,12 @@ async function extractWithGemini(body: ProcessMediaRequest): Promise<string> {
     return response.text ?? "";
 }
 
-async function extractWithOpenRouter(body: ProcessMediaRequest): Promise<string> {
+async function extractWithOpenRouter(body: ProcessMediaRequest, categoryHint?: string | null): Promise<string> {
     const content: Array<Record<string, unknown>> = [];
 
+    if (categoryHint) {
+        content.push({ type: "text", text: categoryHint });
+    }
     if (body.promptHint) {
         content.push({ type: "text", text: `User hint: ${body.promptHint}` });
     }
@@ -502,7 +552,11 @@ async function commitIngestionInline(
         }
 
         if (!categoryId && parsed.category) {
-            const cid = catMap.get(parsed.category.toLowerCase());
+            const key = parsed.category.toLowerCase();
+            // Tolerate "Group: Parent > Child" style paths from the model.
+            const cid = catMap.get(key)
+                ?? catMap.get(key.split(">").pop()!.trim())
+                ?? catMap.get(key.split(":").pop()!.trim());
             if (cid) categoryId = cid;
         }
 
