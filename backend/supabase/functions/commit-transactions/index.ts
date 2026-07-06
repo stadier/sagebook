@@ -109,7 +109,11 @@ export async function commitIngestion(
 
     // Fall back to AI-suggested category when no rule matched
     if (!categoryId && parsed.category) {
-      const cid = catMap.get(parsed.category.toLowerCase());
+      const key = parsed.category.toLowerCase();
+      // Tolerate "Group: Parent > Child" style paths from the model.
+      const cid = catMap.get(key)
+        ?? catMap.get(key.split(">").pop()!.trim())
+        ?? catMap.get(key.split(":").pop()!.trim());
       if (cid) categoryId = cid;
     }
 
