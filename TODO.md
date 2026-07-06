@@ -27,19 +27,24 @@ Legend: ✅ done · 🔜 next up · 💡 idea / later
 
 ## 1. Web app (see WEBAPP_DESIGN.md)
 
-- 🔜 **Scaffold `webapp/`** (Vite + React + TS + Tailwind + TanStack Query).
-  *Why:* the test-shell is an API harness, not a product. Everything below needs a
-  real surface.
-- 🔜 **Capture screen** (text, camera/file, mic, paste) → `process-media`.
+- ✅ **Scaffold `webapp/`** (Vite + React + TS + Tailwind v4 + TanStack Query) with
+  auth gate, connect screen, sidebar shell, and monthly reports page.
+- ✅ **Capture screen v1** (text + file → `process-media`, extraction result with
+  duplicate flags, `clientTime` sent for relative-date anchoring).
+  🔜 Still to add: microphone recorder, global paste handler, camera capture.
   *Why:* capture speed is the product's core promise; if logging a receipt takes
   >10 seconds, users stop doing it.
-- 🔜 **Inbox review UI** (accept / edit / reject, duplicate compare, bulk actions,
-  "create rule from this").
+- ✅ **Inbox review UI v1** (accept / edit-and-accept / reject, duplicate badge,
+  group-aware category picker).
+  🔜 Still to add: duplicate side-by-side compare, bulk actions (backend endpoint
+  exists), "create rule from this", keyboard shortcuts.
   *Why:* AI extraction is only trustworthy with a cheap human checkpoint; this is
   where trust in the ledger is built.
-- 🔜 **Transactions browser** with filters and source-media preview.
+- ✅ **Transactions browser v1** (accepted ledger, client-side search).
+  🔜 Still to add: date/account/category filters, source-media preview, pagination.
   *Why:* an unqueryable ledger is a write-only diary.
-- 🔜 **Categories & groups manager** (drag between groups, nest subcategories, merge).
+- ✅ **Categories & groups browser v1** (grouped listing + quick-add category).
+  🔜 Still to add: drag between groups, nest/rename/merge, colors & icons editing.
   *Why:* the custom-taxonomy feature (e.g. real-estate) is only as good as the UI for
   shaping it.
 - 💡 **PWA install + OS share-target + offline capture queue.**

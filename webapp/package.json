@@ -1,0 +1,28 @@
+{
+    "name": "sagebook-webapp",
+    "private": true,
+    "version": "0.1.0",
+    "type": "module",
+    "description": "Sagebook web app — capture, review, and understand your wealth ledger.",
+    "scripts": {
+        "dev": "vite",
+        "build": "tsc --noEmit && vite build",
+        "preview": "vite preview"
+    },
+    "dependencies": {
+        "@supabase/supabase-js": "^2.45.4",
+        "@tanstack/react-query": "^5.51.0",
+        "react": "^18.3.1",
+        "react-dom": "^18.3.1",
+        "react-router-dom": "^6.30.0"
+    },
+    "devDependencies": {
+        "@tailwindcss/vite": "^4.1.0",
+        "@types/react": "^18.3.3",
+        "@types/react-dom": "^18.3.0",
+        "@vitejs/plugin-react": "^4.3.1",
+        "tailwindcss": "^4.1.0",
+        "typescript": "^5.5.4",
+        "vite": "^6.3.5"
+    }
+}
