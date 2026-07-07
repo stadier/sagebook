@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { requireSupabase } from "../lib/supabase";
-import { fetchTaxonomy, type GroupWithCategories } from "./Inbox";
+import { fetchTaxonomy, type GroupWithCategories } from "../lib/taxonomy";
 
 export default function Categories() {
     const taxonomy = useQuery({ queryKey: ["taxonomy"], queryFn: fetchTaxonomy });

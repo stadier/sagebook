@@ -4,10 +4,12 @@ import { useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import AppShell from "./components/AppShell";
 import { getSupabase } from "./lib/supabase";
+import Accounts from "./pages/Accounts";
 import Capture from "./pages/Capture";
 import Categories from "./pages/Categories";
 import Inbox from "./pages/Inbox";
 import Reports from "./pages/Reports";
+import Rules from "./pages/Rules";
 import Transactions from "./pages/Transactions";
 import Welcome from "./pages/Welcome";
 
@@ -58,7 +60,9 @@ export default function App() {
                             <Route path="/capture" element={<Capture />} />
                             <Route path="/inbox" element={<Inbox />} />
                             <Route path="/transactions" element={<Transactions />} />
+                            <Route path="/accounts" element={<Accounts />} />
                             <Route path="/categories" element={<Categories />} />
+                            <Route path="/rules" element={<Rules />} />
                             <Route path="/reports" element={<Reports />} />
                             <Route path="*" element={<Navigate to="/inbox" replace />} />
                         </Route>

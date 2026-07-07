@@ -35,9 +35,9 @@ Legend: ✅ done · 🔜 next up · 💡 idea / later
   *Why:* capture speed is the product's core promise; if logging a receipt takes
   >10 seconds, users stop doing it.
 - ✅ **Inbox review UI v1** (accept / edit-and-accept / reject, duplicate badge,
-  group-aware category picker).
-  🔜 Still to add: duplicate side-by-side compare, bulk actions (backend endpoint
-  exists), "create rule from this", keyboard shortcuts.
+  group-aware category picker, account picker on accept, bulk accept/reject,
+  "+ Rule" shortcut that pre-fills a rule from the card).
+  🔜 Still to add: duplicate side-by-side compare, keyboard shortcuts.
   *Why:* AI extraction is only trustworthy with a cheap human checkpoint; this is
   where trust in the ledger is built.
 - ✅ **Transactions browser v1** (accepted ledger, client-side search).
@@ -55,8 +55,9 @@ Legend: ✅ done · 🔜 next up · 💡 idea / later
 
 ## 2. Ingestion pipelines (see INGESTION_PIPELINES.md)
 
-- 🔜 **Voice recorder in the web app** (MediaRecorder → existing audio path).
-  *Why:* backend already supports audio; only the capture surface is missing.
+- ✅ **Voice recorder in the web app** (MediaRecorder → existing audio path; codec
+  params stripped for Gemini). Inline base64 only — long recordings need the
+  Storage-upload path below.
 - 🔜 **Send client time + timezone with every ingestion.**
   *Why:* "yesterday" in a voice note currently resolves against the model's unknown
   clock — dates can silently be wrong.
@@ -82,7 +83,9 @@ Legend: ✅ done · 🔜 next up · 💡 idea / later
 ## 3. Categorization, groups & rules
 
 - ✅ Custom groups + Real Estate Investment taxonomy (see §0).
-- 🔜 **"Create rule from transaction" flow** (inbox shortcut pre-fills payee rule).
+- ✅ **"Create rule from transaction" flow** — "+ Rule" on an inbox card opens the
+  Rules page with payee/category pre-filled; Rules page supports create, enable/
+  disable, delete.
   *Why:* rules are powerful but nobody writes regex from scratch; harvest them from
   corrections instead.
 - 🔜 **Handle AI-proposed new categories.** When the model suggests a name that
@@ -102,10 +105,17 @@ Legend: ✅ done · 🔜 next up · 💡 idea / later
 
 ## 4. Core ledger correctness
 
-- 🔜 **Account assignment during review.** Inbox items have `account_id = null`;
-  accept currently doesn't force one.
+- ✅ **Account assignment during review** — Accounts page (create/archive) plus an
+  account picker on inbox accept/edit that remembers the last-used account.
+  🔜 Still to add: require-account option, per-account registers with running
+  balances.
   *Why:* net worth and account registers are meaningless while transactions float
-  account-less. Add default-account per user + account picker on accept.
+  account-less.
+- ✅ **Broader currency seed** (NGN, ZAR, KES, GHS, INR, AED, BRL and more) —
+  `transactions.currency` has an FK to `currencies`, so an extracted ₦ receipt
+  previously failed to insert at all (migration `20260707000000_more_currencies.sql`).
+  🔜 Follow-up: commit path should surface (not just console-log) rows dropped by
+  an unknown currency, or fall back to the profile base currency.
 - 🔜 **FX pipeline: populate `fx_rates` daily and compute `base_amount` on accept.**
   *Why:* the multi-currency promise (₦ + $ + BTC in one net worth) is unfulfilled —
   `fx_rates` is empty and `base_amount`/`fx_rate` are never written. A pg_cron +

@@ -15,6 +15,43 @@ export interface Category {
     group_id: string | null;
 }
 
+export type AccountType =
+    | "cash"
+    | "checking"
+    | "savings"
+    | "credit_card"
+    | "loan"
+    | "investment"
+    | "retirement"
+    | "real_estate"
+    | "vehicle"
+    | "crypto"
+    | "other_asset"
+    | "other_liability";
+
+export interface Account {
+    id: string;
+    name: string;
+    type: AccountType;
+    currency: string;
+    institution: string | null;
+    opening_balance: number;
+    is_archived: boolean;
+}
+
+export interface Rule {
+    id: string;
+    name: string;
+    priority: number;
+    active: boolean;
+    match_field: "payee" | "memo" | "kind";
+    match_op: "contains" | "equals" | "starts_with" | "regex";
+    match_value: string;
+    set_category_name: string | null;
+    set_tags: string[];
+    set_memo: string | null;
+}
+
 export interface Transaction {
     id: string;
     kind: "income" | "expense" | "transfer" | "adjustment";
