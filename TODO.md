@@ -188,9 +188,11 @@ Legend: ✅ done · 🔜 next up · 💡 idea / later
 
 ## 7. Housekeeping
 
-- 🔜 Remove `tempInvoke.js` from repo root (ad-hoc script) or move it into
-  `test-shell/scripts/`.
-- 🔜 Delete the empty root `supabase/` directory (only `.temp` inside) — the real
+- ✅ Removed `tempInvoke.js` from repo root — it was an ad-hoc script that had a
+  hardcoded live Supabase auth JWT committed to git; deleted rather than moved.
+  🔜 Follow-up: rotate/expire that test user's session, and consider a
+  git-history scrub (filter-repo/BFG) before this repo is ever made public.
+- ✅ Deleted the empty root `supabase/` directory (only `.temp` inside) — the real
   project lives in `backend/supabase/`.
   *Why:* two supabase dirs will eventually make someone run CLI commands in the
   wrong one.
