@@ -208,6 +208,9 @@ function InboxCard({
                         {tx.media_kind ? ` · via ${tx.media_kind}` : ""}
                         {tx.memo ? ` · ${tx.memo}` : ""}
                     </div>
+                    {tx.duplicate_group_id && (
+                        <DuplicateCompare groupId={tx.duplicate_group_id} excludeId={tx.id} />
+                    )}
                 </div>
                 <div
                     className={`shrink-0 text-right font-semibold ${
@@ -263,6 +266,69 @@ function InboxCard({
                     </button>
                 </div>
             )}
+        </div>
+    );
+}
+
+interface DuplicateSibling {
+    id: string;
+    payee: string | null;
+    amount: number;
+    currency: string;
+    occurred_at: string;
+    review_status: string;
+    media_ingestions: { media_kind: string } | null;
+}
+
+/** The other transaction(s) sharing this duplicate group, for comparison. */
+function DuplicateCompare({ groupId, excludeId }: { groupId: string; excludeId: string }) {
+    const siblings = useQuery({
+        queryKey: ["dup-group", groupId, excludeId],
+        queryFn: async () => {
+            const { data, error } = await requireSupabase()
+                .from("transactions")
+                .select(
+                    "id, payee, amount, currency, occurred_at, review_status, media_ingestions(media_kind)",
+                )
+                .eq("duplicate_group_id", groupId)
+                .neq("id", excludeId)
+                .order("occurred_at", { ascending: false });
+            if (error) throw new Error(error.message);
+            return (data ?? []) as unknown as DuplicateSibling[];
+        },
+    });
+
+    if (!siblings.data?.length) return null;
+
+    return (
+        <div className="mt-2 rounded-lg border border-amber-900/50 bg-amber-950/20 p-2 text-xs">
+            <div className="mb-1 text-amber-300/80">Matches on record:</div>
+            {siblings.data.map((s) => (
+                <div key={s.id} className="flex items-center gap-2 py-0.5 text-slate-400">
+                    <span
+                        className={`rounded px-1.5 py-0.5 ${
+                            s.review_status === "accepted"
+                                ? "bg-emerald-500/15 text-emerald-300"
+                                : s.review_status === "rejected"
+                                  ? "bg-rose-500/15 text-rose-300"
+                                  : "bg-slate-700/50 text-slate-300"
+                        }`}
+                    >
+                        {s.review_status.replace("_", " ")}
+                    </span>
+                    <span>{fmtDateTime(s.occurred_at)}</span>
+                    <span className="text-slate-300">{s.payee ?? "(no payee)"}</span>
+                    {s.media_ingestions?.media_kind && (
+                        <span>via {s.media_ingestions.media_kind}</span>
+                    )}
+                    <span className="ml-auto font-medium text-slate-200">
+                        {fmtMoney(Number(s.amount), s.currency)}
+                    </span>
+                </div>
+            ))}
+            <div className="mt-1 text-slate-500">
+                If this is the same event, Reject this copy; the record above stays.
+            </div>
         </div>
     );
 }

@@ -1,6 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { fmtDateTime, fmtMoney } from "../lib/format";
 import { invokeFn, requireSupabase } from "../lib/supabase";
 import type { ProcessMediaResult } from "../lib/types";
@@ -62,7 +62,13 @@ function fileToBase64(file: File): Promise<string> {
 }
 
 export default function Capture() {
-    const [text, setText] = useState("");
+    // OS share sheet lands here via the PWA share_target (?title=&text=&url=).
+    const [params] = useSearchParams();
+    const shared = [params.get("title"), params.get("text"), params.get("url")]
+        .filter(Boolean)
+        .join("\n");
+
+    const [text, setText] = useState(shared);
     const [hint, setHint] = useState("");
     const [file, setFile] = useState<File | null>(null);
     const fileInput = useRef<HTMLInputElement>(null);

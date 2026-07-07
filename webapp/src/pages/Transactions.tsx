@@ -2,25 +2,49 @@ import { useQuery } from "@tanstack/react-query";
 import { Fragment, useState } from "react";
 import { fmtDate, fmtMoney } from "../lib/format";
 import { requireSupabase } from "../lib/supabase";
+import { fetchAccounts, fetchTaxonomy } from "../lib/taxonomy";
 import type { Transaction } from "../lib/types";
 
 interface TxRow extends Transaction {
     categories: { name: string; icon: string | null; color: string | null } | null;
 }
 
+const PAGE_SIZE = 200;
+
+interface Filters {
+    from: string;
+    to: string;
+    accountId: string;
+    categoryId: string;
+    kind: string;
+}
+
+const EMPTY_FILTERS: Filters = { from: "", to: "", accountId: "", categoryId: "", kind: "" };
+
 export default function Transactions() {
     const [search, setSearch] = useState("");
+    const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
+    const [limit, setLimit] = useState(PAGE_SIZE);
     const [expandedId, setExpandedId] = useState<string | null>(null);
 
+    const accounts = useQuery({ queryKey: ["accounts"], queryFn: fetchAccounts });
+    const taxonomy = useQuery({ queryKey: ["taxonomy"], queryFn: fetchTaxonomy });
+
     const txs = useQuery({
-        queryKey: ["transactions"],
+        queryKey: ["transactions", filters, limit],
         queryFn: async () => {
-            const { data, error } = await requireSupabase()
+            let q = requireSupabase()
                 .from("transactions")
                 .select("*, categories(name, icon, color)")
-                .eq("review_status", "accepted")
+                .eq("review_status", "accepted");
+            if (filters.from) q = q.gte("occurred_at", filters.from);
+            if (filters.to) q = q.lte("occurred_at", `${filters.to}T23:59:59`);
+            if (filters.accountId) q = q.eq("account_id", filters.accountId);
+            if (filters.categoryId) q = q.eq("category_id", filters.categoryId);
+            if (filters.kind) q = q.eq("kind", filters.kind);
+            const { data, error } = await q
                 .order("occurred_at", { ascending: false })
-                .limit(300);
+                .limit(limit);
             if (error) throw new Error(error.message);
             return (data ?? []) as TxRow[];
         },
@@ -34,10 +58,17 @@ export default function Transactions() {
             (t.memo ?? "").toLowerCase().includes(term) ||
             (t.categories?.name ?? "").toLowerCase().includes(term),
     );
+    const maybeMore = (txs.data?.length ?? 0) === limit;
+    const filtersActive = Object.values(filters).some(Boolean);
+
+    function setFilter<K extends keyof Filters>(key: K, value: Filters[K]) {
+        setFilters((f) => ({ ...f, [key]: value }));
+        setLimit(PAGE_SIZE);
+    }
 
     return (
         <div className="mx-auto max-w-4xl">
-            <div className="mb-6 flex items-center justify-between gap-4">
+            <div className="mb-4 flex items-center justify-between gap-4">
                 <div>
                     <h1 className="text-xl font-semibold">Transactions</h1>
                     <p className="text-sm text-slate-400">Accepted ledger entries.</p>
@@ -50,6 +81,77 @@ export default function Transactions() {
                 />
             </div>
 
+            <div className="mb-4 flex flex-wrap items-center gap-2 text-sm">
+                <input
+                    type="date"
+                    className={filterCls}
+                    title="From date"
+                    value={filters.from}
+                    onChange={(e) => setFilter("from", e.target.value)}
+                />
+                <span className="text-slate-600">–</span>
+                <input
+                    type="date"
+                    className={filterCls}
+                    title="To date"
+                    value={filters.to}
+                    onChange={(e) => setFilter("to", e.target.value)}
+                />
+                <select
+                    className={filterCls}
+                    value={filters.accountId}
+                    onChange={(e) => setFilter("accountId", e.target.value)}
+                >
+                    <option value="">All accounts</option>
+                    {(accounts.data ?? [])
+                        .filter((a) => !a.is_archived)
+                        .map((a) => (
+                            <option key={a.id} value={a.id}>
+                                {a.name}
+                            </option>
+                        ))}
+                </select>
+                <select
+                    className={filterCls}
+                    value={filters.categoryId}
+                    onChange={(e) => setFilter("categoryId", e.target.value)}
+                >
+                    <option value="">All categories</option>
+                    {(taxonomy.data ?? []).map((g) => (
+                        <optgroup key={g.id} label={g.name}>
+                            {g.categories.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                    {c.parent_id ? "· " : ""}
+                                    {c.name}
+                                </option>
+                            ))}
+                        </optgroup>
+                    ))}
+                </select>
+                <select
+                    className={filterCls}
+                    value={filters.kind}
+                    onChange={(e) => setFilter("kind", e.target.value)}
+                >
+                    <option value="">All kinds</option>
+                    <option value="expense">expense</option>
+                    <option value="income">income</option>
+                    <option value="transfer">transfer</option>
+                    <option value="adjustment">adjustment</option>
+                </select>
+                {filtersActive && (
+                    <button
+                        className="text-xs text-slate-500 hover:text-slate-300"
+                        onClick={() => {
+                            setFilters(EMPTY_FILTERS);
+                            setLimit(PAGE_SIZE);
+                        }}
+                    >
+                        Clear filters
+                    </button>
+                )}
+            </div>
+
             {txs.isLoading && <p className="text-sm text-slate-400">Loading…</p>}
             {txs.isError && (
                 <p className="text-sm text-rose-400">{(txs.error as Error).message}</p>
@@ -57,7 +159,9 @@ export default function Transactions() {
 
             {txs.isSuccess && rows.length === 0 && (
                 <p className="text-sm text-slate-500">
-                    {term ? "No matches." : "No accepted transactions yet — review your inbox."}
+                    {term || filtersActive
+                        ? "No matches for the current search/filters."
+                        : "No accepted transactions yet — review your inbox."}
                 </p>
             )}
 
@@ -125,6 +229,16 @@ export default function Transactions() {
                         ))}
                     </tbody>
                 </table>
+            )}
+
+            {maybeMore && (
+                <button
+                    className="mt-4 rounded-lg bg-slate-800 px-4 py-2 text-sm text-slate-200 hover:bg-slate-700 disabled:opacity-50"
+                    disabled={txs.isFetching}
+                    onClick={() => setLimit((l) => l + PAGE_SIZE)}
+                >
+                    {txs.isFetching ? "Loading…" : "Load more"}
+                </button>
             )}
         </div>
     );
@@ -211,3 +325,6 @@ function MediaPreview({ ingestionId }: { ingestionId: string }) {
         </a>
     );
 }
+
+const filterCls =
+    "rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-300 outline-none focus:border-emerald-500";
