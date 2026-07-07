@@ -35,14 +35,18 @@ src/
 ├── components/AppShell  Sidebar navigation layout
 ├── lib/
 │   ├── supabase.ts      Client bootstrap, config storage, edge-fn invoker
+│   ├── taxonomy.ts      Shared groups/categories + accounts fetchers
 │   ├── types.ts         Row/response types
 │   └── format.ts        Money/date formatting
 └── pages/
     ├── Welcome.tsx      Connect + sign in / sign up
-    ├── Capture.tsx      Text/media capture → process-media → extraction result
-    ├── Inbox.tsx        Pending-review queue: accept / edit / reject
+    ├── Capture.tsx      Text/media/voice capture → process-media → result
+    ├── Inbox.tsx        Review queue: accept (with account) / edit / reject,
+    │                    bulk actions, "+ Rule" shortcut
     ├── Transactions.tsx Accepted ledger with search
+    ├── Accounts.tsx     Account list, create, archive
     ├── Categories.tsx   Groups → categories browser + quick add
+    ├── Rules.tsx        Auto-categorization rules (create/toggle/delete)
     └── Reports.tsx      Current-month income/expense + category breakdown
 ```
 
