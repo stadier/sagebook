@@ -102,6 +102,7 @@ export interface ProcessMediaResult {
     committed: number;
     duplicates: number;
     rulesApplied: number;
+    insertErrors?: string[];
     inbox: Array<{
         id: string;
         payee: string | null;

@@ -55,6 +55,18 @@ Legend: ✅ done · 🔜 next up · 💡 idea / later
   🔜 Still to add: file/image share-target (needs a custom SW POST handler),
   offline capture queue (IndexedDB, flush on reconnect).
   *Why:* gets a "mobile app" without a second codebase.
+- ✅ **Activity page + logging system** — `app_logs` table (owner-only RLS, 90-day
+  retention cron) receives client events from Capture/Import/Inbox/Net worth;
+  the Activity page merges them with `media_ingestions` into one timeline with
+  failure filters and a per-entry **Copy report** button for pasting into a
+  debugging conversation. The commit pipeline now returns per-row
+  `insertErrors` (surfaced in the Capture result and stamped onto the
+  ingestion) instead of swallowing them.
+  *Why:* "it failed" is only fixable when the failure is on record.
+- ✅ **AI provider routing** — Gemini-first (handles all media kinds, reliable
+  structured output); OpenRouter only as fallback or via
+  `supabase secrets set AI_PROVIDER=openrouter`. `openrouter/auto` stalled on
+  image+strict-JSON captures before this.
 - 💡 **Realtime inbox** (subscribe to pending_review inserts).
   *Why:* email/async ingestions should appear without refresh.
 

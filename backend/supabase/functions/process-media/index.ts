@@ -268,7 +268,15 @@ app.post("/process-media", async (c) => {
     const mimeType  = body.inlineMedia?.mimeType ?? "text/plain";
     const mediaKind = detectMediaKind(mimeType);
     const bytes     = body.inlineMedia ? estimateBase64Bytes(body.inlineMedia.data) : (body.text?.length ?? 0);
-    const useOpenRouter = !!OPENROUTER_API_KEY && (mediaKind === "text" || mediaKind === "image");
+    // Prefer Gemini whenever configured: it handles every media kind natively
+    // and honours the response schema reliably. OpenRouter (esp. openrouter/auto)
+    // is a fallback only — auto-routing has stalled on image+strict-JSON before.
+    // Override with `supabase secrets set AI_PROVIDER=openrouter` (e.g. while
+    // Gemini credits are depleted) — no redeploy needed.
+    const preferOpenRouter = (Deno.env.get("AI_PROVIDER") ?? "").toLowerCase() === "openrouter";
+    const useOpenRouter = !!OPENROUTER_API_KEY
+        && (mediaKind === "text" || mediaKind === "image")
+        && (preferOpenRouter || !GEMINI_API_KEY);
     const provider = useOpenRouter ? "openrouter" : "gemini";
     const selectedModel = useOpenRouter ? OPENROUTER_MODEL : GEMINI_MODEL;
 
@@ -370,6 +378,7 @@ app.post("/process-media", async (c) => {
             duplicates:   commitResult.duplicates,
             rulesApplied: commitResult.rulesApplied,
             inbox:        commitResult.transactions,
+            insertErrors: commitResult.insertErrors,
         });
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

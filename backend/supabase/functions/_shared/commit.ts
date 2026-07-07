@@ -42,6 +42,8 @@ export interface CommitResult {
   duplicates: number;
   rulesApplied: number;
   transactions: unknown[];
+  /** Human-readable reasons for rows that failed to insert (e.g. FK violations). */
+  insertErrors: string[];
 }
 
 export function ruleMatches(rule: Rule, tx: ParsedTx): boolean {
@@ -92,6 +94,7 @@ export async function commitParsedTransactions(
   }
 
   const committed: unknown[] = [];
+  const insertErrors: string[] = [];
   let duplicates = 0;
   let rulesApplied = 0;
 
@@ -177,6 +180,9 @@ export async function commitParsedTransactions(
 
     if (txErr) {
       console.error("[commit] tx insert error", txErr.message, "for parsed", JSON.stringify(parsed));
+      insertErrors.push(
+        `${parsed.payee ?? "(no payee)"} · ${parsed.amount} ${parsed.currency}: ${txErr.message}`,
+      );
     } else if (tx) {
       committed.push(tx);
     }
@@ -189,5 +195,20 @@ export async function commitParsedTransactions(
       .eq("id", ingestionId);
   }
 
-  return { committed: committed.length, duplicates, rulesApplied, transactions: committed };
+  // Persist the failure reason on the ingestion so the Activity page shows why
+  // an extraction produced fewer (or zero) inbox rows than expected.
+  if (insertErrors.length) {
+    await admin
+      .from("media_ingestions")
+      .update({ error: `commit: ${insertErrors.join(" | ")}`.slice(0, 1000) })
+      .eq("id", ingestionId);
+  }
+
+  return {
+    committed: committed.length,
+    duplicates,
+    rulesApplied,
+    transactions: committed,
+    insertErrors,
+  };
 }

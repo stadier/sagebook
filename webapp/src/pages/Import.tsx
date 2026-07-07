@@ -14,6 +14,7 @@ import {
     parseOfx,
     saveTemplate,
 } from "../lib/importer";
+import { logEvent } from "../lib/logger";
 import { uploadToIngest } from "../lib/storage";
 import { invokeFn } from "../lib/supabase";
 import { fetchAccounts } from "../lib/taxonomy";
@@ -99,6 +100,21 @@ export default function Import() {
                 accountId: accountId || null,
                 storagePath,
                 filename: file.name,
+            });
+        },
+        onSuccess: (r) => {
+            logEvent("info", "import", `Import: ${r.committed} rows saved from ${file?.name}`, {
+                ingestionId: r.ingestionId,
+                committed: r.committed,
+                duplicates: r.duplicates,
+                rulesApplied: r.rulesApplied,
+                skipped: normalized?.errors.length ?? 0,
+            });
+        },
+        onError: (error) => {
+            logEvent("error", "import", `Import failed: ${(error as Error).message}`, {
+                file: file ? { name: file.name, size: file.size } : null,
+                rows: normalized?.txs.length ?? 0,
             });
         },
     });
