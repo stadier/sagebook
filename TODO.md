@@ -34,23 +34,26 @@ Legend: ✅ done · 🔜 next up · 💡 idea / later
   🔜 Still to add: microphone recorder, global paste handler, camera capture.
   *Why:* capture speed is the product's core promise; if logging a receipt takes
   >10 seconds, users stop doing it.
-- ✅ **Inbox review UI v1** (accept / edit-and-accept / reject, duplicate badge,
-  group-aware category picker, account picker on accept, bulk accept/reject,
-  "+ Rule" shortcut that pre-fills a rule from the card).
-  🔜 Still to add: duplicate side-by-side compare, keyboard shortcuts.
+- ✅ **Inbox review UI v1** (accept / edit-and-accept / reject, duplicate badge
+  with inline compare against the matching records on file, group-aware category
+  picker, account picker on accept, bulk accept/reject, "+ Rule" shortcut).
+  🔜 Still to add: keyboard shortcuts, "merge duplicates" action.
   *Why:* AI extraction is only trustworthy with a cheap human checkpoint; this is
   where trust in the ledger is built.
-- ✅ **Transactions browser v1** (accepted ledger, client-side search; rows expand
-  to show tags and the original receipt/recording via signed URLs).
-  🔜 Still to add: date/account/category filters, pagination.
+- ✅ **Transactions browser v1** (accepted ledger; date/account/category/kind
+  filters run server-side; load-more pagination; client-side text search; rows
+  expand to show tags and the original receipt/recording via signed URLs).
   *Why:* an unqueryable ledger is a write-only diary.
 - ✅ **Categories & groups browser v1** (grouped listing + quick-add category).
   🔜 Still to add: drag between groups, nest/rename/merge, colors & icons editing.
   *Why:* the custom-taxonomy feature (e.g. real-estate) is only as good as the UI for
   shaping it.
-- 💡 **PWA install + OS share-target + offline capture queue.**
-  *Why:* gets a "mobile app" (share a bank SMS or receipt screenshot straight into
-  Sagebook) without a second codebase.
+- ✅ **PWA install + OS share-target (text/URL)** — installable manifest + service
+  worker via vite-plugin-pwa; sharing text (e.g. a bank SMS) from the OS share
+  sheet opens Capture pre-filled.
+  🔜 Still to add: file/image share-target (needs a custom SW POST handler),
+  offline capture queue (IndexedDB, flush on reconnect).
+  *Why:* gets a "mobile app" without a second codebase.
 - 💡 **Realtime inbox** (subscribe to pending_review inserts).
   *Why:* email/async ingestions should appear without refresh.
 
@@ -76,7 +79,10 @@ Legend: ✅ done · 🔜 next up · 💡 idea / later
   LLM per row).
   *Why:* bulk history and monthly statements; also the main dedup stress-test since
   imports overlap with captured receipts.
-- 💡 **SMS/bank-alert path** via PWA share-target first, Android forwarder later.
+- ✅ **SMS/bank-alert path v1** via the PWA share-target (share the alert text →
+  Capture pre-filled → extract).
+  💡 Later: Android forwarder app / automation for hands-free forwarding, plus
+  per-bank regex templates before the LLM.
   *Why:* in markets without bank APIs, debit-alert SMS is de-facto real-time sync.
 - 💡 **`ingest-api` with per-device API tokens.**
   *Why:* unlocks Shortcuts/Tasker/Zapier without handing out user JWTs.
