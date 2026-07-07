@@ -5,7 +5,9 @@ const NAV = [
     { to: "/capture", label: "Capture", icon: "＋" },
     { to: "/inbox", label: "Inbox", icon: "📥" },
     { to: "/transactions", label: "Transactions", icon: "📒" },
+    { to: "/accounts", label: "Accounts", icon: "🏦" },
     { to: "/categories", label: "Categories", icon: "🗂" },
+    { to: "/rules", label: "Rules", icon: "⚙️" },
     { to: "/reports", label: "Reports", icon: "📊" },
 ];
 
