@@ -9,7 +9,8 @@
 import { cors } from "https://deno.land/x/hono@v4.3.11/middleware.ts";
 import { Hono } from "https://deno.land/x/hono@v4.3.11/mod.ts";
 import { GoogleGenAI, type Part } from "https://esm.sh/@google/genai@0.14.0";
-import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+import { commitParsedTransactions } from "../_shared/commit.ts";
 
 // -----------------------------------------------------------------------------
 // Environment
@@ -351,7 +352,7 @@ app.post("/process-media", async (c) => {
         }).eq("id", ingestion.id);
 
         // Auto-commit extracted transactions to the inbox
-        const commitResult = await commitIngestionInline(
+        const commitResult = await commitParsedTransactions(
             admin, userId, ingestion.id, parsed.transactions ?? []);
 
         return c.json({
@@ -534,142 +535,6 @@ async function extractWithOpenRouter(body: ProcessMediaRequest, categoryHint?: s
     }
 
     throw new Error("OpenRouter response missing message content");
-}
-
-// -----------------------------------------------------------------------------
-// Inline commit logic (mirrors commit-transactions function)
-// -----------------------------------------------------------------------------
-
-function ruleMatches(
-    rule: { match_field: string; match_op: string; match_value: string },
-    tx: ParsedTransaction,
-): boolean {
-    const raw =
-        rule.match_field === "payee" ? (tx.payee ?? "") :
-        rule.match_field === "memo"  ? (tx.memo  ?? "") :
-        rule.match_field === "kind"  ? (tx.kind  ?? "") : "";
-
-    const val = raw.toLowerCase();
-    const pat = rule.match_value.toLowerCase();
-
-    switch (rule.match_op) {
-        case "contains":    return val.includes(pat);
-        case "equals":      return val === pat;
-        case "starts_with": return val.startsWith(pat);
-        case "regex": {
-            try { return new RegExp(rule.match_value, "i").test(raw); }
-            catch { return false; }
-        }
-        default: return false;
-    }
-}
-
-async function commitIngestionInline(
-    admin: SupabaseClient,
-    userId: string,
-    ingestionId: string,
-    parsedTransactions: ParsedTransaction[],
-): Promise<{ committed: number; duplicates: number; rulesApplied: number; transactions: unknown[] }> {
-    const { data: rules } = await admin
-        .from("rules")
-        .select("id, match_field, match_op, match_value, set_category_name, set_tags, set_memo")
-        .eq("user_id", userId)
-        .eq("active", true)
-        .order("priority", { ascending: false });
-
-    const { data: cats } = await admin
-        .from("categories")
-        .select("id, name")
-        .eq("user_id", userId);
-
-    const catMap = new Map<string, string>();
-    for (const c of cats ?? []) catMap.set(c.name.toLowerCase(), c.id);
-
-    const committed: unknown[] = [];
-    let duplicates  = 0;
-    let rulesApplied = 0;
-
-    for (const parsed of parsedTransactions) {
-        let categoryId: string | null = null;
-        let finalTags = [...(parsed.tags ?? [])];
-        let finalMemo = parsed.memo ?? null;
-
-        for (const rule of (rules ?? [])) {
-            if (ruleMatches(rule, parsed)) {
-                if (rule.set_category_name) {
-                    const cid = catMap.get(rule.set_category_name.toLowerCase());
-                    if (cid) categoryId = cid;
-                }
-                if (rule.set_tags?.length) {
-                    finalTags = [...new Set([...finalTags, ...rule.set_tags])];
-                }
-                if (rule.set_memo) finalMemo = rule.set_memo;
-                rulesApplied++;
-                break;
-            }
-        }
-
-        if (!categoryId && parsed.category) {
-            const key = parsed.category.toLowerCase();
-            // Tolerate "Group: Parent > Child" style paths from the model.
-            const cid = catMap.get(key)
-                ?? catMap.get(key.split(">").pop()!.trim())
-                ?? catMap.get(key.split(":").pop()!.trim());
-            if (cid) categoryId = cid;
-        }
-
-        let duplicateGroupId: string | null = null;
-        const { data: dupId } = await admin.rpc("find_duplicate", {
-            p_user_id:     userId,
-            p_payee:       parsed.payee ?? null,
-            p_amount:      parsed.amount,
-            p_occurred_at: parsed.occurred_at,
-        });
-
-        if (dupId) {
-            duplicates++;
-            const { data: existingTx } = await admin
-                .from("transactions")
-                .select("duplicate_group_id")
-                .eq("id", dupId)
-                .single();
-            duplicateGroupId = existingTx?.duplicate_group_id ?? crypto.randomUUID();
-            if (!existingTx?.duplicate_group_id) {
-                await admin.from("transactions")
-                    .update({ duplicate_group_id: duplicateGroupId })
-                    .eq("id", dupId);
-            }
-        }
-
-        const { data: tx, error: txErr } = await admin
-            .from("transactions")
-            .insert({
-                user_id:            userId,
-                account_id:         null,
-                category_id:        categoryId,
-                kind:               parsed.kind ?? "expense",
-                occurred_at:        parsed.occurred_at,
-                amount:             parsed.amount,
-                currency:           parsed.currency ?? "USD",
-                payee:              parsed.payee ?? null,
-                memo:               finalMemo,
-                tags:               finalTags,
-                original_ai_data:   parsed,
-                review_status:      "pending_review",
-                ingestion_id:       ingestionId,
-                duplicate_group_id: duplicateGroupId,
-            })
-            .select("id, review_status, duplicate_group_id, payee, amount, currency, occurred_at")
-            .single();
-
-        if (txErr) {
-            console.error("[process-media] tx insert error", txErr.message);
-        } else if (tx) {
-            committed.push(tx);
-        }
-    }
-
-    return { committed: committed.length, duplicates, rulesApplied, transactions: committed };
 }
 
 function inferUpstreamStatus(message: string): 429 | 502 | 500 {

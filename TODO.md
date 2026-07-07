@@ -75,10 +75,16 @@ Legend: ✅ done · 🔜 next up · 💡 idea / later
 - 🔜 **Email forwarding pipeline** (`u-<id>@in.sagebook.app` → `ingest-email` fn).
   *Why:* most receipts/bank alerts already arrive by email; this is the highest-value
   passive pipeline. Includes per-user sender allow-list for safety.
-- 🔜 **CSV/OFX statement import** with per-bank column templates (deterministic, no
-  LLM per row).
-  *Why:* bulk history and monthly statements; also the main dedup stress-test since
-  imports overlap with captured receipts.
+- ✅ **CSV/OFX statement import** — new Import page parses CSV (papaparse) and
+  OFX/QFX locally: column-mapping UI with auto-guessing from headers, saved
+  per-bank mappings (recalled by header signature), date-format and sign
+  conventions, debit/credit column pairs, locale-aware amount parsing, preview
+  with per-line skip reasons. Rows go through the new `ingest-import` edge
+  function into the shared rules/dedup/commit pipeline (extracted to
+  `_shared/commit.ts`, now reused by all three entry points), optionally
+  pre-assigned to an account, with the original file archived in storage.
+  🔜 Follow-up: XLSX (convert client-side), QIF, chunked imports >1000 rows,
+  server-side mapping templates (currently per-browser localStorage).
 - ✅ **SMS/bank-alert path v1** via the PWA share-target (share the alert text →
   Capture pre-filled → extract).
   💡 Later: Android forwarder app / automation for hands-free forwarding, plus
