@@ -3,6 +3,7 @@ import { requireSupabase } from "../lib/supabase";
 
 const NAV = [
     { to: "/capture", label: "Capture", icon: "＋" },
+    { to: "/import", label: "Import", icon: "📄" },
     { to: "/inbox", label: "Inbox", icon: "📥" },
     { to: "/transactions", label: "Transactions", icon: "📒" },
     { to: "/accounts", label: "Accounts", icon: "🏦" },

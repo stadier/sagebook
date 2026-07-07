@@ -36,11 +36,14 @@ src/
 ├── lib/
 │   ├── supabase.ts      Client bootstrap, config storage, edge-fn invoker
 │   ├── taxonomy.ts      Shared groups/categories + accounts fetchers
+│   ├── storage.ts       Ingest-bucket upload helper
+│   ├── importer.ts      CSV/OFX parsing + mapping templates (pure functions)
 │   ├── types.ts         Row/response types
 │   └── format.ts        Money/date formatting
 └── pages/
     ├── Welcome.tsx      Connect + sign in / sign up
     ├── Capture.tsx      Text/media/voice capture → process-media → result
+    ├── Import.tsx       CSV/OFX statement import wizard → ingest-import
     ├── Inbox.tsx        Review queue: accept (with account) / edit / reject,
     │                    bulk actions, "+ Rule" shortcut
     ├── Transactions.tsx Accepted ledger with search

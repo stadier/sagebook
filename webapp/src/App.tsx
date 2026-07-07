@@ -7,6 +7,7 @@ import { getSupabase } from "./lib/supabase";
 import Accounts from "./pages/Accounts";
 import Capture from "./pages/Capture";
 import Categories from "./pages/Categories";
+import Import from "./pages/Import";
 import Inbox from "./pages/Inbox";
 import NetWorth from "./pages/NetWorth";
 import Reports from "./pages/Reports";
@@ -59,6 +60,7 @@ export default function App() {
                         <Route element={<AppShell />}>
                             <Route path="/" element={<Navigate to="/inbox" replace />} />
                             <Route path="/capture" element={<Capture />} />
+                            <Route path="/import" element={<Import />} />
                             <Route path="/inbox" element={<Inbox />} />
                             <Route path="/transactions" element={<Transactions />} />
                             <Route path="/accounts" element={<Accounts />} />

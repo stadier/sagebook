@@ -2,7 +2,8 @@ import { useMutation } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { fmtDateTime, fmtMoney } from "../lib/format";
-import { invokeFn, requireSupabase } from "../lib/supabase";
+import { uploadToIngest } from "../lib/storage";
+import { invokeFn } from "../lib/supabase";
 import type { ProcessMediaResult } from "../lib/types";
 
 interface CapturePayload {
@@ -26,28 +27,6 @@ interface CaptureInput {
 const MAX_FILE_BYTES = 15 * 1024 * 1024;
 /** If the storage upload fails (e.g. bucket missing), small files go inline. */
 const INLINE_FALLBACK_MAX = 4 * 1024 * 1024;
-
-/** Upload to ingest/{userId}/... — the object doubles as the receipt archive. */
-async function uploadToIngest(file: File): Promise<string | null> {
-    try {
-        const sb = requireSupabase();
-        const { data: userData } = await sb.auth.getUser();
-        const uid = userData.user?.id;
-        if (!uid) return null;
-        const safeName = file.name.replace(/[^\w.-]+/g, "_").slice(-80) || "capture";
-        const path = `${uid}/${crypto.randomUUID()}-${safeName}`;
-        const { error } = await sb.storage.from("ingest").upload(path, file, {
-            contentType: file.type || undefined,
-        });
-        if (error) {
-            console.warn("[capture] storage upload failed:", error.message);
-            return null;
-        }
-        return path;
-    } catch {
-        return null;
-    }
-}
 
 function fileToBase64(file: File): Promise<string> {
     return new Promise((resolve, reject) => {
