@@ -8,6 +8,7 @@ import Accounts from "./pages/Accounts";
 import Capture from "./pages/Capture";
 import Categories from "./pages/Categories";
 import Inbox from "./pages/Inbox";
+import NetWorth from "./pages/NetWorth";
 import Reports from "./pages/Reports";
 import Rules from "./pages/Rules";
 import Transactions from "./pages/Transactions";
@@ -64,6 +65,7 @@ export default function App() {
                             <Route path="/categories" element={<Categories />} />
                             <Route path="/rules" element={<Rules />} />
                             <Route path="/reports" element={<Reports />} />
+                            <Route path="/net-worth" element={<NetWorth />} />
                             <Route path="*" element={<Navigate to="/inbox" replace />} />
                         </Route>
                     </Routes>
