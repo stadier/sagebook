@@ -47,7 +47,8 @@ src/
     ├── Accounts.tsx     Account list, create, archive
     ├── Categories.tsx   Groups → categories browser + quick add
     ├── Rules.tsx        Auto-categorization rules (create/toggle/delete)
-    └── Reports.tsx      Current-month income/expense + category breakdown
+    ├── Reports.tsx      Current-month income/expense + category breakdown
+    └── NetWorth.tsx     Snapshot timeline chart, breakdown table, update action
 ```
 
 `npm run build` typechecks (`tsc --noEmit`) then bundles.

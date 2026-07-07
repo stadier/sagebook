@@ -116,13 +116,22 @@ Legend: ✅ done · 🔜 next up · 💡 idea / later
   previously failed to insert at all (migration `20260707000000_more_currencies.sql`).
   🔜 Follow-up: commit path should surface (not just console-log) rows dropped by
   an unknown currency, or fall back to the profile base currency.
-- 🔜 **FX pipeline: populate `fx_rates` daily and compute `base_amount` on accept.**
-  *Why:* the multi-currency promise (₦ + $ + BTC in one net worth) is unfulfilled —
-  `fx_rates` is empty and `base_amount`/`fx_rate` are never written. A pg_cron +
-  edge function pulling a free FX API (e.g. exchangerate.host) covers it.
-- 🔜 **Net-worth snapshot job** (pg_cron nightly: sum accounts + accepted
-  transactions per currency → base → insert `net_worth_snapshots`).
-  *Why:* the table exists but nothing writes it; the headline chart depends on it.
+- ✅ **FX pipeline** — `sync-fx-rates` edge function (open.er-api.com for fiat,
+  CoinGecko for BTC/ETH, no API keys) writes USD-based rows into `fx_rates`;
+  `latest_fx_rate()` resolves any pair (direct → inverse → USD cross); a trigger
+  fills `fx_rate`/`base_amount` whenever a transaction is accepted, and
+  `refresh_my_base_amounts()` backfills rows accepted before rates existed
+  (migration `20260707000001_fx_networth.sql`).
+  🔜 Follow-up: schedule the sync daily (Supabase scheduled functions or pg_cron
+  + pg_net) — today it runs when a user hits "Update now" on the Net worth page.
+- ✅ **Net-worth snapshots** — `compute_net_worth_snapshot()` sums per-account
+  balances (income/expense/transfer legs/adjustments) up to a date, converts to
+  the profile base currency, splits assets vs liabilities by account type, and
+  upserts with a per-account `breakdown` jsonb. Nightly pg_cron job scheduled
+  where the extension is available; `refresh_my_net_worth()` RPC for on-demand.
+  The webapp **Net worth page** shows stat tiles, a trend chart, the account
+  breakdown (with "no rate" warnings), and a one-click Update button that chains
+  rate-sync → base-amount backfill → snapshot.
 - 💡 **Transfer linking.** A transfer between two own accounts should be one logical
   event (two legs), not two unrelated rows that inflate income/expense.
 - 💡 **Attachment retention policy + receipt archive UI.**

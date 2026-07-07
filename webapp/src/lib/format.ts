@@ -10,6 +10,19 @@ export function fmtMoney(amount: number, currency: string): string {
     }
 }
 
+export function fmtMoneyCompact(amount: number, currency: string): string {
+    try {
+        return new Intl.NumberFormat(undefined, {
+            style: "currency",
+            currency,
+            notation: "compact",
+            maximumFractionDigits: 1,
+        }).format(amount);
+    } catch {
+        return `${amount.toFixed(0)} ${currency}`;
+    }
+}
+
 export function fmtDate(iso: string): string {
     return new Date(iso).toLocaleDateString(undefined, {
         year: "numeric",

@@ -110,6 +110,26 @@ export interface ProcessMediaResult {
     }>;
 }
 
+export interface NetWorthBreakdownEntry {
+    account_id: string;
+    name: string;
+    type: string;
+    currency: string;
+    balance: number;
+    base_amount: number | null;
+    rate_missing: boolean;
+}
+
+export interface NetWorthSnapshot {
+    id: string;
+    as_of: string;
+    base_currency: string;
+    assets: number;
+    liabilities: number;
+    net_worth: number;
+    breakdown: NetWorthBreakdownEntry[];
+}
+
 export interface MonthlySummaryRow {
     month: string;
     kind: string;

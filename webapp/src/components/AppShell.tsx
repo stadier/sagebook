@@ -9,6 +9,7 @@ const NAV = [
     { to: "/categories", label: "Categories", icon: "🗂" },
     { to: "/rules", label: "Rules", icon: "⚙️" },
     { to: "/reports", label: "Reports", icon: "📊" },
+    { to: "/net-worth", label: "Net worth", icon: "🪙" },
 ];
 
 export default function AppShell() {
