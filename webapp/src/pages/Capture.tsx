@@ -2,16 +2,51 @@ import { useMutation } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { fmtDateTime, fmtMoney } from "../lib/format";
-import { invokeFn } from "../lib/supabase";
+import { invokeFn, requireSupabase } from "../lib/supabase";
 import type { ProcessMediaResult } from "../lib/types";
 
 interface CapturePayload {
     text?: string;
     inlineMedia?: { mimeType: string; data: string };
+    /** Key within the private 'ingest' bucket; resolved server-side. */
+    storagePath?: string;
     promptHint?: string;
     baseCurrency?: string;
     /** Anchors relative dates ("yesterday") in the extraction prompt. */
     clientTime?: string;
+}
+
+interface CaptureInput {
+    text: string;
+    hint: string;
+    file: File | null;
+}
+
+/** Hard cap before upload; process-media inlines at most 15 MB to the model. */
+const MAX_FILE_BYTES = 15 * 1024 * 1024;
+/** If the storage upload fails (e.g. bucket missing), small files go inline. */
+const INLINE_FALLBACK_MAX = 4 * 1024 * 1024;
+
+/** Upload to ingest/{userId}/... — the object doubles as the receipt archive. */
+async function uploadToIngest(file: File): Promise<string | null> {
+    try {
+        const sb = requireSupabase();
+        const { data: userData } = await sb.auth.getUser();
+        const uid = userData.user?.id;
+        if (!uid) return null;
+        const safeName = file.name.replace(/[^\w.-]+/g, "_").slice(-80) || "capture";
+        const path = `${uid}/${crypto.randomUUID()}-${safeName}`;
+        const { error } = await sb.storage.from("ingest").upload(path, file, {
+            contentType: file.type || undefined,
+        });
+        if (error) {
+            console.warn("[capture] storage upload failed:", error.message);
+            return null;
+        }
+        return path;
+    } catch {
+        return null;
+    }
 }
 
 function fileToBase64(file: File): Promise<string> {
@@ -33,33 +68,49 @@ export default function Capture() {
     const fileInput = useRef<HTMLInputElement>(null);
 
     const capture = useMutation({
-        mutationFn: async (payload: CapturePayload) =>
-            invokeFn<ProcessMediaResult>("process-media", payload),
+        mutationFn: async (input: CaptureInput) => {
+            const payload: CapturePayload = {
+                promptHint: input.hint.trim() || undefined,
+                clientTime: new Date().toISOString(),
+            };
+            if (input.text.trim()) payload.text = input.text.trim();
+            if (input.file) {
+                if (input.file.size > MAX_FILE_BYTES) {
+                    throw new Error(
+                        `File is ${(input.file.size / 1024 / 1024).toFixed(1)} MB; the limit is ${MAX_FILE_BYTES / 1024 / 1024} MB.`,
+                    );
+                }
+                const storagePath = await uploadToIngest(input.file);
+                if (storagePath) {
+                    payload.storagePath = storagePath;
+                } else if (input.file.size <= INLINE_FALLBACK_MAX) {
+                    payload.inlineMedia = {
+                        mimeType: input.file.type || "application/octet-stream",
+                        data: await fileToBase64(input.file),
+                    };
+                } else {
+                    throw new Error(
+                        "Storage upload failed and the file is too large to send inline. Is the 'ingest' bucket migration applied?",
+                    );
+                }
+            }
+            return invokeFn<ProcessMediaResult>("process-media", payload);
+        },
     });
 
-    async function submit(e: FormEvent) {
+    function submit(e: FormEvent) {
         e.preventDefault();
         if (!text.trim() && !file) return;
-
-        const payload: CapturePayload = {
-            promptHint: hint.trim() || undefined,
-            clientTime: new Date().toISOString(),
-        };
-        if (file) {
-            payload.inlineMedia = {
-                mimeType: file.type || "application/octet-stream",
-                data: await fileToBase64(file),
-            };
-        }
-        if (text.trim()) payload.text = text.trim();
-
-        capture.mutate(payload, {
-            onSuccess: () => {
-                setText("");
-                setFile(null);
-                if (fileInput.current) fileInput.current.value = "";
+        capture.mutate(
+            { text, hint, file },
+            {
+                onSuccess: () => {
+                    setText("");
+                    setFile(null);
+                    if (fileInput.current) fileInput.current.value = "";
+                },
             },
-        });
+        );
     }
 
     return (

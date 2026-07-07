@@ -40,8 +40,9 @@ Legend: ✅ done · 🔜 next up · 💡 idea / later
   🔜 Still to add: duplicate side-by-side compare, keyboard shortcuts.
   *Why:* AI extraction is only trustworthy with a cheap human checkpoint; this is
   where trust in the ledger is built.
-- ✅ **Transactions browser v1** (accepted ledger, client-side search).
-  🔜 Still to add: date/account/category filters, source-media preview, pagination.
+- ✅ **Transactions browser v1** (accepted ledger, client-side search; rows expand
+  to show tags and the original receipt/recording via signed URLs).
+  🔜 Still to add: date/account/category filters, pagination.
   *Why:* an unqueryable ledger is a write-only diary.
 - ✅ **Categories & groups browser v1** (grouped listing + quick-add category).
   🔜 Still to add: drag between groups, nest/rename/merge, colors & icons editing.
@@ -61,9 +62,13 @@ Legend: ✅ done · 🔜 next up · 💡 idea / later
 - 🔜 **Send client time + timezone with every ingestion.**
   *Why:* "yesterday" in a voice note currently resolves against the model's unknown
   clock — dates can silently be wrong.
-- 🔜 **Storage-upload path for large media** (`storagePath` exists but is unused).
-  *Why:* base64 inline breaks past a few MB — long audio recordings and multi-page
-  scans need it; the stored object doubles as the receipt archive.
+- ✅ **Storage-upload path for large media** — private `ingest` bucket with
+  owner-only policies (migration `20260707000002_storage_ingest.sql`); Capture
+  uploads every file to `{user_id}/…` and sends `storagePath`; process-media
+  verifies the path prefix, downloads via service role (15 MB cap), and infers
+  the mime type. Small files fall back to inline if the upload fails. The stored
+  object doubles as the receipt archive.
+  🔜 Follow-up: Gemini Files API for >15 MB media; retention policy.
 - 🔜 **Email forwarding pipeline** (`u-<id>@in.sagebook.app` → `ingest-email` fn).
   *Why:* most receipts/bank alerts already arrive by email; this is the highest-value
   passive pipeline. Includes per-user sender allow-list for safety.
