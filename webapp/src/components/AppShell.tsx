@@ -11,6 +11,7 @@ const NAV = [
     { to: "/rules", label: "Rules", icon: "⚙️" },
     { to: "/reports", label: "Reports", icon: "📊" },
     { to: "/net-worth", label: "Net worth", icon: "🪙" },
+    { to: "/activity", label: "Activity", icon: "🧾" },
 ];
 
 export default function AppShell() {

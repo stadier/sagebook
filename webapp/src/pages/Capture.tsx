@@ -2,6 +2,7 @@ import { useMutation } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { fmtDateTime, fmtMoney } from "../lib/format";
+import { logEvent } from "../lib/logger";
 import { uploadToIngest } from "../lib/storage";
 import { invokeFn } from "../lib/supabase";
 import type { ProcessMediaResult } from "../lib/types";
@@ -80,6 +81,29 @@ export default function Capture() {
                 }
             }
             return invokeFn<ProcessMediaResult>("process-media", payload);
+        },
+        onSuccess: (result, input) => {
+            const found = result.parsed.transactions.length;
+            const failures = result.insertErrors ?? [];
+            logEvent(
+                failures.length ? "warn" : "info",
+                "capture",
+                `Capture: ${found} found, ${result.committed} saved to inbox`,
+                {
+                    ingestionId: result.ingestionId,
+                    model: result.model,
+                    file: input.file ? { name: input.file.name, size: input.file.size, type: input.file.type } : null,
+                    committed: result.committed,
+                    duplicates: result.duplicates,
+                    insertErrors: failures,
+                },
+            );
+        },
+        onError: (error, input) => {
+            logEvent("error", "capture", `Capture failed: ${(error as Error).message}`, {
+                file: input.file ? { name: input.file.name, size: input.file.size, type: input.file.type } : null,
+                hadText: !!input.text.trim(),
+            });
         },
     });
 
@@ -247,8 +271,23 @@ function ExtractionResult({ result }: { result: ProcessMediaResult }) {
                 </blockquote>
             )}
 
+            {(result.insertErrors?.length ?? 0) > 0 && (
+                <div className="mb-3 rounded-lg border border-amber-900/60 bg-amber-950/20 p-3 text-xs text-amber-300">
+                    <p className="mb-1 font-medium">
+                        ⚠ {result.insertErrors!.length} extracted row
+                        {result.insertErrors!.length === 1 ? "" : "s"} could not be saved:
+                    </p>
+                    {result.insertErrors!.map((err, i) => (
+                        <p key={i} className="text-amber-300/80">{err}</p>
+                    ))}
+                </div>
+            )}
             {result.inbox.length === 0 ? (
-                <p className="text-sm text-slate-500">No transactions were extracted.</p>
+                <p className="text-sm text-slate-500">
+                    {result.parsed.transactions.length > 0
+                        ? "Transactions were extracted but none could be saved — see the warnings above."
+                        : "No transactions were extracted."}
+                </p>
             ) : (
                 <ul className="divide-y divide-slate-800">
                     {result.inbox.map((tx) => (

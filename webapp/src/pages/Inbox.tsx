@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { fmtDateTime, fmtMoney } from "../lib/format";
+import { logEvent } from "../lib/logger";
 import { invokeFn, requireSupabase } from "../lib/supabase";
 import { fetchAccounts, fetchTaxonomy } from "../lib/taxonomy";
 import type { Account, PendingTransaction } from "../lib/types";
@@ -44,6 +45,12 @@ export default function Inbox() {
                 patch: args.patch,
             }),
         onSuccess: invalidate,
+        onError: (error, args) => {
+            logEvent("error", "inbox", `Review ${args.action} failed: ${(error as Error).message}`, {
+                transactionId: args.id,
+                patch: args.patch ?? null,
+            });
+        },
     });
 
     const bulk = useMutation({
@@ -55,6 +62,11 @@ export default function Inbox() {
         onSuccess: () => {
             setSelected(new Set());
             invalidate();
+        },
+        onError: (error, args) => {
+            logEvent("error", "inbox", `Bulk ${args.action} failed: ${(error as Error).message}`, {
+                count: args.ids.length,
+            });
         },
     });
 

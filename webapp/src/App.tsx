@@ -5,6 +5,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import AppShell from "./components/AppShell";
 import { getSupabase } from "./lib/supabase";
 import Accounts from "./pages/Accounts";
+import Activity from "./pages/Activity";
 import Capture from "./pages/Capture";
 import Categories from "./pages/Categories";
 import Import from "./pages/Import";
@@ -68,6 +69,7 @@ export default function App() {
                             <Route path="/rules" element={<Rules />} />
                             <Route path="/reports" element={<Reports />} />
                             <Route path="/net-worth" element={<NetWorth />} />
+                            <Route path="/activity" element={<Activity />} />
                             <Route path="*" element={<Navigate to="/inbox" replace />} />
                         </Route>
                     </Routes>
