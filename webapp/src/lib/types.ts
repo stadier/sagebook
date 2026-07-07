@@ -97,6 +97,7 @@ export interface ProcessMediaResult {
         summary: string;
         confidence: number;
         transactions: ParsedTransaction[];
+        transcript?: string;
     };
     committed: number;
     duplicates: number;

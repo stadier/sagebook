@@ -72,6 +72,8 @@ interface ParsedPayload {
     summary: string;
     transactions: ParsedTransaction[];
     confidence: number;        // 0..1
+    /** Faithful transcription when the input was audio/video. */
+    transcript?: string;
 }
 
 // -----------------------------------------------------------------------------
@@ -83,6 +85,7 @@ const RESPONSE_SCHEMA = {
     properties: {
         summary:    { type: "string" },
         confidence: { type: "number" },
+        transcript: { type: "string" },
         transactions: {
             type: "array",
             items: {
@@ -122,6 +125,9 @@ Rules:
   never the group or parent prefix. Only invent a new category name if nothing
   in the list plausibly fits.
 - 'confidence' reflects overall extraction certainty (0..1).
+- For audio or video input, also return 'transcript': a faithful transcription
+  of the speech (the user reviews it next to the extracted transactions).
+  Omit 'transcript' for images, PDFs, and plain text.
 - If nothing extractable, return an empty transactions array with a short summary.`;
 
 /** Renders the user's custom taxonomy as a prompt hint, grouped for readability. */

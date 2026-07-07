@@ -241,6 +241,11 @@ function ExtractionResult({ result }: { result: ProcessMediaResult }) {
                 </span>
             </div>
             <p className="mb-3 text-sm text-slate-400">{result.parsed.summary}</p>
+            {result.parsed.transcript && (
+                <blockquote className="mb-3 rounded-lg border-l-2 border-slate-700 bg-slate-950/60 px-3 py-2 text-xs italic text-slate-400">
+                    “{result.parsed.transcript}”
+                </blockquote>
+            )}
 
             {result.inbox.length === 0 ? (
                 <p className="text-sm text-slate-500">No transactions were extracted.</p>

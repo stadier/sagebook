@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { fmtDateTime, fmtMoney } from "../lib/format";
 import { invokeFn, requireSupabase } from "../lib/supabase";
@@ -13,6 +13,8 @@ const LAST_ACCOUNT_KEY = "sagebook.webapp.lastAccount";
 export default function Inbox() {
     const qc = useQueryClient();
     const [selected, setSelected] = useState<Set<string>>(new Set());
+    const [focusedIdx, setFocusedIdx] = useState(0);
+    const [editingId, setEditingId] = useState<string | null>(null);
 
     const pending = useQuery({
         queryKey: ["pending-review"],
@@ -56,11 +58,6 @@ export default function Inbox() {
         },
     });
 
-    if (pending.isLoading) return <p className="text-sm text-slate-400">Loading inbox…</p>;
-    if (pending.isError) {
-        return <p className="text-sm text-rose-400">{(pending.error as Error).message}</p>;
-    }
-
     const rows = pending.data ?? [];
     const busy = review.isPending || bulk.isPending;
 
@@ -73,14 +70,78 @@ export default function Inbox() {
         });
     }
 
+    // Keyboard review: J/K navigate, A accept, R reject, E edit, X select.
+    useEffect(() => {
+        function onKey(e: KeyboardEvent) {
+            const target = e.target as HTMLElement | null;
+            if (
+                e.metaKey || e.ctrlKey || e.altKey ||
+                target?.closest("input, select, textarea, [contenteditable]")
+            ) {
+                return;
+            }
+            const tx = rows[focusedIdx];
+            switch (e.key.toLowerCase()) {
+                case "j":
+                    setFocusedIdx((i) => Math.min(i + 1, rows.length - 1));
+                    break;
+                case "k":
+                    setFocusedIdx((i) => Math.max(i - 1, 0));
+                    break;
+                case "a": {
+                    if (!tx || busy) return;
+                    // Mirror the card's default: accept into the last-used account.
+                    const accountId = tx.account_id ?? localStorage.getItem(LAST_ACCOUNT_KEY);
+                    if (accountId) {
+                        review.mutate({ id: tx.id, action: "edit", patch: { account_id: accountId } });
+                    } else {
+                        review.mutate({ id: tx.id, action: "accept" });
+                    }
+                    break;
+                }
+                case "r":
+                    if (tx && !busy) review.mutate({ id: tx.id, action: "reject" });
+                    break;
+                case "e":
+                    if (tx) setEditingId((id) => (id === tx.id ? null : tx.id));
+                    break;
+                case "x":
+                    if (tx) toggle(tx.id);
+                    break;
+                default:
+                    return;
+            }
+            e.preventDefault();
+        }
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [rows, focusedIdx, busy]);
+
+    // Keep the focus index valid as cards leave the list.
+    useEffect(() => {
+        setFocusedIdx((i) => Math.min(i, Math.max(rows.length - 1, 0)));
+    }, [rows.length]);
+
+    if (pending.isLoading) return <p className="text-sm text-slate-400">Loading inbox…</p>;
+    if (pending.isError) {
+        return <p className="text-sm text-rose-400">{(pending.error as Error).message}</p>;
+    }
+
     return (
         <div className="mx-auto max-w-3xl">
             <h1 className="mb-1 text-xl font-semibold">Inbox</h1>
-            <p className="mb-4 text-sm text-slate-400">
+            <p className="mb-1 text-sm text-slate-400">
                 {rows.length === 0
                     ? "Nothing waiting for review."
                     : `${rows.length} transaction${rows.length === 1 ? "" : "s"} awaiting review.`}
             </p>
+            {rows.length > 0 && (
+                <p className="mb-4 text-xs text-slate-600">
+                    Keyboard: <kbd>J</kbd>/<kbd>K</kbd> navigate · <kbd>A</kbd> accept ·{" "}
+                    <kbd>R</kbd> reject · <kbd>E</kbd> edit · <kbd>X</kbd> select
+                </p>
+            )}
 
             {rows.length > 0 && (
                 <div className="mb-4 flex items-center gap-3 rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2 text-sm">
@@ -125,13 +186,17 @@ export default function Inbox() {
             )}
 
             <div className="flex flex-col gap-3">
-                {rows.map((tx) => (
+                {rows.map((tx, i) => (
                     <InboxCard
                         key={tx.id}
                         tx={tx}
                         busy={busy}
                         accounts={activeAccounts}
                         checked={selected.has(tx.id)}
+                        focused={i === focusedIdx}
+                        editing={editingId === tx.id}
+                        onFocus={() => setFocusedIdx(i)}
+                        onEditToggle={(open) => setEditingId(open ? tx.id : null)}
                         onToggle={() => toggle(tx.id)}
                         onAction={(action, patch) => review.mutate({ id: tx.id, action, patch })}
                     />
@@ -146,6 +211,10 @@ function InboxCard({
     busy,
     accounts,
     checked,
+    focused,
+    editing,
+    onFocus,
+    onEditToggle,
     onToggle,
     onAction,
 }: {
@@ -153,14 +222,22 @@ function InboxCard({
     busy: boolean;
     accounts: Account[];
     checked: boolean;
+    focused: boolean;
+    editing: boolean;
+    onFocus: () => void;
+    onEditToggle: (open: boolean) => void;
     onToggle: () => void;
     onAction: (action: ReviewAction, patch?: Record<string, unknown>) => void;
 }) {
     const navigate = useNavigate();
-    const [editing, setEditing] = useState(false);
+    const cardRef = useRef<HTMLDivElement>(null);
     const [accountId, setAccountId] = useState(
         () => tx.account_id ?? localStorage.getItem(LAST_ACCOUNT_KEY) ?? "",
     );
+
+    useEffect(() => {
+        if (focused) cardRef.current?.scrollIntoView({ block: "nearest" });
+    }, [focused]);
 
     function accept() {
         if (accountId) {
@@ -180,7 +257,13 @@ function InboxCard({
     }
 
     return (
-        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+        <div
+            ref={cardRef}
+            onClick={onFocus}
+            className={`rounded-xl border bg-slate-900/60 p-4 ${
+                focused ? "border-emerald-700/70 ring-1 ring-emerald-700/40" : "border-slate-800"
+            }`}
+        >
             <div className="flex items-start gap-3">
                 <input type="checkbox" className="mt-1" checked={checked} onChange={onToggle} />
                 <div className="min-w-0 flex-1">
@@ -227,10 +310,10 @@ function InboxCard({
                     tx={tx}
                     busy={busy}
                     accounts={accounts}
-                    onCancel={() => setEditing(false)}
+                    onCancel={() => onEditToggle(false)}
                     onSave={(patch) => {
                         onAction("edit", patch);
-                        setEditing(false);
+                        onEditToggle(false);
                     }}
                 />
             ) : (
@@ -251,7 +334,7 @@ function InboxCard({
                     <button className={acceptCls} disabled={busy} onClick={accept}>
                         Accept
                     </button>
-                    <button className={neutralCls} disabled={busy} onClick={() => setEditing(true)}>
+                    <button className={neutralCls} disabled={busy} onClick={() => onEditToggle(true)}>
                         Edit
                     </button>
                     <button className={rejectCls} disabled={busy} onClick={() => onAction("reject")}>

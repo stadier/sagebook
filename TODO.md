@@ -36,8 +36,9 @@ Legend: ✅ done · 🔜 next up · 💡 idea / later
   >10 seconds, users stop doing it.
 - ✅ **Inbox review UI v1** (accept / edit-and-accept / reject, duplicate badge
   with inline compare against the matching records on file, group-aware category
-  picker, account picker on accept, bulk accept/reject, "+ Rule" shortcut).
-  🔜 Still to add: keyboard shortcuts, "merge duplicates" action.
+  picker, account picker on accept, bulk accept/reject, "+ Rule" shortcut,
+  keyboard review: J/K navigate, A accept, R reject, E edit, X select).
+  🔜 Still to add: "merge duplicates" action.
   *Why:* AI extraction is only trustworthy with a cheap human checkpoint; this is
   where trust in the ledger is built.
 - ✅ **Transactions browser v1** (accepted ledger; date/account/category/kind
@@ -156,8 +157,9 @@ Legend: ✅ done · 🔜 next up · 💡 idea / later
 
 ## 5. AI extraction quality
 
-- 🔜 **Persist and display transcripts** for audio (add `transcript` to the response
-  schema).
+- ✅ **Persist and display transcripts** — `transcript` added to the extraction
+  schema/prompt for audio/video; shown in the Capture result and in the
+  Transactions detail next to the audio player.
   *Why:* reviewing "what was heard" beats re-listening; also debugging gold.
 - 🔜 **Per-field confidence + low-confidence highlighting in review.**
   *Why:* one overall 0.87 hides "the date was a guess".
@@ -172,13 +174,16 @@ Legend: ✅ done · 🔜 next up · 💡 idea / later
 - 🔜 **Storage bucket + owner-only storage RLS** (prereq for §2 large media).
 - 🔜 **Rate limiting / per-user ingestion quotas.**
   *Why:* every ingestion is a paid AI call; one runaway client is a bill.
-- 🔜 **CI: typecheck + `supabase db lint`/migration dry-run on PRs.**
-  *Why:* migrations are currently verified only by pushing to the live project.
+- ✅ **CI** — GitHub Actions: webapp typecheck + build, `deno check` on every
+  edge function (`.github/workflows/ci.yml`).
+  🔜 Follow-up: `supabase db lint`/migration dry-run (needs Docker on the runner).
 - 💡 **Tighten CORS** (`origin: "*"` today) once the web app's domain exists.
 - 💡 **Soft-delete / audit trail on transactions.**
   *Why:* a wealth ledger should never lose data to a mis-click; `rejected` covers
   inbox items but accepted rows are hard-deleted today.
-- 💡 **Data export (CSV/JSON) in settings.**
+- ✅ **Data export (CSV/JSON)** — on the Transactions page, exports everything
+  matching the current filters (up to 10k rows) with category/account names
+  and tags resolved.
   *Why:* trust — users must be able to leave with their data.
 
 ## 7. Housekeeping

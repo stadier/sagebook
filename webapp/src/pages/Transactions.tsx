@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Fragment, useState } from "react";
 import { fmtDate, fmtMoney } from "../lib/format";
 import { requireSupabase } from "../lib/supabase";
@@ -65,6 +65,57 @@ export default function Transactions() {
         setFilters((f) => ({ ...f, [key]: value }));
         setLimit(PAGE_SIZE);
     }
+
+    // Export everything matching the current filters (not just loaded pages).
+    const exportData = useMutation({
+        mutationFn: async (format: "csv" | "json") => {
+            let q = requireSupabase()
+                .from("transactions")
+                .select("*, categories(name)")
+                .eq("review_status", "accepted");
+            if (filters.from) q = q.gte("occurred_at", filters.from);
+            if (filters.to) q = q.lte("occurred_at", `${filters.to}T23:59:59`);
+            if (filters.accountId) q = q.eq("account_id", filters.accountId);
+            if (filters.categoryId) q = q.eq("category_id", filters.categoryId);
+            if (filters.kind) q = q.eq("kind", filters.kind);
+            const { data, error } = await q
+                .order("occurred_at", { ascending: false })
+                .limit(10000);
+            if (error) throw new Error(error.message);
+
+            const accountName = new Map((accounts.data ?? []).map((a) => [a.id, a.name]));
+            const records = (data ?? []).map((t) => ({
+                date: t.occurred_at,
+                payee: t.payee ?? "",
+                memo: t.memo ?? "",
+                amount: t.amount,
+                currency: t.currency,
+                kind: t.kind,
+                category: (t.categories as { name: string } | null)?.name ?? "",
+                account: t.account_id ? (accountName.get(t.account_id) ?? "") : "",
+                tags: (t.tags ?? []).join(";"),
+                id: t.id,
+            }));
+
+            const stamp = new Date().toISOString().slice(0, 10);
+            if (format === "json") {
+                download(`sagebook-transactions-${stamp}.json`, "application/json",
+                    JSON.stringify(records, null, 2));
+            } else {
+                const cols = Object.keys(records[0] ?? { date: "" });
+                const esc = (v: unknown) => {
+                    const s = String(v ?? "");
+                    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+                };
+                const csv = [
+                    cols.join(","),
+                    ...records.map((r) => cols.map((c) => esc((r as Record<string, unknown>)[c])).join(",")),
+                ].join("\n");
+                download(`sagebook-transactions-${stamp}.csv`, "text/csv", csv);
+            }
+            return records.length;
+        },
+    });
 
     return (
         <div className="mx-auto max-w-4xl">
@@ -150,7 +201,27 @@ export default function Transactions() {
                         Clear filters
                     </button>
                 )}
+                <span className="ml-auto flex gap-2">
+                    <button
+                        className="text-xs text-slate-500 hover:text-slate-300"
+                        disabled={exportData.isPending}
+                        onClick={() => exportData.mutate("csv")}
+                        title="Download everything matching the current filters"
+                    >
+                        ⬇ CSV
+                    </button>
+                    <button
+                        className="text-xs text-slate-500 hover:text-slate-300"
+                        disabled={exportData.isPending}
+                        onClick={() => exportData.mutate("json")}
+                    >
+                        ⬇ JSON
+                    </button>
+                </span>
             </div>
+            {exportData.isError && (
+                <p className="mb-3 text-xs text-rose-400">{(exportData.error as Error).message}</p>
+            )}
 
             {txs.isLoading && <p className="text-sm text-slate-400">Loading…</p>}
             {txs.isError && (
@@ -272,16 +343,18 @@ function MediaPreview({ ingestionId }: { ingestionId: string }) {
             const sb = requireSupabase();
             const { data, error } = await sb
                 .from("media_ingestions")
-                .select("storage_path, media_kind, mime_type")
+                .select("storage_path, media_kind, mime_type, parsed_payload")
                 .eq("id", ingestionId)
                 .single();
             if (error) throw new Error(error.message);
-            if (!data.storage_path) return { ...data, url: null as string | null };
+            const transcript =
+                (data.parsed_payload as { transcript?: string } | null)?.transcript ?? null;
+            if (!data.storage_path) return { ...data, transcript, url: null as string | null };
             const signed = await sb.storage
                 .from("ingest")
                 .createSignedUrl(data.storage_path, 3600);
             if (signed.error) throw new Error(signed.error.message);
-            return { ...data, url: signed.data.signedUrl };
+            return { ...data, transcript, url: signed.data.signedUrl };
         },
         staleTime: 30 * 60_000,
     });
@@ -292,11 +365,29 @@ function MediaPreview({ ingestionId }: { ingestionId: string }) {
     }
 
     const m = media.data!;
+    const transcriptBlock = m.transcript && (
+        <blockquote className="rounded-lg border-l-2 border-slate-700 bg-slate-950/60 px-3 py-2 italic text-slate-400">
+            “{m.transcript}”
+        </blockquote>
+    );
+
     if (!m.url) {
         return (
-            <span className="text-slate-600">
-                Captured as {m.media_kind} — no file archived (inline capture).
-            </span>
+            <div className="flex flex-col gap-2">
+                {transcriptBlock}
+                <span className="text-slate-600">
+                    Captured as {m.media_kind} — no file archived (inline capture).
+                </span>
+            </div>
+        );
+    }
+
+    if (m.media_kind === "audio") {
+        return (
+            <div className="flex flex-col gap-2">
+                {transcriptBlock}
+                <audio controls src={m.url} className="max-w-full" />
+            </div>
         );
     }
 
@@ -311,9 +402,6 @@ function MediaPreview({ ingestionId }: { ingestionId: string }) {
             </a>
         );
     }
-    if (m.media_kind === "audio") {
-        return <audio controls src={m.url} className="max-w-full" />;
-    }
     return (
         <a
             href={m.url}
@@ -324,6 +412,16 @@ function MediaPreview({ ingestionId }: { ingestionId: string }) {
             Open source file ({m.mime_type})
         </a>
     );
+}
+
+function download(filename: string, mime: string, content: string) {
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
 }
 
 const filterCls =
