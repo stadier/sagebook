@@ -140,6 +140,33 @@ function buildCategoryHint(
     return `User's category list (grouped):\n${lines.join("\n")}`;
 }
 
+/** Cap for inlining storage objects into a model request (base64 overhead ~33%). */
+const MAX_STORAGE_BYTES = 15 * 1024 * 1024;
+
+const EXT_MIME: Record<string, string> = {
+    jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp",
+    gif: "image/gif", heic: "image/heic",
+    webm: "audio/webm", ogg: "audio/ogg", m4a: "audio/mp4", mp3: "audio/mpeg",
+    wav: "audio/wav",
+    mp4: "video/mp4", mov: "video/quicktime",
+    pdf: "application/pdf", txt: "text/plain", csv: "text/csv",
+};
+
+function inferMimeFromPath(path: string): string {
+    const ext = path.split(".").pop()?.toLowerCase() ?? "";
+    return EXT_MIME[ext] ?? "application/octet-stream";
+}
+
+function base64FromArrayBuffer(buf: ArrayBuffer): string {
+    const bytes = new Uint8Array(buf);
+    let binary = "";
+    const chunk = 0x8000; // avoid arg-count limits in String.fromCharCode
+    for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+    }
+    return btoa(binary);
+}
+
 function detectMediaKind(mimeType: string): MediaKind {
     if (mimeType.startsWith("image/"))            return "image";
     if (mimeType.startsWith("audio/"))            return "audio";
@@ -196,8 +223,39 @@ app.post("/process-media", async (c) => {
         return c.json({ error: "body must be JSON" }, 400);
     }
 
-    if (!body.inlineMedia && !body.text) {
-        return c.json({ error: "inlineMedia or text required" }, 400);
+    if (!body.inlineMedia && !body.text && !body.storagePath) {
+        return c.json({ error: "inlineMedia, storagePath, or text required" }, 400);
+    }
+
+    // Resolve storage-uploaded media into inline data for the model call.
+    // storagePath is a key within the private 'ingest' bucket.
+    if (body.storagePath && !body.inlineMedia) {
+        if (!body.storagePath.startsWith(`${userId}/`)) {
+            return c.json({ error: "storagePath must be under your own folder" }, 403);
+        }
+        const { data: blob, error: dlErr } = await admin.storage
+            .from("ingest")
+            .download(body.storagePath);
+        if (dlErr || !blob) {
+            return c.json({
+                error: "could not download storage object",
+                detail: dlErr?.message ?? "empty object",
+            }, 400);
+        }
+        if (blob.size > MAX_STORAGE_BYTES) {
+            return c.json({
+                error: "object too large",
+                detail: `max ${MAX_STORAGE_BYTES} bytes for inline model input; got ${blob.size}`,
+            }, 413);
+        }
+        const mime =
+            blob.type && blob.type !== "application/octet-stream"
+                ? blob.type
+                : inferMimeFromPath(body.storagePath);
+        body.inlineMedia = {
+            mimeType: mime,
+            data: base64FromArrayBuffer(await blob.arrayBuffer()),
+        };
     }
 
     const mimeType  = body.inlineMedia?.mimeType ?? "text/plain";

@@ -65,6 +65,7 @@ export interface Transaction {
     account_id: string | null;
     review_status: "pending_review" | "accepted" | "rejected";
     duplicate_group_id: string | null;
+    ingestion_id: string | null;
     created_at: string;
 }
 
