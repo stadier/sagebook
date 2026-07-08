@@ -76,6 +76,19 @@ export interface PendingTransaction extends Transaction {
     category_icon: string | null;
     media_kind: string | null;
     ingestion_model: string | null;
+    original_ai_data: ParsedTransaction | null;
+}
+
+/** Row shape of v_account_balances. */
+export interface AccountWithBalance extends Account {
+    current_balance: number;
+    metadata: { auto_balance?: boolean; number_masked?: string } | null;
+}
+
+export interface InferredAccount {
+    name?: string;
+    institution?: string;
+    number_masked?: string;
 }
 
 export interface ParsedTransaction {
@@ -87,6 +100,8 @@ export interface ParsedTransaction {
     memo?: string;
     category?: string;
     tags?: string[];
+    account?: InferredAccount;
+    reference?: string;
 }
 
 export interface ProcessMediaResult {

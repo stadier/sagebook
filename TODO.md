@@ -130,10 +130,23 @@ Legend: ✅ done · 🔜 next up · 💡 idea / later
   disable, delete.
   *Why:* rules are powerful but nobody writes regex from scratch; harvest them from
   corrections instead.
-- 🔜 **Handle AI-proposed new categories.** When the model suggests a name that
-  doesn't exist, surface it in review as "create category 'X' under group …?" instead
-  of silently dropping to NULL.
-  *Why:* today an unmatched category string is simply lost.
+- ✅ **Inference & confirm flow** (migration `20260708000000_account_inference.sql`):
+  extraction now infers the **source account** (holder name, bank, masked number)
+  and the **reference ID** from bank receipts, with the user's accounts injected
+  into the prompt so known accounts auto-match. Unmatched inferences surface in
+  the inbox as one-click proposals — "Create account & assign" / "Create
+  category in group & assign" / Ignore — while the transaction stays
+  pending_review. Capture results list all inferences up front. Accounts created
+  this way carry `metadata.auto_balance`: their **opening balance is inferred**
+  (a ₦4m debit implies ≥₦4m was there; recomputed on every accepted transaction
+  until the user sets it manually). Reference IDs are a strong dedup signal in
+  `find_duplicate`. Accounts page shows live balances (`v_account_balances`)
+  with an "inferred balance" badge.
+- ✅ **Fix: defaults were never seeded for real signups** — nothing created
+  `profiles` rows (the seed trigger hangs off profiles), so real users had no
+  groups/categories and extraction ran taxonomy-blind. New `auth.users` trigger
+  creates the profile (and thereby the seed) at signup; existing users
+  backfilled (migration `20260708000001_seed_on_signup.sql`).
 - 💡 **Rule enhancements:** amount ranges (`amount between`), currency match,
   `set_account`, and an `auto_accept` flag for high-trust rules (e.g. recurring
   salary) that skips the inbox.

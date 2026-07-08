@@ -303,6 +303,7 @@ function InboxCard({
                         {tx.media_kind ? ` · via ${tx.media_kind}` : ""}
                         {tx.memo ? ` · ${tx.memo}` : ""}
                     </div>
+                    <InferencePanel tx={tx} />
                     {tx.duplicate_group_id && (
                         <DuplicateCompare groupId={tx.duplicate_group_id} excludeId={tx.id} />
                     )}
@@ -359,6 +360,182 @@ function InboxCard({
                     >
                         + Rule
                     </button>
+                </div>
+            )}
+        </div>
+    );
+}
+
+/**
+ * Everything the AI inferred from the capture that isn't yet part of the
+ * ledger: an unknown source account or category becomes a one-click proposal
+ * (create & attach — the transaction itself stays pending until accepted),
+ * matched inferences and references show as informational chips.
+ */
+function InferencePanel({ tx }: { tx: PendingTransaction }) {
+    const qc = useQueryClient();
+    const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+    const [categoryGroupId, setCategoryGroupId] = useState("");
+
+    const ai = tx.original_ai_data;
+    const taxonomy = useQuery({ queryKey: ["taxonomy"], queryFn: fetchTaxonomy });
+
+    const createAccount = useMutation({
+        mutationFn: async () => {
+            const sb = requireSupabase();
+            const { data: u } = await sb.auth.getUser();
+            if (!u.user) throw new Error("not signed in");
+            const { data: created, error } = await sb
+                .from("accounts")
+                .insert({
+                    user_id: u.user.id,
+                    name: (ai?.account?.name ?? "Inferred account").slice(0, 80),
+                    type: "checking",
+                    currency: tx.currency,
+                    institution: ai?.account?.institution ?? null,
+                    opening_balance: 0,
+                    // Opening balance is inferred from observed activity (a ₦4m
+                    // debit implies ≥₦4m was there) until the user sets it.
+                    metadata: {
+                        auto_balance: true,
+                        number_masked: ai?.account?.number_masked ?? null,
+                    },
+                })
+                .select("id")
+                .single();
+            if (error) throw new Error(error.message);
+            const upd = await sb
+                .from("transactions")
+                .update({ account_id: created.id })
+                .eq("id", tx.id);
+            if (upd.error) throw new Error(upd.error.message);
+        },
+        onSuccess: () => {
+            qc.invalidateQueries({ queryKey: ["pending-review"] });
+            qc.invalidateQueries({ queryKey: ["accounts"] });
+        },
+        onError: (error) =>
+            logEvent("error", "inbox", `Create inferred account failed: ${(error as Error).message}`, {
+                transactionId: tx.id,
+            }),
+    });
+
+    const createCategory = useMutation({
+        mutationFn: async () => {
+            const sb = requireSupabase();
+            const { data: u } = await sb.auth.getUser();
+            if (!u.user) throw new Error("not signed in");
+            const { data: created, error } = await sb
+                .from("categories")
+                .insert({
+                    user_id: u.user.id,
+                    name: (ai?.category ?? "").slice(0, 60),
+                    group_id: categoryGroupId || null,
+                })
+                .select("id")
+                .single();
+            if (error) throw new Error(error.message);
+            const upd = await sb
+                .from("transactions")
+                .update({ category_id: created.id })
+                .eq("id", tx.id);
+            if (upd.error) throw new Error(upd.error.message);
+        },
+        onSuccess: () => {
+            qc.invalidateQueries({ queryKey: ["pending-review"] });
+            qc.invalidateQueries({ queryKey: ["taxonomy"] });
+        },
+        onError: (error) =>
+            logEvent("error", "inbox", `Create inferred category failed: ${(error as Error).message}`, {
+                transactionId: tx.id,
+            }),
+    });
+
+    if (!ai) return null;
+
+    const proposeAccount =
+        !tx.account_id && ai.account?.name && !dismissed.has("account");
+    const proposeCategory =
+        !tx.category_id && ai.category && !dismissed.has("category");
+    const infoChips: string[] = [];
+    if (tx.account_id && ai.account?.name) infoChips.push(`source: ${ai.account.name}`);
+    if (ai.reference) infoChips.push(`ref: ${ai.reference}`);
+
+    if (!proposeAccount && !proposeCategory && infoChips.length === 0) return null;
+
+    return (
+        <div className="mt-2 rounded-lg border border-sky-900/50 bg-sky-950/20 p-2 text-xs">
+            <div className="mb-1 text-sky-300/80">Inferred from capture:</div>
+
+            {proposeAccount && (
+                <div className="flex flex-wrap items-center gap-2 py-0.5">
+                    <span className="text-slate-300">
+                        New account: <span className="font-medium">{ai.account!.name}</span>
+                        {ai.account!.institution && ` · ${ai.account!.institution}`}
+                        {ai.account!.number_masked && ` · ${ai.account!.number_masked}`}
+                    </span>
+                    <button
+                        className="rounded bg-sky-800/60 px-2 py-0.5 text-sky-200 hover:bg-sky-700/60 disabled:opacity-50"
+                        disabled={createAccount.isPending}
+                        onClick={() => createAccount.mutate()}
+                    >
+                        {createAccount.isPending ? "Creating…" : "Create account & assign"}
+                    </button>
+                    <button
+                        className="text-slate-500 hover:text-slate-300"
+                        onClick={() => setDismissed(new Set([...dismissed, "account"]))}
+                    >
+                        Ignore
+                    </button>
+                </div>
+            )}
+            {createAccount.isError && (
+                <p className="text-rose-400">{(createAccount.error as Error).message}</p>
+            )}
+
+            {proposeCategory && (
+                <div className="flex flex-wrap items-center gap-2 py-0.5">
+                    <span className="text-slate-300">
+                        New category: <span className="font-medium">{ai.category}</span>
+                    </span>
+                    <select
+                        className="rounded border border-slate-700 bg-slate-950 px-1.5 py-0.5 text-slate-300"
+                        value={categoryGroupId}
+                        onChange={(e) => setCategoryGroupId(e.target.value)}
+                    >
+                        <option value="">— pick group —</option>
+                        {(taxonomy.data ?? [])
+                            .filter((g) => g.id !== "__ungrouped__")
+                            .map((g) => (
+                                <option key={g.id} value={g.id}>
+                                    {g.name}
+                                </option>
+                            ))}
+                    </select>
+                    <button
+                        className="rounded bg-sky-800/60 px-2 py-0.5 text-sky-200 hover:bg-sky-700/60 disabled:opacity-50"
+                        disabled={createCategory.isPending || !categoryGroupId}
+                        onClick={() => createCategory.mutate()}
+                    >
+                        {createCategory.isPending ? "Creating…" : "Create & assign"}
+                    </button>
+                    <button
+                        className="text-slate-500 hover:text-slate-300"
+                        onClick={() => setDismissed(new Set([...dismissed, "category"]))}
+                    >
+                        Ignore
+                    </button>
+                </div>
+            )}
+            {createCategory.isError && (
+                <p className="text-rose-400">{(createCategory.error as Error).message}</p>
+            )}
+
+            {infoChips.length > 0 && (
+                <div className="flex flex-wrap gap-2 py-0.5 text-slate-500">
+                    {infoChips.map((chip) => (
+                        <span key={chip}>{chip}</span>
+                    ))}
                 </div>
             )}
         </div>
