@@ -271,6 +271,22 @@ function ExtractionResult({ result }: { result: ProcessMediaResult }) {
                 </blockquote>
             )}
 
+            {result.parsed.transactions.some((t) => t.account?.name || t.reference || t.category) && (
+                <div className="mb-3 rounded-lg border border-sky-900/50 bg-sky-950/20 p-3 text-xs">
+                    <p className="mb-1 text-sky-300/80">
+                        Inferred (confirm or refine in the inbox before accepting):
+                    </p>
+                    {result.parsed.transactions.map((t, i) => (
+                        <p key={i} className="text-slate-400">
+                            {t.payee ?? `#${i + 1}`}:
+                            {t.account?.name &&
+                                ` account "${t.account.name}"${t.account.institution ? ` (${t.account.institution})` : ""} ·`}
+                            {t.category && ` category "${t.category}" ·`}
+                            {t.reference && ` ref ${t.reference}`}
+                        </p>
+                    ))}
+                </div>
+            )}
             {(result.insertErrors?.length ?? 0) > 0 && (
                 <div className="mb-3 rounded-lg border border-amber-900/60 bg-amber-950/20 p-3 text-xs text-amber-300">
                     <p className="mb-1 font-medium">

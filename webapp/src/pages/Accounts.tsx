@@ -2,8 +2,16 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { fmtMoney } from "../lib/format";
 import { requireSupabase } from "../lib/supabase";
-import { fetchAccounts } from "../lib/taxonomy";
-import type { AccountType } from "../lib/types";
+import type { AccountType, AccountWithBalance } from "../lib/types";
+
+async function fetchAccountBalances(): Promise<AccountWithBalance[]> {
+    const { data, error } = await requireSupabase()
+        .from("v_account_balances")
+        .select("*")
+        .order("created_at");
+    if (error) throw new Error(error.message);
+    return (data ?? []) as AccountWithBalance[];
+}
 
 const ACCOUNT_TYPES: Array<{ value: AccountType; label: string }> = [
     { value: "cash", label: "Cash" },
@@ -24,7 +32,10 @@ export default function Accounts() {
     const qc = useQueryClient();
     const [showArchived, setShowArchived] = useState(false);
 
-    const accounts = useQuery({ queryKey: ["accounts"], queryFn: fetchAccounts });
+    const accounts = useQuery({
+        queryKey: ["account-balances"],
+        queryFn: fetchAccountBalances,
+    });
 
     const setArchived = useMutation({
         mutationFn: async (args: { id: string; archived: boolean }) => {
@@ -34,7 +45,10 @@ export default function Accounts() {
                 .eq("id", args.id);
             if (error) throw new Error(error.message);
         },
-        onSuccess: () => qc.invalidateQueries({ queryKey: ["accounts"] }),
+        onSuccess: () => {
+            qc.invalidateQueries({ queryKey: ["accounts"] });
+            qc.invalidateQueries({ queryKey: ["account-balances"] });
+        },
     });
 
     const rows = (accounts.data ?? []).filter((a) => showArchived || !a.is_archived);
@@ -72,15 +86,30 @@ export default function Accounts() {
                         }`}
                     >
                         <div className="min-w-0 flex-1">
-                            <div className="text-sm font-medium text-slate-100">{a.name}</div>
+                            <div className="flex items-center gap-2 text-sm font-medium text-slate-100">
+                                {a.name}
+                                {a.metadata?.auto_balance && (
+                                    <span
+                                        className="rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-normal text-sky-300"
+                                        title="Opening balance is inferred from observed activity (a debit implies the funds were there). Set an opening balance manually to take over."
+                                    >
+                                        inferred balance
+                                    </span>
+                                )}
+                            </div>
                             <div className="text-xs text-slate-500">
                                 {ACCOUNT_TYPES.find((t) => t.value === a.type)?.label ?? a.type}
                                 {a.institution ? ` · ${a.institution}` : ""}
+                                {a.metadata?.number_masked ? ` · ${a.metadata.number_masked}` : ""}
                             </div>
                         </div>
-                        <div className="text-sm text-slate-300">
-                            {fmtMoney(Number(a.opening_balance), a.currency)}
-                            <span className="ml-1 text-xs text-slate-600">opening</span>
+                        <div className="text-right text-sm">
+                            <div className="font-medium text-slate-100">
+                                {fmtMoney(Number(a.current_balance), a.currency)}
+                            </div>
+                            <div className="text-xs text-slate-600">
+                                opened at {fmtMoney(Number(a.opening_balance), a.currency)}
+                            </div>
                         </div>
                         <button
                             className="text-xs text-slate-500 hover:text-slate-300"
@@ -129,6 +158,7 @@ function CreateAccountForm() {
             setInstitution("");
             setOpeningBalance("0");
             qc.invalidateQueries({ queryKey: ["accounts"] });
+            qc.invalidateQueries({ queryKey: ["account-balances"] });
         },
     });
 

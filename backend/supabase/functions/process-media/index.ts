@@ -87,6 +87,12 @@ interface ProcessMediaRequest {
     baseCurrency?: string;
 }
 
+interface InferredAccount {
+    name?: string;
+    institution?: string;
+    number_masked?: string;
+}
+
 interface ParsedTransaction {
     occurred_at: string;       // ISO datetime
     amount: number;            // positive number
@@ -96,6 +102,10 @@ interface ParsedTransaction {
     memo?: string;
     category?: string;
     tags?: string[];
+    /** Source account inferred from the document (bank receipts, statements). */
+    account?: InferredAccount;
+    /** Bank reference / session ID — a strong dedup signal. */
+    reference?: string;
 }
 
 interface ParsedPayload {
@@ -132,6 +142,15 @@ const RESPONSE_SCHEMA = {
                     memo:     { type: "string" },
                     category: { type: "string" },
                     tags:     { type: "array", items: { type: "string" } },
+                    reference: { type: "string" },
+                    account: {
+                        type: "object",
+                        properties: {
+                            name:          { type: "string" },
+                            institution:   { type: "string" },
+                            number_masked: { type: "string" },
+                        },
+                    },
                 },
                 required: ["occurred_at", "amount", "currency", "kind"],
             },
@@ -155,6 +174,15 @@ Rules:
   never the group or parent prefix. Only invent a new category name if nothing
   in the list plausibly fits.
 - 'confidence' reflects overall extraction certainty (0..1).
+- Infer the SOURCE account when the document reveals it (bank receipts show the
+  debit account holder, bank name, and a masked number): return it as
+  'account': { name, institution, number_masked }. If a "user's accounts" list
+  is provided and one clearly matches, use that account's name EXACTLY as
+  listed; otherwise report the details as printed so a new account can be
+  proposed. The payee/beneficiary is never the source account.
+- Return 'reference' when the document shows a reference / session / receipt ID
+  (used for duplicate detection).
+- Narration/description lines go into 'memo' verbatim.
 - For audio or video input, also return 'transcript': a faithful transcription
   of the speech (the user reviews it next to the extracted transactions).
   Omit 'transcript' for images, PDFs, and plain text.
@@ -344,16 +372,21 @@ app.post("/process-media", async (c) => {
         }, 503);
     }
 
-    // 0) Load the user's taxonomy so the model classifies into their categories.
+    // 0) Load the user's taxonomy and accounts so the model classifies into
+    //    their categories and matches known accounts instead of proposing dupes.
     let categoryHint: string | null = null;
     try {
-        const [{ data: cats }, { data: groups }] = await Promise.all([
+        const [{ data: cats }, { data: groups }, { data: accounts }] = await Promise.all([
             admin.from("categories")
                 .select("id, name, parent_id, group_id")
                 .eq("user_id", userId),
             admin.from("category_groups")
                 .select("id, name")
                 .eq("user_id", userId),
+            admin.from("accounts")
+                .select("name, institution, type")
+                .eq("user_id", userId)
+                .eq("is_archived", false),
         ]);
         const catById   = new Map((cats ?? []).map((c) => [c.id, c]));
         const groupById = new Map((groups ?? []).map((g) => [g.id, g]));
@@ -362,8 +395,13 @@ app.post("/process-media", async (c) => {
             parent: c.parent_id ? catById.get(c.parent_id) ?? null : null,
             group:  c.group_id  ? groupById.get(c.group_id) ?? null : null,
         })));
+        if (accounts?.length) {
+            const lines = accounts.map((a) =>
+                `- ${a.name}${a.institution ? ` (${a.institution})` : ""} [${a.type}]`);
+            categoryHint = `${categoryHint ?? ""}\n\nUser's accounts:\n${lines.join("\n")}`;
+        }
     } catch (err) {
-        console.warn("[process-media] category hint fetch failed", err);
+        console.warn("[process-media] context hint fetch failed", err);
     }
 
     // 1) Record the ingestion as pending.
