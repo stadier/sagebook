@@ -10,6 +10,7 @@ import { cors } from "https://deno.land/x/hono@v4.3.11/middleware.ts";
 import { Hono } from "https://deno.land/x/hono@v4.3.11/mod.ts";
 import { GoogleGenAI, type Part } from "https://esm.sh/@google/genai@0.14.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+import { b2Configured, b2Download } from "../_shared/b2.ts";
 import { commitParsedTransactions } from "../_shared/commit.ts";
 
 // -----------------------------------------------------------------------------
@@ -24,11 +25,40 @@ const OPENROUTER_MODEL      = Deno.env.get("OPENROUTER_MODEL")      ?? "openrout
 const GEMINI_API_KEY        = Deno.env.get("GEMINI_API_KEY")        ?? "";
 const GEMINI_MODEL          = Deno.env.get("GEMINI_MODEL")          ?? "gemini-2.0-flash";
 
+// Any OpenAI-compatible provider (DeepSeek, Qwen/DashScope, GLM, Kimi, ...).
+// e.g. AI_BASE_URL=https://api.deepseek.com/v1  AI_MODEL=deepseek-chat
+//      AI_BASE_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1
+//      AI_MODEL=qwen-vl-plus (vision-capable, very cheap)
+const AI_BASE_URL = (Deno.env.get("AI_BASE_URL") ?? "").replace(/\/$/, "");
+const AI_API_KEY  = Deno.env.get("AI_API_KEY")  ?? "";
+const AI_MODEL    = Deno.env.get("AI_MODEL")    ?? "";
+const customConfigured = !!(AI_BASE_URL && AI_API_KEY && AI_MODEL);
+
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !SUPABASE_SERVICE_KEY) {
     console.warn("[process-media] Supabase env vars missing; runtime calls will fail.");
 }
-if (!OPENROUTER_API_KEY && !GEMINI_API_KEY) {
-    console.warn("[process-media] No AI provider key set; runtime calls will fail.");
+if (!OPENROUTER_API_KEY && !GEMINI_API_KEY && !customConfigured) {
+    console.warn("[process-media] No AI provider configured; runtime calls will fail.");
+}
+
+type Provider = "custom" | "gemini" | "openrouter";
+
+// custom + openrouter are OpenAI-compatible chat APIs: text and image only.
+// Gemini accepts every media kind natively. Preference: AI_PROVIDER secret,
+// otherwise custom (cheapest) → gemini → openrouter.
+function pickProvider(kind: MediaKind): Provider | null {
+    const textOrImage = kind === "text" || kind === "image";
+    const available: Record<Provider, boolean> = {
+        custom:     customConfigured && textOrImage,
+        gemini:     !!GEMINI_API_KEY,
+        openrouter: !!OPENROUTER_API_KEY && textOrImage,
+    };
+    const pref = (Deno.env.get("AI_PROVIDER") ?? "").toLowerCase() as Provider | "";
+    if (pref && available[pref as Provider]) return pref as Provider;
+    for (const p of ["custom", "gemini", "openrouter"] as Provider[]) {
+        if (available[p]) return p;
+    }
+    return null;
 }
 
 const genai = GEMINI_API_KEY ? new GoogleGenAI({ apiKey: GEMINI_API_KEY }) : null;
@@ -196,9 +226,13 @@ app.use("*", cors({
 
 app.get("/process-media/health", (c) => c.json({
     ok: true,
-    openrouter: !!OPENROUTER_API_KEY,
+    custom: customConfigured,
+    customModel: customConfigured ? AI_MODEL : null,
     gemini: !!GEMINI_API_KEY,
-    defaultModel: OPENROUTER_API_KEY ? OPENROUTER_MODEL : GEMINI_MODEL,
+    openrouter: !!OPENROUTER_API_KEY,
+    b2: b2Configured(),
+    textImageProvider: pickProvider("text"),
+    audioPdfProvider: pickProvider("audio"),
 }));
 
 app.post("/process-media", async (c) => {
@@ -235,57 +269,78 @@ app.post("/process-media", async (c) => {
     }
 
     // Resolve storage-uploaded media into inline data for the model call.
-    // storagePath is a key within the private 'ingest' bucket.
+    // "b2:{userId}/..." → Backblaze (via storage-proxy uploads); a plain
+    // "{userId}/..." key → the Supabase 'ingest' bucket (legacy/fallback).
     if (body.storagePath && !body.inlineMedia) {
-        if (!body.storagePath.startsWith(`${userId}/`)) {
+        const isB2 = body.storagePath.startsWith("b2:");
+        const path = isB2 ? body.storagePath.slice(3) : body.storagePath;
+        if (!path.startsWith(`${userId}/`)) {
             return c.json({ error: "storagePath must be under your own folder" }, 403);
         }
-        const { data: blob, error: dlErr } = await admin.storage
-            .from("ingest")
-            .download(body.storagePath);
-        if (dlErr || !blob) {
-            return c.json({
-                error: "could not download storage object",
-                detail: dlErr?.message ?? "empty object",
-            }, 400);
+
+        let bytesBuf: ArrayBuffer;
+        let mime: string;
+        if (isB2) {
+            if (!b2Configured()) {
+                return c.json({ error: "B2 storage is not configured" }, 503);
+            }
+            try {
+                const file = await b2Download(path);
+                bytesBuf = file.bytes;
+                mime = file.contentType !== "application/octet-stream"
+                    ? file.contentType
+                    : inferMimeFromPath(path);
+            } catch (err) {
+                return c.json({
+                    error: "could not download storage object",
+                    detail: err instanceof Error ? err.message : String(err),
+                }, 400);
+            }
+        } else {
+            const { data: blob, error: dlErr } = await admin.storage
+                .from("ingest")
+                .download(path);
+            if (dlErr || !blob) {
+                return c.json({
+                    error: "could not download storage object",
+                    detail: dlErr?.message ?? "empty object",
+                }, 400);
+            }
+            bytesBuf = await blob.arrayBuffer();
+            mime = blob.type && blob.type !== "application/octet-stream"
+                ? blob.type
+                : inferMimeFromPath(path);
         }
-        if (blob.size > MAX_STORAGE_BYTES) {
+
+        if (bytesBuf.byteLength > MAX_STORAGE_BYTES) {
             return c.json({
                 error: "object too large",
-                detail: `max ${MAX_STORAGE_BYTES} bytes for inline model input; got ${blob.size}`,
+                detail: `max ${MAX_STORAGE_BYTES} bytes for inline model input; got ${bytesBuf.byteLength}`,
             }, 413);
         }
-        const mime =
-            blob.type && blob.type !== "application/octet-stream"
-                ? blob.type
-                : inferMimeFromPath(body.storagePath);
         body.inlineMedia = {
             mimeType: mime,
-            data: base64FromArrayBuffer(await blob.arrayBuffer()),
+            data: base64FromArrayBuffer(bytesBuf),
         };
     }
 
     const mimeType  = body.inlineMedia?.mimeType ?? "text/plain";
     const mediaKind = detectMediaKind(mimeType);
     const bytes     = body.inlineMedia ? estimateBase64Bytes(body.inlineMedia.data) : (body.text?.length ?? 0);
-    // Prefer Gemini whenever configured: it handles every media kind natively
-    // and honours the response schema reliably. OpenRouter (esp. openrouter/auto)
-    // is a fallback only — auto-routing has stalled on image+strict-JSON before.
-    // Override with `supabase secrets set AI_PROVIDER=openrouter` (e.g. while
-    // Gemini credits are depleted) — no redeploy needed.
-    const preferOpenRouter = (Deno.env.get("AI_PROVIDER") ?? "").toLowerCase() === "openrouter";
-    const useOpenRouter = !!OPENROUTER_API_KEY
-        && (mediaKind === "text" || mediaKind === "image")
-        && (preferOpenRouter || !GEMINI_API_KEY);
-    const provider = useOpenRouter ? "openrouter" : "gemini";
-    const selectedModel = useOpenRouter ? OPENROUTER_MODEL : GEMINI_MODEL;
+    const provider = pickProvider(mediaKind);
+    const selectedModel =
+        provider === "custom"     ? AI_MODEL :
+        provider === "openrouter" ? OPENROUTER_MODEL :
+        GEMINI_MODEL;
 
-    if (!useOpenRouter && !GEMINI_API_KEY) {
+    if (!provider) {
         return c.json({
             error: "no compatible AI provider configured",
-            detail: "Set GEMINI_API_KEY for audio/video/pdf or send text/image with OPENROUTER_API_KEY.",
-            provider,
-            model: selectedModel,
+            detail: mediaKind === "text" || mediaKind === "image"
+                ? "Set AI_BASE_URL + AI_API_KEY + AI_MODEL (any OpenAI-compatible provider, e.g. DeepSeek/Qwen), GEMINI_API_KEY, or OPENROUTER_API_KEY."
+                : `${mediaKind} input needs GEMINI_API_KEY (OpenAI-compatible providers only take text and images).`,
+            provider: null,
+            model: null,
         }, 503);
     }
 
@@ -340,9 +395,15 @@ app.post("/process-media", async (c) => {
 
     // 2) Call model provider.
     try {
-        const raw = useOpenRouter
-            ? await extractWithOpenRouter(body, categoryHint)
-            : await extractWithGemini(body, categoryHint);
+        const raw = provider === "gemini"
+            ? await extractWithGemini(body, categoryHint)
+            : await extractWithOpenAICompat(
+                provider === "custom"
+                    ? { baseUrl: AI_BASE_URL, apiKey: AI_API_KEY, model: AI_MODEL, schemaMode: "json_object" }
+                    : { baseUrl: "https://openrouter.ai/api/v1", apiKey: OPENROUTER_API_KEY, model: OPENROUTER_MODEL, schemaMode: "json_schema" },
+                body,
+                categoryHint,
+            );
         const parsed = safeParse<ParsedPayload>(raw);
 
         if (!parsed) {
@@ -464,7 +525,23 @@ async function extractWithGemini(body: ProcessMediaRequest, categoryHint?: strin
     return response.text ?? "";
 }
 
-async function extractWithOpenRouter(body: ProcessMediaRequest, categoryHint?: string | null): Promise<string> {
+interface OpenAICompatConfig {
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+    /**
+     * "json_schema": strict structured output (OpenRouter/OpenAI).
+     * "json_object": plain JSON mode with the schema embedded in the prompt —
+     * what DeepSeek / Qwen / GLM compatible endpoints support.
+     */
+    schemaMode: "json_schema" | "json_object";
+}
+
+async function extractWithOpenAICompat(
+    cfg: OpenAICompatConfig,
+    body: ProcessMediaRequest,
+    categoryHint?: string | null,
+): Promise<string> {
     const content: Array<Record<string, unknown>> = [];
 
     if (categoryHint) {
@@ -496,30 +573,36 @@ async function extractWithOpenRouter(body: ProcessMediaRequest, categoryHint?: s
     }
 
     if (!content.length) {
-        throw new Error("no usable input for OpenRouter");
+        throw new Error("no usable input for the OpenAI-compatible provider");
     }
 
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const systemPrompt = cfg.schemaMode === "json_object"
+        ? `${SYSTEM_INSTRUCTION}\n\nRespond with a single JSON object (no markdown fences) that conforms to this JSON Schema:\n${JSON.stringify(RESPONSE_SCHEMA)}`
+        : SYSTEM_INSTRUCTION;
+
+    const response = await fetch(`${cfg.baseUrl}/chat/completions`, {
         method: "POST",
         headers: {
-            Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+            Authorization: `Bearer ${cfg.apiKey}`,
             "Content-Type": "application/json",
         },
         body: JSON.stringify({
-            model: OPENROUTER_MODEL,
+            model: cfg.model,
             temperature: 0.1,
             messages: [
-                { role: "system", content: SYSTEM_INSTRUCTION },
+                { role: "system", content: systemPrompt },
                 { role: "user", content },
             ],
-            response_format: {
-                type: "json_schema",
-                json_schema: {
-                    name: "sagebook_ledger_payload",
-                    strict: true,
-                    schema: RESPONSE_SCHEMA,
-                },
-            },
+            response_format: cfg.schemaMode === "json_schema"
+                ? {
+                    type: "json_schema",
+                    json_schema: {
+                        name: "sagebook_ledger_payload",
+                        strict: true,
+                        schema: RESPONSE_SCHEMA,
+                    },
+                }
+                : { type: "json_object" },
         }),
     });
 
@@ -549,7 +632,7 @@ async function extractWithOpenRouter(body: ProcessMediaRequest, categoryHint?: s
         if (text) return text;
     }
 
-    throw new Error("OpenRouter response missing message content");
+    throw new Error(`${cfg.baseUrl} response missing message content`);
 }
 
 function inferUpstreamStatus(message: string): 429 | 502 | 500 {

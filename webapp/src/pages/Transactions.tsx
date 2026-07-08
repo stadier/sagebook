@@ -1,6 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Fragment, useState } from "react";
 import { fmtDate, fmtMoney } from "../lib/format";
+import { signedUrlFor } from "../lib/storage";
 import { requireSupabase } from "../lib/supabase";
 import { fetchAccounts, fetchTaxonomy } from "../lib/taxonomy";
 import type { Transaction } from "../lib/types";
@@ -350,11 +351,7 @@ function MediaPreview({ ingestionId }: { ingestionId: string }) {
             const transcript =
                 (data.parsed_payload as { transcript?: string } | null)?.transcript ?? null;
             if (!data.storage_path) return { ...data, transcript, url: null as string | null };
-            const signed = await sb.storage
-                .from("ingest")
-                .createSignedUrl(data.storage_path, 3600);
-            if (signed.error) throw new Error(signed.error.message);
-            return { ...data, transcript, url: signed.data.signedUrl };
+            return { ...data, transcript, url: await signedUrlFor(data.storage_path) };
         },
         staleTime: 30 * 60_000,
     });

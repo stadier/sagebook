@@ -63,10 +63,22 @@ Legend: ✅ done · 🔜 next up · 💡 idea / later
   `insertErrors` (surfaced in the Capture result and stamped onto the
   ingestion) instead of swallowing them.
   *Why:* "it failed" is only fixable when the failure is on record.
-- ✅ **AI provider routing** — Gemini-first (handles all media kinds, reliable
-  structured output); OpenRouter only as fallback or via
-  `supabase secrets set AI_PROVIDER=openrouter`. `openrouter/auto` stalled on
-  image+strict-JSON captures before this.
+- ✅ **AI provider routing** — any OpenAI-compatible provider via secrets
+  (`AI_BASE_URL` + `AI_API_KEY` + `AI_MODEL`: DeepSeek, Qwen/DashScope, GLM,
+  Kimi, …) using JSON-object mode with the schema embedded in the prompt.
+  Preference order: custom (cheapest) → Gemini → OpenRouter; override with
+  `AI_PROVIDER`. Gemini remains required for audio/video/pdf (OpenAI-compatible
+  chat APIs only take text + images).
+  🔜 Follow-up: Qwen-Omni for audio via compatible mode, removing the Gemini
+  dependency for voice notes.
+- ✅ **Backblaze B2 storage backend** — `storage-proxy` edge function keeps B2
+  credentials server-side (`_shared/b2.ts`, native B2 API): authenticated
+  uploads to `{userId}/…`, prefix-checked signed download URLs (1 h). Paths are
+  prefixed `b2:`; plain paths still resolve to the Supabase `ingest` bucket as
+  fallback, and process-media dispatches on the prefix. Secrets: `B2_KEY_ID`,
+  `B2_APP_KEY`, `B2_BUCKET_ID`, `B2_BUCKET_NAME`.
+  🔜 Follow-up: rotate the application key that was shared in chat; switch to a
+  bucket-scoped key (current one is a master key).
 - 💡 **Realtime inbox** (subscribe to pending_review inserts).
   *Why:* email/async ingestions should appear without refresh.
 
