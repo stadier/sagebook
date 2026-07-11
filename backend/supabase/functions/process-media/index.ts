@@ -43,13 +43,16 @@ if (!OPENROUTER_API_KEY && !GEMINI_API_KEY && !customConfigured) {
 
 type Provider = "custom" | "gemini" | "openrouter";
 
-// custom + openrouter are OpenAI-compatible chat APIs: text and image only.
+// custom + openrouter are OpenAI-compatible chat APIs: text and image only —
+// except Mistral, whose chat API also takes PDFs via document_url parts.
 // Gemini accepts every media kind natively. Preference: AI_PROVIDER secret,
 // otherwise custom (cheapest) → gemini → openrouter.
+const CUSTOM_PDF_OK = AI_BASE_URL.includes("mistral");
+
 function pickProvider(kind: MediaKind): Provider | null {
     const textOrImage = kind === "text" || kind === "image";
     const available: Record<Provider, boolean> = {
-        custom:     customConfigured && textOrImage,
+        custom:     customConfigured && (textOrImage || (kind === "pdf" && CUSTOM_PDF_OK)),
         gemini:     !!GEMINI_API_KEY,
         openrouter: !!OPENROUTER_API_KEY && textOrImage,
     };
@@ -437,7 +440,7 @@ app.post("/process-media", async (c) => {
             ? await extractWithGemini(body, categoryHint)
             : await extractWithOpenAICompat(
                 provider === "custom"
-                    ? { baseUrl: AI_BASE_URL, apiKey: AI_API_KEY, model: AI_MODEL, schemaMode: "json_object" }
+                    ? { baseUrl: AI_BASE_URL, apiKey: AI_API_KEY, model: AI_MODEL, schemaMode: "json_object", allowDocumentUrl: CUSTOM_PDF_OK }
                     : { baseUrl: "https://openrouter.ai/api/v1", apiKey: OPENROUTER_API_KEY, model: OPENROUTER_MODEL, schemaMode: "json_schema" },
                 body,
                 categoryHint,
@@ -573,6 +576,8 @@ interface OpenAICompatConfig {
      * what DeepSeek / Qwen / GLM compatible endpoints support.
      */
     schemaMode: "json_schema" | "json_object";
+    /** Mistral extension: PDFs as document_url content parts. */
+    allowDocumentUrl?: boolean;
 }
 
 async function extractWithOpenAICompat(
@@ -601,6 +606,11 @@ async function extractWithOpenAICompat(
                 image_url: {
                     url: `data:${body.inlineMedia.mimeType};base64,${body.inlineMedia.data}`,
                 },
+            });
+        } else if (body.inlineMedia.mimeType === "application/pdf" && cfg.allowDocumentUrl) {
+            content.push({
+                type: "document_url",
+                document_url: `data:application/pdf;base64,${body.inlineMedia.data}`,
             });
         } else {
             content.push({

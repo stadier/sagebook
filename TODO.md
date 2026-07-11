@@ -117,8 +117,13 @@ Legend: ✅ done · 🔜 next up · 💡 idea / later
   function into the shared rules/dedup/commit pipeline (extracted to
   `_shared/commit.ts`, now reused by all three entry points), optionally
   pre-assigned to an account, with the original file archived in storage.
-  🔜 Follow-up: XLSX (convert client-side), QIF, chunked imports >1000 rows,
-  server-side mapping templates (currently per-browser localStorage).
+  ✅ Now also accepts **Excel (.xlsx/.xls)** — first worksheet through the same
+  mapping flow (SheetJS, lazy-loaded) — and **PDF statements**, which route
+  through AI extraction (Mistral reads PDFs via document_url; Gemini as
+  fallback), with the selected account passed as a hint.
+  🔜 Follow-up: QIF, chunked imports >1000 rows, server-side mapping templates
+  (currently per-browser localStorage), page-by-page chunking + balance
+  reconciliation for long PDF statements.
 - ✅ **SMS/bank-alert path v1** via the PWA share-target (share the alert text →
   Capture pre-filled → extract).
   💡 Later: Android forwarder app / automation for hands-free forwarding, plus

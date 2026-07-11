@@ -12,12 +12,14 @@ import {
     normalizeCsv,
     parseCsv,
     parseOfx,
+    parseWorkbook,
     saveTemplate,
 } from "../lib/importer";
 import { logEvent } from "../lib/logger";
-import { uploadToIngest } from "../lib/storage";
+import { fileToBase64, uploadToIngest } from "../lib/storage";
 import { invokeFn } from "../lib/supabase";
 import { fetchAccounts } from "../lib/taxonomy";
+import type { ProcessMediaResult } from "../lib/types";
 
 const MAX_ROWS = 1000;
 
@@ -33,7 +35,7 @@ export default function Import() {
     const activeAccounts = (accounts.data ?? []).filter((a) => !a.is_archived);
 
     const [file, setFile] = useState<File | null>(null);
-    const [fileKind, setFileKind] = useState<"csv" | "ofx" | null>(null);
+    const [fileKind, setFileKind] = useState<"csv" | "ofx" | "pdf" | null>(null);
     const [rows, setRows] = useState<string[][]>([]);
     const [ofxResult, setOfxResult] = useState<ReturnType<typeof parseOfx> | null>(null);
     const [mapping, setMapping] = useState<CsvMapping | null>(null);
@@ -52,6 +54,30 @@ export default function Import() {
         setParseError("");
         if (!f) return;
 
+        const ext = f.name.toLowerCase().split(".").pop() ?? "";
+
+        // PDFs are unstructured — they go through AI extraction instead of
+        // the deterministic column-mapping flow.
+        if (ext === "pdf" || f.type === "application/pdf") {
+            setFileKind("pdf");
+            return;
+        }
+
+        // Excel: first worksheet → rows, then the normal CSV mapping flow.
+        if (ext === "xlsx" || ext === "xls") {
+            const parsed = await parseWorkbook(await f.arrayBuffer());
+            if (parsed.length < 2) {
+                setParseError("Could not find data rows in the first worksheet.");
+                return;
+            }
+            setFileKind("csv");
+            setRows(parsed);
+            const template = loadTemplate(headerSignature(parsed));
+            setTemplateLoaded(!!template);
+            setMapping(template ?? guessMapping(parsed[0].map(String)));
+            return;
+        }
+
         const text = await f.text();
         if (looksLikeOfx(text)) {
             setFileKind("ofx");
@@ -60,7 +86,7 @@ export default function Import() {
         }
         const parsed = parseCsv(text);
         if (parsed.length < 2) {
-            setParseError("Could not find data rows in this file. Is it a CSV or OFX export?");
+            setParseError("Could not find data rows in this file. Is it a CSV, Excel, OFX, or PDF export?");
             return;
         }
         setFileKind("csv");
@@ -119,6 +145,83 @@ export default function Import() {
         },
     });
 
+    // PDFs bypass column mapping: archive to storage, extract with the AI
+    // pipeline (rules, dedup, and account/category inference all apply).
+    const aiImport = useMutation({
+        mutationFn: async (): Promise<ProcessMediaResult> => {
+            if (!file) throw new Error("no file selected");
+            if (file.size > 15 * 1024 * 1024) {
+                throw new Error("PDF too large (max 15 MB)");
+            }
+            const storagePath = await uploadToIngest(file);
+            const payload: Record<string, unknown> = {
+                clientTime: new Date().toISOString(),
+                promptHint: accountId
+                    ? `Statement belongs to account: ${activeAccounts.find((a) => a.id === accountId)?.name}`
+                    : undefined,
+            };
+            if (storagePath) payload.storagePath = storagePath;
+            else payload.inlineMedia = { mimeType: "application/pdf", data: await fileToBase64(file) };
+            return invokeFn<ProcessMediaResult>("process-media", payload);
+        },
+        onSuccess: (r) => {
+            logEvent("info", "import", `PDF import: ${r.committed} rows saved from ${file?.name}`, {
+                ingestionId: r.ingestionId,
+                model: r.model,
+                committed: r.committed,
+                duplicates: r.duplicates,
+                insertErrors: r.insertErrors ?? [],
+            });
+        },
+        onError: (error) => {
+            logEvent("error", "import", `PDF import failed: ${(error as Error).message}`, {
+                file: file ? { name: file.name, size: file.size } : null,
+            });
+        },
+    });
+
+    if (aiImport.isSuccess) {
+        const r = aiImport.data;
+        return (
+            <div className="mx-auto max-w-2xl">
+                <h1 className="mb-4 text-xl font-semibold">PDF extracted</h1>
+                <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-sm">
+                    <p className="mb-2 text-slate-400">{r.parsed.summary}</p>
+                    <p className="text-slate-200">
+                        {r.committed} transaction{r.committed === 1 ? "" : "s"} sent to your inbox.
+                    </p>
+                    <p className="mt-1 text-slate-400">
+                        {r.duplicates} flagged as possible duplicates · {r.rulesApplied} rules applied
+                        · {r.model}
+                    </p>
+                    {(r.insertErrors?.length ?? 0) > 0 && (
+                        <p className="mt-2 text-xs text-amber-400">
+                            ⚠ {r.insertErrors!.length} row{r.insertErrors!.length === 1 ? "" : "s"} could
+                            not be saved: {r.insertErrors!.join(" · ")}
+                        </p>
+                    )}
+                    <div className="mt-4 flex gap-3">
+                        <Link
+                            to="/inbox"
+                            className="rounded-lg bg-emerald-600 px-3 py-2 font-medium text-white hover:bg-emerald-500"
+                        >
+                            Review in inbox →
+                        </Link>
+                        <button
+                            className={neutralCls}
+                            onClick={() => {
+                                aiImport.reset();
+                                onFile(null);
+                            }}
+                        >
+                            Import another file
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
     if (doImport.isSuccess) {
         const r = doImport.data;
         return (
@@ -151,15 +254,16 @@ export default function Import() {
         <div className="mx-auto max-w-3xl">
             <h1 className="mb-1 text-xl font-semibold">Import statement</h1>
             <p className="mb-6 text-sm text-slate-400">
-                CSV or OFX/QFX bank exports, parsed locally — no AI involved. Rows land in
-                the inbox with rules and duplicate detection applied, so overlap with
+                CSV, Excel, and OFX/QFX exports are parsed locally — no AI involved.
+                PDF statements go through AI extraction instead. Either way, rows land
+                in the inbox with rules and duplicate detection applied, so overlap with
                 receipts you already captured gets flagged, not double-counted.
             </p>
 
             <div className="mb-4 flex flex-wrap items-center gap-3">
                 <input
                     type="file"
-                    accept=".csv,.txt,.ofx,.qfx"
+                    accept=".csv,.txt,.ofx,.qfx,.xlsx,.xls,.pdf"
                     onChange={(e) => onFile(e.target.files?.[0] ?? null)}
                     className="text-sm text-slate-400 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-800 file:px-3 file:py-2 file:text-sm file:text-slate-200 hover:file:bg-slate-700"
                 />
@@ -183,6 +287,29 @@ export default function Import() {
             </div>
 
             {parseError && <p className="mb-4 text-sm text-rose-400">{parseError}</p>}
+
+            {fileKind === "pdf" && (
+                <div className="mb-4 rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-sm">
+                    <p className="mb-1 text-slate-200">
+                        {file?.name} · {((file?.size ?? 0) / 1024).toFixed(0)} KB
+                    </p>
+                    <p className="mb-3 text-xs text-slate-500">
+                        PDFs are extracted by the AI (accounts, categories, and references
+                        are inferred — you confirm everything in the inbox). Selecting an
+                        account above passes it as a hint.
+                    </p>
+                    <button
+                        className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+                        disabled={aiImport.isPending}
+                        onClick={() => aiImport.mutate()}
+                    >
+                        {aiImport.isPending ? "Extracting…" : "Extract transactions"}
+                    </button>
+                    {aiImport.isError && (
+                        <p className="mt-2 text-xs text-rose-400">{(aiImport.error as Error).message}</p>
+                    )}
+                </div>
+            )}
 
             {fileKind === "csv" && mapping && (
                 <MappingEditor
