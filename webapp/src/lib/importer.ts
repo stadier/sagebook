@@ -45,6 +45,23 @@ export function parseCsv(text: string): string[][] {
     );
 }
 
+/** First worksheet of an Excel file as rows of display-formatted strings.
+ * SheetJS is ~340 KB, so it loads on demand rather than in the main bundle. */
+export async function parseWorkbook(buffer: ArrayBuffer): Promise<string[][]> {
+    const XLSX = await import("xlsx");
+    const wb = XLSX.read(buffer, { type: "array" });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    if (!sheet) return [];
+    const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
+        header: 1,
+        raw: false, // formatted strings, so dates arrive as displayed
+        defval: "",
+    });
+    return rows
+        .map((r) => r.map((c) => String(c ?? "")))
+        .filter((r) => r.some((c) => c.trim() !== ""));
+}
+
 export function parseDateStr(raw: string, fmt: DateFormat): string | null {
     const s = raw.trim();
     if (!s) return null;

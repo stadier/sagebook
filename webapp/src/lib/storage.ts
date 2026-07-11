@@ -1,6 +1,19 @@
 import { logEvent } from "./logger";
 import { requireSupabase } from "./supabase";
 
+/** File → base64 payload (data: prefix stripped) for inline model input. */
+export function fileToBase64(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            const result = String(reader.result ?? "");
+            resolve(result.replace(/^data:[^;]+;base64,/, ""));
+        };
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+    });
+}
+
 /**
  * Upload captured media for AI processing + archival.
  *
