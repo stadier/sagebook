@@ -460,6 +460,9 @@ function InferencePanel({ tx }: { tx: PendingTransaction }) {
     const infoChips: string[] = [];
     if (tx.account_id && ai.account?.name) infoChips.push(`source: ${ai.account.name}`);
     if (ai.reference) infoChips.push(`ref: ${ai.reference}`);
+    if (ai.line_items?.length) {
+        infoChips.push(`${ai.line_items.length} items on receipt (see transaction detail)`);
+    }
 
     if (!proposeAccount && !proposeCategory && infoChips.length === 0) return null;
 

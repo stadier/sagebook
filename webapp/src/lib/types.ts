@@ -66,6 +66,7 @@ export interface Transaction {
     review_status: "pending_review" | "accepted" | "rejected";
     duplicate_group_id: string | null;
     ingestion_id: string | null;
+    original_ai_data?: ParsedTransaction | null;
     created_at: string;
 }
 
@@ -91,6 +92,12 @@ export interface InferredAccount {
     number_masked?: string;
 }
 
+export interface LineItem {
+    description: string;
+    quantity?: number;
+    amount?: number;
+}
+
 export interface ParsedTransaction {
     occurred_at: string;
     amount: number;
@@ -102,6 +109,7 @@ export interface ParsedTransaction {
     tags?: string[];
     account?: InferredAccount;
     reference?: string;
+    line_items?: LineItem[];
 }
 
 export interface ProcessMediaResult {
