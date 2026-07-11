@@ -96,6 +96,12 @@ interface InferredAccount {
     number_masked?: string;
 }
 
+interface LineItem {
+    description: string;
+    quantity?: number;
+    amount?: number;
+}
+
 interface ParsedTransaction {
     occurred_at: string;       // ISO datetime
     amount: number;            // positive number
@@ -109,6 +115,8 @@ interface ParsedTransaction {
     account?: InferredAccount;
     /** Bank reference / session ID — a strong dedup signal. */
     reference?: string;
+    /** Itemization of a retail receipt — informational, not sub-transactions. */
+    line_items?: LineItem[];
 }
 
 interface ParsedPayload {
@@ -154,6 +162,18 @@ const RESPONSE_SCHEMA = {
                             number_masked: { type: "string" },
                         },
                     },
+                    line_items: {
+                        type: "array",
+                        items: {
+                            type: "object",
+                            properties: {
+                                description: { type: "string" },
+                                quantity:    { type: "number" },
+                                amount:      { type: "number" },
+                            },
+                            required: ["description"],
+                        },
+                    },
                 },
                 required: ["occurred_at", "amount", "currency", "kind"],
             },
@@ -167,6 +187,14 @@ Given multimodal input (receipts, statements, screenshots, voice notes, free tex
 extract every distinct financial movement.
 
 Rules:
+- An itemized retail/store receipt or invoice is ONE transaction: the final
+  amount actually paid, after discounts and promos. NEVER emit one transaction
+  per purchased item. Put the purchased items into 'line_items'
+  [{description, quantity, amount}], the store name into 'payee', and choose
+  the category from what was bought (e.g. a supermarket receipt → Groceries).
+  Discount / promo / "you saved" lines are not transactions.
+- Bank statements and transaction lists are the opposite: each listed
+  movement IS its own transaction.
 - Always return ISO 8601 datetimes (UTC if unknown timezone).
 - 'amount' is a positive decimal. Sign is conveyed by 'kind'.
 - 'currency' is an ISO 4217 three-letter code; infer from symbols / locale cues.

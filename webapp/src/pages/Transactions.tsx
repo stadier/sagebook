@@ -417,6 +417,27 @@ function TxDetail({ tx }: { tx: TxRow }) {
                 <p className="text-rose-400">{((update.error ?? remove.error) as Error).message}</p>
             )}
 
+            {!editing && (tx.original_ai_data?.line_items?.length ?? 0) > 0 && (
+                <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-2">
+                    <div className="mb-1 text-slate-500">Receipt items:</div>
+                    <ul className="flex flex-col gap-0.5">
+                        {tx.original_ai_data!.line_items!.map((item, i) => (
+                            <li key={i} className="flex justify-between gap-3 text-slate-400">
+                                <span>
+                                    {item.quantity && item.quantity > 1 ? `${item.quantity}× ` : ""}
+                                    {item.description}
+                                </span>
+                                {typeof item.amount === "number" && (
+                                    <span className="whitespace-nowrap text-slate-500">
+                                        {fmtMoney(item.amount, tx.currency)}
+                                    </span>
+                                )}
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+
             {tx.ingestion_id ? (
                 <MediaPreview ingestionId={tx.ingestion_id} />
             ) : (

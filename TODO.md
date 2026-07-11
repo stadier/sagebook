@@ -144,6 +144,13 @@ Legend: ✅ done · 🔜 next up · 💡 idea / later
   disable, delete.
   *Why:* rules are powerful but nobody writes regex from scratch; harvest them from
   corrections instead.
+- ✅ **Itemized receipts are one transaction** — an explicit extraction rule:
+  a store receipt is the single amount paid (after discounts/promos), never one
+  transaction per item; the shopping list is preserved as `line_items`
+  (shown in the inbox chip and the transaction detail), the store becomes the
+  payee, and the category comes from what was bought (supermarket → Groceries,
+  rolling up under the Essentials group). Verified against a synthetic SPAR
+  receipt: 1 transaction, ₦42,590 post-discount, Groceries, 10 items captured.
 - ✅ **Inference & confirm flow** (migration `20260708000000_account_inference.sql`):
   extraction now infers the **source account** (holder name, bank, masked number)
   and the **reference ID** from bank receipts, with the user's accounts injected
