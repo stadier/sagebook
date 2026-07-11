@@ -45,6 +45,15 @@ Legend: ✅ done · 🔜 next up · 💡 idea / later
   filters run server-side; load-more pagination; client-side text search; rows
   expand to show tags and the original receipt/recording via signed URLs).
   *Why:* an unqueryable ledger is a write-only diary.
+- ✅ **Edit everything after the fact** — accepted transactions are editable in
+  place (payee, amount, currency, kind, date, category, account, memo, tags)
+  plus "Back to inbox" and "Reject"; accounts are editable (name, type,
+  currency, institution, opening balance — a manual balance permanently
+  overrides the inferred one); categories can be renamed/deleted. The
+  balance-recalc trigger now also covers the *old* account when a transaction
+  moves between accounts or is un-accepted (migration
+  `20260708000002_recalc_edges.sql`).
+  *Why:* AI inference is a draft; every inferred fact must be user-correctable.
 - ✅ **Categories & groups browser v1** (grouped listing + quick-add category).
   🔜 Still to add: drag between groups, nest/rename/merge, colors & icons editing.
   *Why:* the custom-taxonomy feature (e.g. real-estate) is only as good as the UI for
