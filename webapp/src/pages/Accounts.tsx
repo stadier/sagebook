@@ -52,6 +52,24 @@ export default function Accounts() {
         },
     });
 
+    const remove = useMutation({
+        mutationFn: async (id: string) => {
+            const sb = requireSupabase();
+            // account_id FK cascades on delete, so detach transactions first —
+            // deleting an account should never silently wipe its history.
+            const detach = await sb
+                .from("transactions")
+                .update({ account_id: null })
+                .eq("account_id", id);
+            if (detach.error) throw new Error(detach.error.message);
+            const { error } = await sb.from("accounts").delete().eq("id", id);
+            if (error) throw new Error(error.message);
+        },
+        onSuccess: () => {
+            qc.invalidateQueries();
+        },
+    });
+
     const rows = (accounts.data ?? []).filter((a) => showArchived || !a.is_archived);
 
     return (
@@ -131,6 +149,22 @@ export default function Accounts() {
                             onClick={() => setArchived.mutate({ id: a.id, archived: !a.is_archived })}
                         >
                             {a.is_archived ? "Unarchive" : "Archive"}
+                        </button>
+                        <button
+                            className="text-xs text-rose-400 hover:text-rose-300"
+                            disabled={remove.isPending}
+                            title="Permanently delete this account; its transactions are kept but unlinked"
+                            onClick={() => {
+                                if (
+                                    window.confirm(
+                                        `Permanently delete "${a.name}"? Its transactions are kept but will no longer be filed under any account. This cannot be undone.`,
+                                    )
+                                ) {
+                                    remove.mutate(a.id);
+                                }
+                            }}
+                        >
+                            {remove.isPending ? "Deleting…" : "Delete"}
                         </button>
                     </div>
                     )}

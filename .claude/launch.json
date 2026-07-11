@@ -4,8 +4,9 @@
         {
             "name": "webapp",
             "runtimeExecutable": "C:\\Users\\russe\\AppData\\Roaming\\fnm\\node-versions\\v24.16.0\\installation\\node.exe",
-            "runtimeArgs": ["webapp/node_modules/vite/bin/vite.js", "webapp", "--strictPort", "--port", "5173"],
-            "port": 5173
+            "runtimeArgs": ["webapp/node_modules/vite/bin/vite.js", "webapp", "--port", "5199"],
+            "port": 5199,
+            "autoPort": true
         }
     ]
 }

@@ -335,6 +335,17 @@ function TxDetail({ tx }: { tx: TxRow }) {
         },
     });
 
+    const remove = useMutation({
+        mutationFn: async () => {
+            const { error } = await requireSupabase()
+                .from("transactions")
+                .delete()
+                .eq("id", tx.id);
+            if (error) throw new Error(error.message);
+        },
+        onSuccess: () => qc.invalidateQueries(),
+    });
+
     return (
         <div className="flex flex-col gap-2 text-xs">
             {tx.tags.length > 0 && !editing && (
@@ -375,6 +386,7 @@ function TxDetail({ tx }: { tx: TxRow }) {
                     <button
                         className="rounded-lg bg-rose-900/50 px-3 py-1.5 text-rose-200 hover:bg-rose-900"
                         disabled={update.isPending}
+                        title="Leaves the ledger but stays on record (recoverable from the inbox filters)"
                         onClick={() => {
                             if (window.confirm("Reject this transaction? It leaves the ledger but stays on record.")) {
                                 update.mutate({ review_status: "rejected" });
@@ -383,10 +395,26 @@ function TxDetail({ tx }: { tx: TxRow }) {
                     >
                         Reject
                     </button>
+                    <button
+                        className="ml-auto rounded-lg px-3 py-1.5 text-rose-400 hover:bg-rose-950/50 hover:text-rose-300"
+                        disabled={remove.isPending}
+                        title="Permanently delete — cannot be undone"
+                        onClick={() => {
+                            if (
+                                window.confirm(
+                                    `Permanently delete this transaction (${fmtMoney(tx.amount, tx.currency)}${tx.payee ? ` · ${tx.payee}` : ""})? This cannot be undone.`,
+                                )
+                            ) {
+                                remove.mutate();
+                            }
+                        }}
+                    >
+                        {remove.isPending ? "Deleting…" : "Delete"}
+                    </button>
                 </div>
             )}
-            {update.isError && (
-                <p className="text-rose-400">{(update.error as Error).message}</p>
+            {(update.isError || remove.isError) && (
+                <p className="text-rose-400">{((update.error ?? remove.error) as Error).message}</p>
             )}
 
             {tx.ingestion_id ? (
