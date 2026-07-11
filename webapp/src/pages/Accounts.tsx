@@ -31,6 +31,7 @@ const ACCOUNT_TYPES: Array<{ value: AccountType; label: string }> = [
 export default function Accounts() {
     const qc = useQueryClient();
     const [showArchived, setShowArchived] = useState(false);
+    const [editingId, setEditingId] = useState<string | null>(null);
 
     const accounts = useQuery({
         queryKey: ["account-balances"],
@@ -81,10 +82,17 @@ export default function Accounts() {
                 {rows.map((a) => (
                     <div
                         key={a.id}
-                        className={`flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3 ${
+                        className={`rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3 ${
                             a.is_archived ? "opacity-50" : ""
                         }`}
                     >
+                    {editingId === a.id ? (
+                        <EditAccountForm
+                            account={a}
+                            onDone={() => setEditingId(null)}
+                        />
+                    ) : (
+                    <div className="flex items-center gap-3">
                         <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2 text-sm font-medium text-slate-100">
                                 {a.name}
@@ -113,11 +121,19 @@ export default function Accounts() {
                         </div>
                         <button
                             className="text-xs text-slate-500 hover:text-slate-300"
+                            onClick={() => setEditingId(a.id)}
+                        >
+                            Edit
+                        </button>
+                        <button
+                            className="text-xs text-slate-500 hover:text-slate-300"
                             disabled={setArchived.isPending}
                             onClick={() => setArchived.mutate({ id: a.id, archived: !a.is_archived })}
                         >
                             {a.is_archived ? "Unarchive" : "Archive"}
                         </button>
+                    </div>
+                    )}
                     </div>
                 ))}
                 {accounts.isSuccess && rows.length === 0 && (
@@ -127,6 +143,115 @@ export default function Accounts() {
 
             <CreateAccountForm />
         </div>
+    );
+}
+
+function EditAccountForm({
+    account,
+    onDone,
+}: {
+    account: AccountWithBalance;
+    onDone: () => void;
+}) {
+    const qc = useQueryClient();
+    const [name, setName] = useState(account.name);
+    const [type, setType] = useState<AccountType>(account.type);
+    const [currency, setCurrency] = useState(account.currency);
+    const [institution, setInstitution] = useState(account.institution ?? "");
+    const [openingBalance, setOpeningBalance] = useState(String(account.opening_balance));
+
+    const save = useMutation({
+        mutationFn: async () => {
+            const patch: Record<string, unknown> = {
+                name: name.trim(),
+                type,
+                currency: currency.trim().toUpperCase(),
+                institution: institution.trim() || null,
+                opening_balance: Number(openingBalance) || 0,
+            };
+            // A manually set opening balance takes over from inference.
+            if (
+                account.metadata?.auto_balance &&
+                Number(openingBalance) !== Number(account.opening_balance)
+            ) {
+                patch.metadata = { ...account.metadata, auto_balance: false };
+            }
+            const { error } = await requireSupabase()
+                .from("accounts")
+                .update(patch)
+                .eq("id", account.id);
+            if (error) throw new Error(error.message);
+        },
+        onSuccess: () => {
+            onDone();
+            qc.invalidateQueries(); // balances, pickers, net worth all depend on accounts
+        },
+    });
+
+    return (
+        <form
+            onSubmit={(e) => {
+                e.preventDefault();
+                if (name.trim()) save.mutate();
+            }}
+            className="grid gap-2 sm:grid-cols-2"
+        >
+            <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} required />
+            <select className={inputCls} value={type} onChange={(e) => setType(e.target.value as AccountType)}>
+                {ACCOUNT_TYPES.map((t) => (
+                    <option key={t.value} value={t.value}>
+                        {t.label}
+                    </option>
+                ))}
+            </select>
+            <input
+                className={inputCls}
+                value={currency}
+                maxLength={3}
+                onChange={(e) => setCurrency(e.target.value)}
+                required
+            />
+            <input
+                className={inputCls}
+                placeholder="Institution"
+                value={institution}
+                onChange={(e) => setInstitution(e.target.value)}
+            />
+            <label className="flex items-center gap-2 text-xs text-slate-500">
+                Opening balance
+                <input
+                    className={`${inputCls} flex-1`}
+                    type="number"
+                    step="0.01"
+                    value={openingBalance}
+                    onChange={(e) => setOpeningBalance(e.target.value)}
+                />
+            </label>
+            <div className="flex items-center gap-2">
+                <button
+                    className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+                    disabled={save.isPending || !name.trim()}
+                >
+                    {save.isPending ? "Saving…" : "Save"}
+                </button>
+                <button
+                    type="button"
+                    className="rounded-lg bg-slate-800 px-3 py-2 text-sm text-slate-200 hover:bg-slate-700"
+                    onClick={onDone}
+                >
+                    Cancel
+                </button>
+            </div>
+            {account.metadata?.auto_balance && (
+                <p className="text-xs text-sky-300/70 sm:col-span-2">
+                    This account's opening balance is currently inferred from activity.
+                    Changing it here switches to your manual value permanently.
+                </p>
+            )}
+            {save.isError && (
+                <p className="text-xs text-rose-400 sm:col-span-2">{(save.error as Error).message}</p>
+            )}
+        </form>
     );
 }
 
