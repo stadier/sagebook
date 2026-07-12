@@ -1,6 +1,7 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { Fragment, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Fragment, type FormEvent, useState } from "react";
 import { fmtDate, fmtMoney } from "../lib/format";
+import { signedUrlFor } from "../lib/storage";
 import { requireSupabase } from "../lib/supabase";
 import { fetchAccounts, fetchTaxonomy } from "../lib/taxonomy";
 import type { Transaction } from "../lib/types";
@@ -316,9 +317,38 @@ export default function Transactions() {
 }
 
 function TxDetail({ tx }: { tx: TxRow }) {
+    const qc = useQueryClient();
+    const [editing, setEditing] = useState(false);
+
+    const update = useMutation({
+        mutationFn: async (patch: Record<string, unknown>) => {
+            const { error } = await requireSupabase()
+                .from("transactions")
+                .update(patch)
+                .eq("id", tx.id);
+            if (error) throw new Error(error.message);
+        },
+        onSuccess: () => {
+            setEditing(false);
+            // Edits ripple into balances, reports, and net worth — refetch broadly.
+            qc.invalidateQueries();
+        },
+    });
+
+    const remove = useMutation({
+        mutationFn: async () => {
+            const { error } = await requireSupabase()
+                .from("transactions")
+                .delete()
+                .eq("id", tx.id);
+            if (error) throw new Error(error.message);
+        },
+        onSuccess: () => qc.invalidateQueries(),
+    });
+
     return (
         <div className="flex flex-col gap-2 text-xs">
-            {tx.tags.length > 0 && (
+            {tx.tags.length > 0 && !editing && (
                 <div className="flex flex-wrap gap-1">
                     {tx.tags.map((tag) => (
                         <span key={tag} className="rounded bg-slate-800 px-2 py-0.5 text-slate-300">
@@ -327,6 +357,87 @@ function TxDetail({ tx }: { tx: TxRow }) {
                     ))}
                 </div>
             )}
+
+            {editing ? (
+                <TxEditForm
+                    tx={tx}
+                    busy={update.isPending}
+                    onSave={(patch) => update.mutate(patch)}
+                    onCancel={() => setEditing(false)}
+                />
+            ) : (
+                <div className="flex flex-wrap items-center gap-2">
+                    <button
+                        className="rounded-lg bg-slate-800 px-3 py-1.5 text-slate-200 hover:bg-slate-700"
+                        onClick={() => setEditing(true)}
+                    >
+                        Edit
+                    </button>
+                    <button
+                        className="rounded-lg bg-slate-800 px-3 py-1.5 text-slate-400 hover:bg-slate-700"
+                        title="Return to the review inbox (removes it from the ledger until re-accepted)"
+                        disabled={update.isPending}
+                        onClick={() =>
+                            update.mutate({ review_status: "pending_review", reviewed_at: null })
+                        }
+                    >
+                        Back to inbox
+                    </button>
+                    <button
+                        className="rounded-lg bg-rose-900/50 px-3 py-1.5 text-rose-200 hover:bg-rose-900"
+                        disabled={update.isPending}
+                        title="Leaves the ledger but stays on record (recoverable from the inbox filters)"
+                        onClick={() => {
+                            if (window.confirm("Reject this transaction? It leaves the ledger but stays on record.")) {
+                                update.mutate({ review_status: "rejected" });
+                            }
+                        }}
+                    >
+                        Reject
+                    </button>
+                    <button
+                        className="ml-auto rounded-lg px-3 py-1.5 text-rose-400 hover:bg-rose-950/50 hover:text-rose-300"
+                        disabled={remove.isPending}
+                        title="Permanently delete — cannot be undone"
+                        onClick={() => {
+                            if (
+                                window.confirm(
+                                    `Permanently delete this transaction (${fmtMoney(tx.amount, tx.currency)}${tx.payee ? ` · ${tx.payee}` : ""})? This cannot be undone.`,
+                                )
+                            ) {
+                                remove.mutate();
+                            }
+                        }}
+                    >
+                        {remove.isPending ? "Deleting…" : "Delete"}
+                    </button>
+                </div>
+            )}
+            {(update.isError || remove.isError) && (
+                <p className="text-rose-400">{((update.error ?? remove.error) as Error).message}</p>
+            )}
+
+            {!editing && (tx.original_ai_data?.line_items?.length ?? 0) > 0 && (
+                <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-2">
+                    <div className="mb-1 text-slate-500">Receipt items:</div>
+                    <ul className="flex flex-col gap-0.5">
+                        {tx.original_ai_data!.line_items!.map((item, i) => (
+                            <li key={i} className="flex justify-between gap-3 text-slate-400">
+                                <span>
+                                    {item.quantity && item.quantity > 1 ? `${item.quantity}× ` : ""}
+                                    {item.description}
+                                </span>
+                                {typeof item.amount === "number" && (
+                                    <span className="whitespace-nowrap text-slate-500">
+                                        {fmtMoney(item.amount, tx.currency)}
+                                    </span>
+                                )}
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+
             {tx.ingestion_id ? (
                 <MediaPreview ingestionId={tx.ingestion_id} />
             ) : (
@@ -335,6 +446,141 @@ function TxDetail({ tx }: { tx: TxRow }) {
         </div>
     );
 }
+
+function toLocalInput(iso: string): string {
+    const d = new Date(iso);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function TxEditForm({
+    tx,
+    busy,
+    onSave,
+    onCancel,
+}: {
+    tx: TxRow;
+    busy: boolean;
+    onSave: (patch: Record<string, unknown>) => void;
+    onCancel: () => void;
+}) {
+    const [payee, setPayee] = useState(tx.payee ?? "");
+    const [amount, setAmount] = useState(String(tx.amount));
+    const [currency, setCurrency] = useState(tx.currency);
+    const [kind, setKind] = useState(tx.kind);
+    const [occurredAt, setOccurredAt] = useState(() => toLocalInput(tx.occurred_at));
+    const [categoryId, setCategoryId] = useState(tx.category_id ?? "");
+    const [accountId, setAccountId] = useState(tx.account_id ?? "");
+    const [memo, setMemo] = useState(tx.memo ?? "");
+    const [tags, setTags] = useState(tx.tags.join(", "));
+
+    const taxonomy = useQuery({ queryKey: ["taxonomy"], queryFn: fetchTaxonomy });
+    const accounts = useQuery({ queryKey: ["accounts"], queryFn: fetchAccounts });
+
+    function submit(e: FormEvent) {
+        e.preventDefault();
+        onSave({
+            payee: payee.trim() || null,
+            amount: Number(amount),
+            currency: currency.trim().toUpperCase(),
+            kind,
+            occurred_at: new Date(occurredAt).toISOString(),
+            category_id: categoryId || null,
+            account_id: accountId || null,
+            memo: memo.trim() || null,
+            tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
+        });
+    }
+
+    return (
+        <form onSubmit={submit} className="grid grid-cols-2 gap-2">
+            <input className={editInputCls} value={payee} onChange={(e) => setPayee(e.target.value)} placeholder="payee" />
+            <div className="flex gap-2">
+                <input
+                    className={`${editInputCls} min-w-0 flex-1`}
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    required
+                />
+                <input
+                    className={`${editInputCls} w-16`}
+                    value={currency}
+                    maxLength={3}
+                    onChange={(e) => setCurrency(e.target.value)}
+                    required
+                />
+                <select
+                    className={editInputCls}
+                    value={kind}
+                    onChange={(e) => setKind(e.target.value as TxRow["kind"])}
+                >
+                    <option value="expense">expense</option>
+                    <option value="income">income</option>
+                    <option value="transfer">transfer</option>
+                    <option value="adjustment">adjustment</option>
+                </select>
+            </div>
+            <input
+                className={editInputCls}
+                type="datetime-local"
+                value={occurredAt}
+                onChange={(e) => setOccurredAt(e.target.value)}
+                required
+            />
+            <select className={editInputCls} value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+                <option value="">— no category —</option>
+                {(taxonomy.data ?? []).map((group) => (
+                    <optgroup key={group.id} label={group.name}>
+                        {group.categories.map((c) => (
+                            <option key={c.id} value={c.id}>
+                                {c.parent_id ? "· " : ""}
+                                {c.name}
+                            </option>
+                        ))}
+                    </optgroup>
+                ))}
+            </select>
+            <select className={editInputCls} value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+                <option value="">— no account —</option>
+                {(accounts.data ?? [])
+                    .filter((a) => !a.is_archived)
+                    .map((a) => (
+                        <option key={a.id} value={a.id}>
+                            {a.name} ({a.currency})
+                        </option>
+                    ))}
+            </select>
+            <input className={editInputCls} value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="memo" />
+            <input
+                className={`${editInputCls} col-span-2`}
+                value={tags}
+                onChange={(e) => setTags(e.target.value)}
+                placeholder="tags, comma-separated"
+            />
+            <div className="col-span-2 flex gap-2">
+                <button
+                    className="rounded-lg bg-emerald-600 px-3 py-1.5 font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+                    disabled={busy}
+                >
+                    {busy ? "Saving…" : "Save"}
+                </button>
+                <button
+                    type="button"
+                    className="rounded-lg bg-slate-800 px-3 py-1.5 text-slate-200 hover:bg-slate-700"
+                    onClick={onCancel}
+                >
+                    Cancel
+                </button>
+            </div>
+        </form>
+    );
+}
+
+const editInputCls =
+    "rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-emerald-500";
 
 function MediaPreview({ ingestionId }: { ingestionId: string }) {
     const media = useQuery({
@@ -350,11 +596,7 @@ function MediaPreview({ ingestionId }: { ingestionId: string }) {
             const transcript =
                 (data.parsed_payload as { transcript?: string } | null)?.transcript ?? null;
             if (!data.storage_path) return { ...data, transcript, url: null as string | null };
-            const signed = await sb.storage
-                .from("ingest")
-                .createSignedUrl(data.storage_path, 3600);
-            if (signed.error) throw new Error(signed.error.message);
-            return { ...data, transcript, url: signed.data.signedUrl };
+            return { ...data, transcript, url: await signedUrlFor(data.storage_path) };
         },
         staleTime: 30 * 60_000,
     });

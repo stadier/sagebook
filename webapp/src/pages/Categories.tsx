@@ -27,6 +27,105 @@ export default function Categories() {
     );
 }
 
+function CategoryRow({ category }: { category: GroupWithCategories["categories"][number] }) {
+    const qc = useQueryClient();
+    const [editing, setEditing] = useState(false);
+    const [name, setName] = useState(category.name);
+
+    const rename = useMutation({
+        mutationFn: async () => {
+            const { error } = await requireSupabase()
+                .from("categories")
+                .update({ name: name.trim() })
+                .eq("id", category.id);
+            if (error) throw new Error(error.message);
+        },
+        onSuccess: () => {
+            setEditing(false);
+            qc.invalidateQueries();
+        },
+    });
+
+    const remove = useMutation({
+        mutationFn: async () => {
+            const { error } = await requireSupabase()
+                .from("categories")
+                .delete()
+                .eq("id", category.id);
+            if (error) throw new Error(error.message);
+        },
+        onSuccess: () => qc.invalidateQueries(),
+    });
+
+    if (editing) {
+        return (
+            <li className={`flex items-center gap-2 ${category.parent_id ? "pl-5" : ""}`}>
+                <form
+                    className="flex min-w-0 flex-1 items-center gap-2"
+                    onSubmit={(e) => {
+                        e.preventDefault();
+                        if (name.trim()) rename.mutate();
+                    }}
+                >
+                    <input
+                        className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-sm outline-none focus:border-emerald-500"
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        autoFocus
+                    />
+                    <button
+                        className="text-xs text-emerald-400 hover:text-emerald-300 disabled:opacity-50"
+                        disabled={rename.isPending || !name.trim()}
+                    >
+                        Save
+                    </button>
+                    <button
+                        type="button"
+                        className="text-xs text-slate-500 hover:text-slate-300"
+                        onClick={() => {
+                            setEditing(false);
+                            setName(category.name);
+                        }}
+                    >
+                        Cancel
+                    </button>
+                </form>
+                {rename.isError && (
+                    <span className="text-xs text-rose-400">{(rename.error as Error).message}</span>
+                )}
+            </li>
+        );
+    }
+
+    return (
+        <li
+            className={`group flex items-center gap-2 ${category.parent_id ? "pl-5 text-slate-400" : "text-slate-200"}`}
+        >
+            <span aria-hidden>{category.icon}</span>
+            <span className="min-w-0 truncate">{category.name}</span>
+            <span className="ml-auto hidden gap-2 text-xs group-hover:flex">
+                <button className="text-slate-500 hover:text-slate-300" onClick={() => setEditing(true)}>
+                    Rename
+                </button>
+                <button
+                    className="text-slate-600 hover:text-rose-400"
+                    disabled={remove.isPending}
+                    onClick={() => {
+                        if (window.confirm(`Delete category "${category.name}"? Transactions keep their data but lose this label.`)) {
+                            remove.mutate();
+                        }
+                    }}
+                >
+                    Delete
+                </button>
+            </span>
+            {remove.isError && (
+                <span className="text-xs text-rose-400">{(remove.error as Error).message}</span>
+            )}
+        </li>
+    );
+}
+
 function GroupCard({ group }: { group: GroupWithCategories }) {
     const qc = useQueryClient();
     const [name, setName] = useState("");
@@ -65,13 +164,7 @@ function GroupCard({ group }: { group: GroupWithCategories }) {
             </h2>
             <ul className="mb-3 flex flex-col gap-1 text-sm">
                 {group.categories.map((c) => (
-                    <li
-                        key={c.id}
-                        className={`flex items-center gap-2 ${c.parent_id ? "pl-5 text-slate-400" : "text-slate-200"}`}
-                    >
-                        <span aria-hidden>{c.icon}</span>
-                        {c.name}
-                    </li>
+                    <CategoryRow key={c.id} category={c} />
                 ))}
                 {group.categories.length === 0 && (
                     <li className="text-xs text-slate-600">No categories yet.</li>

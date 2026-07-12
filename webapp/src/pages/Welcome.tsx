@@ -111,12 +111,30 @@ function AuthForm() {
 
 function CenterCard({ title, children }: { title: string; children: React.ReactNode }) {
     return (
-        <div className="grid min-h-screen place-items-center p-4">
-            <div className="w-full max-w-sm rounded-2xl border border-slate-800 bg-slate-900/70 p-6">
-                <div className="mb-1 text-lg font-semibold tracking-tight">
-                    <span className="text-emerald-400">Sage</span>book
+        <div className="grid min-h-screen place-items-center bg-paper p-4">
+            <div className="sb-card w-full max-w-sm p-6 sm:p-7">
+                <div className="mb-5 flex items-center gap-2.5">
+                    <span className="grid h-9 w-9 place-items-center rounded-xl bg-emerald-600 text-white">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+                            <path
+                                d="M4 5a2 2 0 0 1 2-2h11a1 1 0 0 1 1 1v13H6a2 2 0 0 0-2 2z"
+                                stroke="currentColor"
+                                strokeWidth="1.7"
+                                strokeLinejoin="round"
+                            />
+                            <path
+                                d="M4 19a2 2 0 0 0 2 2h12"
+                                stroke="currentColor"
+                                strokeWidth="1.7"
+                                strokeLinecap="round"
+                            />
+                        </svg>
+                    </span>
+                    <span className="text-lg font-semibold tracking-tight text-slate-100">
+                        <span className="text-emerald-600">Sage</span>book
+                    </span>
                 </div>
-                <h1 className="mb-4 text-sm text-slate-400">{title}</h1>
+                <h1 className="mb-4 text-base font-semibold text-slate-200">{title}</h1>
                 {children}
             </div>
         </div>
@@ -124,6 +142,6 @@ function CenterCard({ title, children }: { title: string; children: React.ReactN
 }
 
 const inputCls =
-    "rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500";
+    "rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-slate-200 outline-none transition-colors placeholder:text-slate-500 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20";
 const primaryBtnCls =
-    "rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50";
+    "rounded-lg bg-emerald-600 px-3 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-50";

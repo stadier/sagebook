@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { fmtDate, fmtMoney, fmtMoneyCompact } from "../lib/format";
+import { logEvent } from "../lib/logger";
 import { invokeFn, requireSupabase } from "../lib/supabase";
 import type { NetWorthSnapshot } from "../lib/types";
 
@@ -34,6 +35,9 @@ export default function NetWorth() {
             if (snap.error) throw new Error(snap.error.message);
         },
         onSuccess: () => qc.invalidateQueries({ queryKey: ["net-worth"] }),
+        onError: (error) => {
+            logEvent("error", "networth", `Net worth update failed: ${(error as Error).message}`);
+        },
     });
 
     const rows = snapshots.data ?? [];
