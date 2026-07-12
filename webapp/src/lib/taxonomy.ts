@@ -51,7 +51,7 @@ export async function fetchTaxonomy(): Promise<GroupWithCategories[]> {
 export async function fetchAccounts(): Promise<Account[]> {
     const { data, error } = await requireSupabase()
         .from("accounts")
-        .select("id, name, type, currency, institution, opening_balance, is_archived")
+        .select("id, name, type, currency, institution, opening_balance, is_archived, metadata")
         .order("created_at");
     if (error) throw new Error(error.message);
     return (data ?? []) as Account[];

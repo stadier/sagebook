@@ -11,6 +11,8 @@ export interface ImportTx {
     kind: "income" | "expense";
     payee?: string;
     memo?: string;
+    /** Bank reference / session id — a strong dedup key when present. */
+    reference?: string;
 }
 
 export interface NormalizeResult {
@@ -22,6 +24,8 @@ export type DateFormat = "auto" | "ymd" | "dmy" | "mdy";
 
 export interface CsvMapping {
     hasHeader: boolean;
+    /** 0-based index of the header row (statements often have a title preamble). */
+    headerRow: number;
     dateCol: number;
     dateFormat: DateFormat;
     amountMode: "signed" | "debit_credit";
@@ -32,6 +36,15 @@ export interface CsvMapping {
     signConvention: "negative_expense" | "positive_expense";
     payeeCol: number; // -1 = none
     memoCol: number; // -1 = none
+    referenceCol: number; // -1 = none
+}
+
+/** Account details lifted from a statement's header/summary block. */
+export interface StatementMeta {
+    accountName?: string;
+    accountNumber?: string;
+    currency?: string;
+    openingBalance?: number;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -65,7 +78,13 @@ export async function parseWorkbook(buffer: ArrayBuffer): Promise<string[][]> {
 export function parseDateStr(raw: string, fmt: DateFormat): string | null {
     const s = raw.trim();
     if (!s) return null;
-    const parts = s.split(/[/\-.]/).map((p) => p.trim());
+    // Drop any time-of-day component first ("13/07/2025 0:07:27" → "13/07/2025").
+    // Leaving it in defeated the day-first split and made JS Date.parse either
+    // reject (day > 12) or silently swap day/month (both ≤ 12).
+    const datePart = s.split(/[ T]+/)[0];
+    const parts = datePart.split(/[/\-.]/).map((p) => p.trim());
+    let y: number, m: number, d: number;
+
     if (parts.length === 3 && parts.every((p) => /^\d+$/.test(p))) {
         const [a, b, c] = parts.map(Number);
         let mode = fmt;
@@ -75,17 +94,78 @@ export function parseDateStr(raw: string, fmt: DateFormat): string | null {
             else if (b > 12) mode = "mdy";
             else mode = "dmy"; // ambiguous — most non-US banks are day-first
         }
-        let y: number, m: number, d: number;
         if (mode === "ymd") [y, m, d] = [a, b, c];
         else if (mode === "mdy") [m, d, y] = [a, b, c];
         else [d, m, y] = [a, b, c];
         if (y < 100) y += 2000;
-        if (m < 1 || m > 12 || d < 1 || d > 31) return null;
-        // Noon UTC so local-timezone rendering never shifts the calendar day.
-        return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}T12:00:00Z`;
+    } else {
+        // Textual date fallback: "12 Jan 2026".
+        const t = Date.parse(datePart);
+        if (Number.isNaN(t)) return null;
+        const dt = new Date(t);
+        y = dt.getUTCFullYear();
+        m = dt.getUTCMonth() + 1;
+        d = dt.getUTCDate();
     }
-    const t = Date.parse(s); // e.g. "12 Jan 2026"
-    return Number.isNaN(t) ? null : new Date(t).toISOString();
+
+    if (!y || m < 1 || m > 12 || d < 1 || d > 31) return null;
+    // Noon UTC so local-timezone rendering never shifts the calendar day.
+    const p2 = (n: number) => String(n).padStart(2, "0");
+    return `${y}-${p2(m)}-${p2(d)}T12:00:00Z`;
+}
+
+const HEADER_KEYWORDS = [
+    /date/, /amount/, /debit/, /credit/, /balance/, /narrat/, /descrip/,
+    /payee/, /beneficiary/, /reference/, /\bref\b/, /\brrn\b/, /transaction/,
+    /\btype\b/, /details/, /memo/, /withdraw/, /deposit/, /particulars/,
+];
+
+/** Find the row that looks like column headers (statements have title/summary
+ *  preambles above the real header). Returns 0 when nothing scores clearly. */
+export function guessHeaderRow(rows: string[][]): number {
+    let best = 0;
+    let bestScore = 0;
+    const limit = Math.min(rows.length, 25);
+    for (let i = 0; i < limit; i++) {
+        const cells = (rows[i] ?? []).map((c) => String(c).toLowerCase());
+        let score = 0;
+        for (const cell of cells) {
+            if (cell.trim() && HEADER_KEYWORDS.some((k) => k.test(cell))) score++;
+        }
+        if (score > bestScore) {
+            bestScore = score;
+            best = i;
+        }
+    }
+    return bestScore >= 3 ? best : 0;
+}
+
+/** Lift account name / number / currency / opening balance from the preamble. */
+export function detectStatementMeta(rows: string[][], headerRow: number): StatementMeta {
+    const meta: StatementMeta = {};
+    const valueAfter = (row: string[], labelIdx: number) => {
+        for (let j = labelIdx + 1; j < row.length; j++) {
+            const v = String(row[j] ?? "").trim();
+            if (v) return v;
+        }
+        return "";
+    };
+    for (const row of rows.slice(0, headerRow)) {
+        row.forEach((cell, idx) => {
+            const c = String(cell).toLowerCase();
+            if (/account\s*name/.test(c) && !meta.accountName) {
+                meta.accountName = valueAfter(row, idx);
+            } else if (/account\s*(number|no\b|#)/.test(c) && !meta.accountNumber) {
+                meta.accountNumber = valueAfter(row, idx).replace(/\s+/g, "");
+            } else if (/^\s*currency/.test(c) && !meta.currency) {
+                meta.currency = valueAfter(row, idx).toUpperCase().slice(0, 3);
+            } else if (/opening\s*balance/.test(c) && meta.openingBalance === undefined) {
+                const v = parseAmount(valueAfter(row, idx));
+                if (v !== null) meta.openingBalance = v;
+            }
+        });
+    }
+    return meta;
 }
 
 export function parseAmount(raw: string): number | null {
@@ -116,10 +196,11 @@ export function normalizeCsv(
 ): NormalizeResult {
     const txs: ImportTx[] = [];
     const errors: string[] = [];
-    const dataRows = mapping.hasHeader ? rows.slice(1) : rows;
+    const dataStart = mapping.hasHeader ? (mapping.headerRow ?? 0) + 1 : 0;
+    const dataRows = rows.slice(dataStart);
 
     dataRows.forEach((row, idx) => {
-        const line = idx + (mapping.hasHeader ? 2 : 1);
+        const line = dataStart + idx + 1;
         const dateRaw = String(row[mapping.dateCol] ?? "");
         const occurred = parseDateStr(dateRaw, mapping.dateFormat);
         if (!occurred) {
@@ -157,33 +238,52 @@ export function normalizeCsv(
                 mapping.memoCol >= 0
                     ? String(row[mapping.memoCol] ?? "").trim() || undefined
                     : undefined,
+            reference:
+                mapping.referenceCol >= 0
+                    ? String(row[mapping.referenceCol] ?? "").trim() || undefined
+                    : undefined,
         });
     });
 
     return { txs, errors };
 }
 
-/** Best-effort column guesses from header names. */
-export function guessMapping(headers: string[]): CsvMapping {
+/** Best-effort column guesses from a header row. Patterns are tried in
+ *  priority order so a specific column (Beneficiary) beats a generic one
+ *  (Account Name) even when both would match. */
+export function guessMapping(headers: string[], headerRow = 0): CsvMapping {
     const h = headers.map((x) => x.toLowerCase());
-    const find = (patterns: RegExp[]) =>
-        h.findIndex((name) => patterns.some((p) => p.test(name)));
+    // First column whose header matches any pattern, patterns in priority order.
+    const find = (patterns: RegExp[]) => {
+        for (const p of patterns) {
+            const idx = h.findIndex((name) => p.test(name));
+            if (idx >= 0) return idx;
+        }
+        return -1;
+    };
 
-    const debitCol = find([/debit/, /withdraw/, /money\s*out/]);
-    const creditCol = find([/credit(?!\s*card)/, /deposit/, /money\s*in/]);
-    const amountCol = find([/amount/, /value/, /^amt$/]);
+    const debitCol = find([/settlement\s*debit/, /debit/, /withdraw/, /money\s*out/]);
+    const creditCol = find([/settlement\s*credit/, /credit(?!\s*card)/, /deposit/, /money\s*in/]);
+    const amountCol = find([/transaction\s*amount/, /amount/, /value/, /^amt$/]);
 
     return {
         hasHeader: true,
-        dateCol: Math.max(find([/date/, /posted/, /^when$/]), 0),
+        headerRow,
+        dateCol: Math.max(find([/^date/, /\bdate\b/, /posted/, /^when$/]), 0),
         dateFormat: "auto",
-        amountMode: debitCol >= 0 && creditCol >= 0 && amountCol < 0 ? "debit_credit" : "signed",
+        // Prefer debit/credit whenever both exist — a separate amount column in
+        // that layout is usually unsigned and would misclassify everything.
+        amountMode: debitCol >= 0 && creditCol >= 0 ? "debit_credit" : "signed",
         amountCol: Math.max(amountCol, 0),
         debitCol: Math.max(debitCol, 0),
         creditCol: Math.max(creditCol, 0),
         signConvention: "negative_expense",
-        payeeCol: find([/payee/, /description/, /narrat/, /merchant/, /details/, /name/]),
-        memoCol: find([/memo/, /note/, /reference/, /^ref/]),
+        payeeCol: find([
+            /beneficiary/, /payee/, /counterparty/, /merchant/, /narrat/,
+            /description/, /details/, /particulars/, /\bname\b/,
+        ]),
+        memoCol: find([/narrat/, /memo/, /note/, /remark/, /description/, /particulars/]),
+        referenceCol: find([/transaction\s*ref/, /reference/, /\brrn\b/, /session/, /^ref$/]),
     };
 }
 
@@ -193,8 +293,8 @@ export function guessMapping(headers: string[]): CsvMapping {
 
 const TEMPLATE_KEY = "sagebook.import.templates";
 
-export function headerSignature(rows: string[][]): string {
-    return (rows[0] ?? []).map((c) => String(c).trim().toLowerCase()).join("|");
+export function headerSignature(rows: string[][], headerRow = 0): string {
+    return (rows[headerRow] ?? []).map((c) => String(c).trim().toLowerCase()).join("|");
 }
 
 export function loadTemplate(signature: string): CsvMapping | null {

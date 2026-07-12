@@ -87,7 +87,7 @@ export default function Accounts() {
 
     return (
         <div className="mx-auto max-w-3xl">
-            <div className="mb-6 flex items-center justify-between">
+            <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h1 className="text-xl font-semibold">Accounts</h1>
                     <p className="text-sm text-slate-400">
@@ -123,92 +123,96 @@ export default function Accounts() {
                             onDone={() => setEditingId(null)}
                         />
                     ) : (
-                    <div className="flex items-center gap-3">
-                        <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2 text-sm font-medium text-slate-100">
-                                {a.name}
-                                {a.metadata?.auto_balance && (
-                                    <span
-                                        className="rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-normal text-sky-300"
-                                        title="Opening balance is inferred from observed activity (a debit implies the funds were there). Set an opening balance manually to take over."
-                                    >
-                                        inferred balance
-                                    </span>
-                                )}
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                        <div className="flex items-center gap-3 sm:flex-1">
+                            <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-2 text-sm font-medium text-slate-100">
+                                    {a.name}
+                                    {a.metadata?.auto_balance && (
+                                        <span
+                                            className="rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-normal text-sky-300"
+                                            title="Opening balance is inferred from observed activity (a debit implies the funds were there). Set an opening balance manually to take over."
+                                        >
+                                            inferred balance
+                                        </span>
+                                    )}
+                                </div>
+                                <div className="text-xs text-slate-500">
+                                    {ACCOUNT_TYPES.find((t) => t.value === a.type)?.label ?? a.type}
+                                    {a.institution ? ` · ${a.institution}` : ""}
+                                    {a.metadata?.number_masked ? ` · ${a.metadata.number_masked}` : ""}
+                                </div>
                             </div>
-                            <div className="text-xs text-slate-500">
-                                {ACCOUNT_TYPES.find((t) => t.value === a.type)?.label ?? a.type}
-                                {a.institution ? ` · ${a.institution}` : ""}
-                                {a.metadata?.number_masked ? ` · ${a.metadata.number_masked}` : ""}
+                            <div className="shrink-0 text-right text-sm">
+                                <div className="font-medium text-slate-100">
+                                    {fmtMoney(Number(a.current_balance), a.currency)}
+                                </div>
+                                <div className="text-xs text-slate-600">
+                                    opened at {fmtMoney(Number(a.opening_balance), a.currency)}
+                                </div>
                             </div>
                         </div>
-                        <div className="text-right text-sm">
-                            <div className="font-medium text-slate-100">
-                                {fmtMoney(Number(a.current_balance), a.currency)}
-                            </div>
-                            <div className="text-xs text-slate-600">
-                                opened at {fmtMoney(Number(a.opening_balance), a.currency)}
-                            </div>
-                        </div>
-                        <button
-                            className="text-xs text-slate-500 hover:text-slate-300"
-                            onClick={() => setEditingId(a.id)}
-                        >
-                            Edit
-                        </button>
-                        <button
-                            className="text-xs text-slate-500 hover:text-slate-300"
-                            disabled={setArchived.isPending}
-                            onClick={() => setArchived.mutate({ id: a.id, archived: !a.is_archived })}
-                        >
-                            {a.is_archived ? "Unarchive" : "Archive"}
-                        </button>
-                        {allActive.length > 1 && (
-                            <select
-                                className="rounded border border-slate-700 bg-slate-950 px-1.5 py-1 text-xs text-slate-400 outline-none focus:border-emerald-500"
-                                title="Merge this account into another (moves all its transactions)"
-                                value=""
-                                disabled={merge.isPending}
-                                onChange={(e) => {
-                                    const target = e.target.value;
-                                    if (!target) return;
-                                    const targetName = allActive.find((x) => x.id === target)?.name;
+                        <div className="flex flex-wrap items-center gap-2">
+                            <button
+                                className="text-xs text-slate-500 hover:text-slate-300"
+                                onClick={() => setEditingId(a.id)}
+                            >
+                                Edit
+                            </button>
+                            <button
+                                className="text-xs text-slate-500 hover:text-slate-300"
+                                disabled={setArchived.isPending}
+                                onClick={() => setArchived.mutate({ id: a.id, archived: !a.is_archived })}
+                            >
+                                {a.is_archived ? "Unarchive" : "Archive"}
+                            </button>
+                            {allActive.length > 1 && (
+                                <select
+                                    className="rounded border border-slate-700 bg-slate-950 px-1.5 py-1 text-xs text-slate-400 outline-none focus:border-emerald-500"
+                                    title="Merge this account into another (moves all its transactions)"
+                                    value=""
+                                    disabled={merge.isPending}
+                                    onChange={(e) => {
+                                        const target = e.target.value;
+                                        if (!target) return;
+                                        const targetName = allActive.find((x) => x.id === target)?.name;
+                                        if (
+                                            window.confirm(
+                                                `Merge "${a.name}" into "${targetName}"? All of "${a.name}"'s transactions and scheduled items move over, then "${a.name}" is deleted.`,
+                                            )
+                                        ) {
+                                            merge.mutate({ source: a.id, target });
+                                        }
+                                        e.target.value = "";
+                                    }}
+                                >
+                                    <option value="">Merge into…</option>
+                                    {allActive
+                                        .filter((x) => x.id !== a.id)
+                                        .map((x) => (
+                                            <option key={x.id} value={x.id}>
+                                                {x.name}
+                                            </option>
+                                        ))}
+                                </select>
+                            )}
+                            <button
+                                className="text-xs text-rose-400 hover:text-rose-300"
+                                disabled={remove.isPending}
+                                title="Permanently delete this account; its transactions are kept but unlinked"
+                                onClick={() => {
                                     if (
                                         window.confirm(
-                                            `Merge "${a.name}" into "${targetName}"? All of "${a.name}"'s transactions and scheduled items move over, then "${a.name}" is deleted.`,
+                                            `Permanently delete "${a.name}"? Its transactions are kept but will no longer be filed under any account. This cannot be undone.`,
                                         )
                                     ) {
-                                        merge.mutate({ source: a.id, target });
+                                        remove.mutate(a.id);
                                     }
-                                    e.target.value = "";
                                 }}
                             >
-                                <option value="">Merge into…</option>
-                                {allActive
-                                    .filter((x) => x.id !== a.id)
-                                    .map((x) => (
-                                        <option key={x.id} value={x.id}>
-                                            {x.name}
-                                        </option>
-                                    ))}
-                            </select>
-                        )}
-                        <button
-                            className="text-xs text-rose-400 hover:text-rose-300"
-                            disabled={remove.isPending}
-                            title="Permanently delete this account; its transactions are kept but unlinked"
-                            onClick={() => {
-                                if (
-                                    window.confirm(
-                                        `Permanently delete "${a.name}"? Its transactions are kept but will no longer be filed under any account. This cannot be undone.`,
-                                    )
-                                ) {
-                                    remove.mutate(a.id);
-                                }
-                            }}
-                        >
-                            {remove.isPending ? "Deleting…" : "Delete"}
-                        </button>
+                                {remove.isPending ? "Deleting…" : "Delete"}
+                            </button>
+                        </div>
                     </div>
                     )}
                     </div>

@@ -37,6 +37,7 @@ export interface Account {
     institution: string | null;
     opening_balance: number;
     is_archived: boolean;
+    metadata?: { number_masked?: string; auto_balance?: boolean } | null;
 }
 
 export interface Rule {
@@ -110,6 +111,8 @@ export interface InferredAccount {
     name?: string;
     institution?: string;
     number_masked?: string;
+    /** One short sentence explaining why this account was chosen/proposed. */
+    reason?: string;
 }
 
 export interface LineItem {
@@ -126,6 +129,8 @@ export interface ParsedTransaction {
     payee?: string;
     memo?: string;
     category?: string;
+    /** One short sentence explaining why this category was chosen. */
+    category_reason?: string;
     tags?: string[];
     account?: InferredAccount;
     reference?: string;

@@ -94,6 +94,8 @@ interface InferredAccount {
     name?: string;
     institution?: string;
     number_masked?: string;
+    /** One short sentence explaining why this account was chosen/proposed. */
+    reason?: string;
 }
 
 interface LineItem {
@@ -110,6 +112,8 @@ interface ParsedTransaction {
     payee?: string;
     memo?: string;
     category?: string;
+    /** One short sentence explaining why this category was chosen. */
+    category_reason?: string;
     tags?: string[];
     /** Source account inferred from the document (bank receipts, statements). */
     account?: InferredAccount;
@@ -149,10 +153,11 @@ const RESPONSE_SCHEMA = {
                         type: "string",
                         enum: ["income", "expense", "transfer", "adjustment"],
                     },
-                    payee:    { type: "string" },
-                    memo:     { type: "string" },
-                    category: { type: "string" },
-                    tags:     { type: "array", items: { type: "string" } },
+                    payee:           { type: "string" },
+                    memo:            { type: "string" },
+                    category:        { type: "string" },
+                    category_reason: { type: "string" },
+                    tags:            { type: "array", items: { type: "string" } },
                     reference: { type: "string" },
                     account: {
                         type: "object",
@@ -160,6 +165,7 @@ const RESPONSE_SCHEMA = {
                             name:          { type: "string" },
                             institution:   { type: "string" },
                             number_masked: { type: "string" },
+                            reason:        { type: "string" },
                         },
                     },
                     line_items: {
@@ -203,14 +209,24 @@ Rules:
   pick the most specific match (e.g. prefer 'Land Purchase' over 'Real Estate
   Investment' for a land receipt) and return only the category name itself,
   never the group or parent prefix. Only invent a new category name if nothing
-  in the list plausibly fits.
+  in the list plausibly fits. Whenever you set 'category', ALSO set
+  'category_reason': one short sentence (<=140 chars) naming the cue you used
+  (e.g. "Receipt is a prepaid electricity token purchase → Utilities."). Do not
+  fabricate a reason — describe what you actually saw.
 - 'confidence' reflects overall extraction certainty (0..1).
 - Infer the SOURCE account when the document reveals it (bank receipts show the
   debit account holder, bank name, and a masked number): return it as
-  'account': { name, institution, number_masked }. If a "user's accounts" list
-  is provided and one clearly matches, use that account's name EXACTLY as
+  'account': { name, institution, number_masked, reason }. If a "user's accounts"
+  list is provided and one clearly matches, use that account's name EXACTLY as
   listed; otherwise report the details as printed so a new account can be
-  proposed. The payee/beneficiary is never the source account.
+  proposed. The payee/beneficiary is never the source account. Lean toward
+  making a proposal even when unsure — the user can rename, relink, or dismiss
+  it. Whenever you return an 'account', ALSO set 'account.reason': one short
+  sentence (<=140 chars) naming the specific cue you used, so the guess is
+  auditable. Examples: "Matched 'Estate' in the receipt address to your 'Vycount
+  Estates' account." / "No funding account printed on the receipt; proposed from
+  the biller's customer account name." Do not fabricate a reason — describe what
+  you actually saw.
 - Return 'reference' when the document shows a reference / session / receipt ID
   (used for duplicate detection).
 - Narration/description lines go into 'memo' verbatim.

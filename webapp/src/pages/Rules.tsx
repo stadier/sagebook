@@ -165,9 +165,9 @@ function CreateRuleForm() {
                     onChange={(e) => setName(e.target.value)}
                     required
                 />
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                     <select
-                        className={`${inputCls} w-28`}
+                        className={`${inputCls} w-full sm:w-28`}
                         value={matchField}
                         onChange={(e) => setMatchField(e.target.value as Rule["match_field"])}
                     >
@@ -176,7 +176,7 @@ function CreateRuleForm() {
                         <option value="kind">kind</option>
                     </select>
                     <select
-                        className={`${inputCls} w-32`}
+                        className={`${inputCls} w-full sm:w-32`}
                         value={matchOp}
                         onChange={(e) => setMatchOp(e.target.value as Rule["match_op"])}
                     >

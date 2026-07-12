@@ -120,13 +120,13 @@ export default function Transactions() {
 
     return (
         <div className="mx-auto max-w-4xl">
-            <div className="mb-4 flex items-center justify-between gap-4">
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                 <div>
                     <h1 className="text-xl font-semibold">Transactions</h1>
                     <p className="text-sm text-slate-400">Accepted ledger entries.</p>
                 </div>
                 <input
-                    className="w-64 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none focus:border-emerald-500 sm:w-64"
                     placeholder="Search payee, memo, category…"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
@@ -495,9 +495,9 @@ function TxEditForm({
     }
 
     return (
-        <form onSubmit={submit} className="grid grid-cols-2 gap-2">
+        <form onSubmit={submit} className="grid gap-2 sm:grid-cols-2">
             <input className={editInputCls} value={payee} onChange={(e) => setPayee(e.target.value)} placeholder="payee" />
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
                 <input
                     className={`${editInputCls} min-w-0 flex-1`}
                     type="number"
@@ -557,12 +557,12 @@ function TxEditForm({
             </select>
             <input className={editInputCls} value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="memo" />
             <input
-                className={`${editInputCls} col-span-2`}
+                className={`${editInputCls} sm:col-span-2`}
                 value={tags}
                 onChange={(e) => setTags(e.target.value)}
                 placeholder="tags, comma-separated"
             />
-            <div className="col-span-2 flex gap-2">
+            <div className="flex gap-2 sm:col-span-2">
                 <button
                     className="rounded-lg bg-emerald-600 px-3 py-1.5 font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
                     disabled={busy}
