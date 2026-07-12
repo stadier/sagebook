@@ -168,9 +168,19 @@ Legend: ✅ done · 🔜 next up · 💡 idea / later
   groups/categories and extraction ran taxonomy-blind. New `auth.users` trigger
   creates the profile (and thereby the seed) at signup; existing users
   backfilled (migration `20260708000001_seed_on_signup.sql`).
+- ✅ **Scheduled transactions** (migration `20260709000000`): expected money in/out
+  you log ahead of time — recurring (salary, rent, subscriptions) and one-off
+  debts (income = *receivable* "owed to me", expense = *payable* "I owe"). A
+  nightly `pg_cron` job (`materialize_due_scheduled`) posts each due item into
+  the review **inbox** as a pending transaction to confirm; recurring items
+  catch up any missed periods then advance, one-offs fire once and close. The
+  **Scheduled** page lists them by Recurring / Owed to me / I owe, with
+  add / pause / delete / "Post now" and a "Check for due items" button
+  (`run_my_scheduled`). Verified live: a 2-month-overdue monthly salary posted 3
+  occurrences and advanced; a payable fired once and closed; re-runs don't dupe.
 - 💡 **Rule enhancements:** amount ranges (`amount between`), currency match,
-  `set_account`, and an `auto_accept` flag for high-trust rules (e.g. recurring
-  salary) that skips the inbox.
+  `set_account`, and an `auto_accept` flag for high-trust rules that skips the
+  inbox.
   *Why:* the current match-fields (payee/memo/kind) can't express "any NGN transfer
   over 1m is real-estate related".
 - 💡 **Learning loop:** periodically mine accepted corrections (AI said X, user chose
@@ -183,6 +193,13 @@ Legend: ✅ done · 🔜 next up · 💡 idea / later
 
 - ✅ **Account assignment during review** — Accounts page (create/archive) plus an
   account picker on inbox accept/edit that remembers the last-used account.
+  ✅ **Merge accounts** (migration `20260709000001`): "Merge into…" on the
+  Accounts page folds one account into another — all transactions, transfer
+  legs, and scheduled items move over, source is deleted, target balance
+  recalculated (verified live). Pairs with **smarter placeholder naming**: when
+  a receipt reveals a source account but the model can't name it, the inbox now
+  proposes an auto-generated name (e.g. "Zenith Bank · ending 0710") you can
+  create now and rename/merge later.
   🔜 Still to add: require-account option, per-account registers with running
   balances.
   *Why:* net worth and account registers are meaningless while transactions float

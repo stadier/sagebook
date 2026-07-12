@@ -380,6 +380,18 @@ function InferencePanel({ tx }: { tx: PendingTransaction }) {
     const ai = tx.original_ai_data;
     const taxonomy = useQuery({ queryKey: ["taxonomy"], queryFn: fetchTaxonomy });
 
+    // A source account was detected but the model couldn't name it — synthesize
+    // a placeholder from whatever it did read, so it can still be captured and
+    // merged later once the real name is known.
+    const acc = ai?.account;
+    const hasAccountHint = !!(acc?.name || acc?.institution || acc?.number_masked);
+    const accountName =
+        acc?.name?.trim() ||
+        [acc?.institution, acc?.number_masked && `ending ${acc.number_masked.replace(/[^0-9]/g, "").slice(-4)}`]
+            .filter(Boolean)
+            .join(" · ") ||
+        "Unnamed account";
+
     const createAccount = useMutation({
         mutationFn: async () => {
             const sb = requireSupabase();
@@ -389,7 +401,7 @@ function InferencePanel({ tx }: { tx: PendingTransaction }) {
                 .from("accounts")
                 .insert({
                     user_id: u.user.id,
-                    name: (ai?.account?.name ?? "Inferred account").slice(0, 80),
+                    name: accountName.slice(0, 80),
                     type: "checking",
                     currency: tx.currency,
                     institution: ai?.account?.institution ?? null,
@@ -454,11 +466,11 @@ function InferencePanel({ tx }: { tx: PendingTransaction }) {
     if (!ai) return null;
 
     const proposeAccount =
-        !tx.account_id && ai.account?.name && !dismissed.has("account");
+        !tx.account_id && hasAccountHint && !dismissed.has("account");
     const proposeCategory =
         !tx.category_id && ai.category && !dismissed.has("category");
     const infoChips: string[] = [];
-    if (tx.account_id && ai.account?.name) infoChips.push(`source: ${ai.account.name}`);
+    if (tx.account_id && acc?.name) infoChips.push(`source: ${acc.name}`);
     if (ai.reference) infoChips.push(`ref: ${ai.reference}`);
     if (ai.line_items?.length) {
         infoChips.push(`${ai.line_items.length} items on receipt (see transaction detail)`);
@@ -473,9 +485,10 @@ function InferencePanel({ tx }: { tx: PendingTransaction }) {
             {proposeAccount && (
                 <div className="flex flex-wrap items-center gap-2 py-0.5">
                     <span className="text-slate-300">
-                        New account: <span className="font-medium">{ai.account!.name}</span>
-                        {ai.account!.institution && ` · ${ai.account!.institution}`}
-                        {ai.account!.number_masked && ` · ${ai.account!.number_masked}`}
+                        New account: <span className="font-medium">{accountName}</span>
+                        {!acc?.name && (
+                            <span className="text-slate-500"> (auto-named — rename or merge later)</span>
+                        )}
                     </span>
                     <button
                         className="rounded bg-sky-800/60 px-2 py-0.5 text-sky-200 hover:bg-sky-700/60 disabled:opacity-50"
