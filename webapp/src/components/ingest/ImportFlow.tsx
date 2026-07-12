@@ -171,31 +171,38 @@ export default function ImportFlow({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [existingMatch?.id]);
 
+    // Whether the statement revealed an account we could create.
+    const canCreateAccount = !!(meta && (meta.accountName || meta.accountNumber));
+
+    // Create the account detected in the statement header. Shared by the
+    // explicit "Create now" button and the auto-create-on-import path.
+    async function insertDetectedAccount(): Promise<{ id: string; currency: string }> {
+        if (!meta) throw new Error("no statement details");
+        const sb = requireSupabase();
+        const { data: u } = await sb.auth.getUser();
+        if (!u.user) throw new Error("not signed in");
+        const { data: created, error } = await sb
+            .from("accounts")
+            .insert({
+                user_id: u.user.id,
+                name: (meta.accountName || "Imported account").slice(0, 80),
+                type: "checking",
+                currency: (meta.currency || currency).toUpperCase().slice(0, 3),
+                // The statement's opening balance is authoritative, so this is
+                // a real (not inferred) opening balance.
+                opening_balance: meta.openingBalance ?? 0,
+                metadata: meta.accountNumber
+                    ? { number_masked: `••••${meta.accountNumber.slice(-4)}` }
+                    : {},
+            })
+            .select("id, currency")
+            .single();
+        if (error) throw new Error(error.message);
+        return created;
+    }
+
     const createAccount = useMutation({
-        mutationFn: async () => {
-            if (!meta) throw new Error("no statement details");
-            const sb = requireSupabase();
-            const { data: u } = await sb.auth.getUser();
-            if (!u.user) throw new Error("not signed in");
-            const { data: created, error } = await sb
-                .from("accounts")
-                .insert({
-                    user_id: u.user.id,
-                    name: (meta.accountName || "Imported account").slice(0, 80),
-                    type: "checking",
-                    currency: (meta.currency || currency).toUpperCase().slice(0, 3),
-                    // The statement's opening balance is authoritative, so this is
-                    // a real (not inferred) opening balance.
-                    opening_balance: meta.openingBalance ?? 0,
-                    metadata: meta.accountNumber
-                        ? { number_masked: `••••${meta.accountNumber.slice(-4)}` }
-                        : {},
-                })
-                .select("id, currency")
-                .single();
-            if (error) throw new Error(error.message);
-            return created;
-        },
+        mutationFn: insertDetectedAccount,
         onSuccess: (created) => {
             qc.invalidateQueries({ queryKey: ["accounts"] });
             qc.invalidateQueries({ queryKey: ["account-balances"] });
@@ -221,16 +228,25 @@ export default function ImportFlow({
             if (fileKind === "csv" && mapping) {
                 saveTemplate(headerSignature(rows, mapping.headerRow), mapping);
             }
+            // File everything under an account: the one chosen, or — if none was
+            // picked and the statement named one — auto-create it now so the
+            // whole statement lands in its own ledger without a separate step.
+            let acctId = accountId;
+            if (!acctId && canCreateAccount) {
+                acctId = (await insertDetectedAccount()).id;
+            }
             const storagePath = await uploadToIngest(file); // archive; ok if null
             return invokeFn<ImportResult>("ingest-import", {
                 transactions: normalized.txs,
-                accountId: accountId || null,
+                accountId: acctId || null,
                 storagePath,
                 filename: file.name,
             });
         },
         onSuccess: (r) => {
             qc.invalidateQueries({ queryKey: ["pending-review"] });
+            qc.invalidateQueries({ queryKey: ["accounts"] });
+            qc.invalidateQueries({ queryKey: ["account-balances"] });
             logEvent("info", "import", `Import: ${r.committed} rows saved from ${file.name}`, {
                 ingestionId: r.ingestionId,
                 committed: r.committed,
@@ -304,16 +320,21 @@ export default function ImportFlow({
                             <span className="text-emerald-400">
                                 Filing under your existing “{existingMatch.name}”.
                             </span>
+                        ) : accountId ? (
+                            <span className="text-emerald-400">
+                                This account is ready — everything files under it.
+                            </span>
                         ) : (
-                            <button
-                                className="rounded bg-sky-800/60 px-2 py-1 text-sky-200 hover:bg-sky-700/60 disabled:opacity-50"
-                                disabled={createAccount.isPending}
-                                onClick={() => createAccount.mutate()}
-                            >
-                                {createAccount.isPending
-                                    ? "Creating…"
-                                    : "Create this account & file here"}
-                            </button>
+                            <span className="text-slate-400">
+                                Importing will create this account and file all rows under it.{" "}
+                                <button
+                                    className="rounded bg-sky-800/60 px-2 py-0.5 text-sky-200 hover:bg-sky-700/60 disabled:opacity-50"
+                                    disabled={createAccount.isPending}
+                                    onClick={() => createAccount.mutate()}
+                                >
+                                    {createAccount.isPending ? "Creating…" : "Create it now"}
+                                </button>
+                            </span>
                         )}
                         {createAccount.isError && (
                             <span className="ml-2 text-rose-400">
