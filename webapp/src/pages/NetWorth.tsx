@@ -118,7 +118,8 @@ export default function NetWorth() {
                     <h2 className="mb-2 text-sm font-medium text-slate-200">
                         Breakdown · {fmtDate(latest.as_of)}
                     </h2>
-                    <table className="w-full text-sm">
+                    <div className="-mx-1 overflow-x-auto px-1">
+                    <table className="w-full min-w-[28rem] text-sm">
                         <thead>
                             <tr className="border-b border-slate-800 text-left text-xs text-slate-500">
                                 <th className="py-2 pr-4 font-medium">Account</th>
@@ -151,6 +152,7 @@ export default function NetWorth() {
                             ))}
                         </tbody>
                     </table>
+                    </div>
                 </>
             )}
         </div>
