@@ -108,8 +108,13 @@ app.post("/ingest-import", async (c) => {
     }
   }
 
-  if (body.storagePath && !body.storagePath.startsWith(`${userId}/`)) {
-    return c.json({ error: "storagePath must be under your own folder" }, 403);
+  // The archive path may be a Supabase-bucket path ("{userId}/...") or a
+  // B2-proxy path ("b2:{userId}/..."); either way it must be under the caller.
+  if (body.storagePath) {
+    const bareStoragePath = body.storagePath.replace(/^b2:/, "");
+    if (!bareStoragePath.startsWith(`${userId}/`)) {
+      return c.json({ error: "storagePath must be under your own folder" }, 403);
+    }
   }
 
   const { data: ingestion, error: ingErr } = await admin
