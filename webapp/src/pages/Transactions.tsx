@@ -243,7 +243,8 @@ export default function Transactions() {
                 </p>
             )}
             {rows.length > 0 && (
-                <table className="w-full text-sm">
+                <div className="-mx-1 overflow-x-auto px-1">
+                <table className="w-full min-w-[32rem] text-sm">
                     <thead>
                         <tr className="border-b border-slate-800 text-left text-xs text-slate-500">
                             <th className="py-2 pr-4 font-medium">Date</th>
@@ -301,6 +302,7 @@ export default function Transactions() {
                         ))}
                     </tbody>
                 </table>
+                </div>
             )}
 
             {maybeMore && (
