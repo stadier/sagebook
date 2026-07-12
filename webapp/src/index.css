@@ -1,9 +1,150 @@
 @import "tailwindcss";
+/* SB_MARKER_9F3A */
 
-:root {
-    color-scheme: dark;
+/* ============================================================================
+   Sagebook design system
+   Inspired by the "Zarss" finance dashboard: a warm cream canvas, crisp white
+   cards, one near-black sidebar, and three soft pastel accents (sage / gold /
+   violet). The app was built dark-first, so instead of rewriting every page we
+   remap the Tailwind color tokens: the neutral (slate) scale becomes a warm
+   light scale, and the accent scales are retuned to read on a light surface.
+   Because the pages used the scales *semantically* (high numbers = surfaces,
+   low numbers = text), the remap flips them into a coherent light theme.
+   ========================================================================== */
+
+@theme {
+    /* Typography ----------------------------------------------------------- */
+    --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+        Roboto, "Helvetica Neue", Arial, sans-serif;
+
+    /* Softer, rounder corners to match the reference ----------------------- */
+    --radius-md: 0.625rem;
+    --radius-lg: 0.875rem;
+    --radius-xl: 1.125rem;
+    --radius-2xl: 1.5rem;
+    --radius-3xl: 2rem;
+
+    /* Neutral scale — remapped to warm light. In the old dark theme high
+       numbers were dark surfaces and low numbers were light text; on light
+       we invert that: surfaces are near-white, text is warm ink. --------- */
+    --color-slate-50: #17150f; /* darkest ink (rare) */
+    --color-slate-100: #201e17;
+    --color-slate-200: #2b2922; /* primary text */
+    --color-slate-300: #423f36; /* strong secondary text */
+    --color-slate-400: #6d6959; /* muted labels */
+    --color-slate-500: #8a8574; /* dim text */
+    --color-slate-600: #b0ab99; /* faint text / icons */
+    --color-slate-700: #dedbd0; /* strong hairline */
+    --color-slate-800: #e9e6dc; /* hairline / hover surface */
+    --color-slate-900: #ffffff; /* card surface */
+    --color-slate-950: #f7f5ef; /* recessed / input surface */
+
+    /* Brand green (emerald) — sage-leaning, readable on cream -------------- */
+    --color-emerald-300: #57a97d;
+    --color-emerald-400: #429268; /* brand text / accents */
+    --color-emerald-500: #3f925f; /* focus ring / active tint base */
+    --color-emerald-600: #327c55; /* primary button (white text) */
+    --color-emerald-700: #2a6a48;
+
+    /* Error / destructive (rose) — tuned for light ------------------------ */
+    --color-rose-200: #a12c24; /* dark text on light-red badge */
+    --color-rose-300: #c34a40;
+    --color-rose-400: #cb5449; /* error text */
+    --color-rose-500: #c0433a;
+    --color-rose-600: #b23a31; /* destructive button */
+    --color-rose-900: #db5a50; /* tint/border base (used with opacity) */
+    --color-rose-950: #e2685e;
+
+    /* Warning / gold (amber) ---------------------------------------------- */
+    --color-amber-300: #b57d1c;
+    --color-amber-400: #a76c14; /* warning text */
+    --color-amber-500: #9a6210;
+    --color-amber-900: #d9a441; /* tint/border base (used with opacity) */
+    --color-amber-950: #e0ae4f;
+
+    /* Info / violet (sky remapped to periwinkle) -------------------------- */
+    --color-sky-200: #5449bd; /* dark text on violet badge */
+    --color-sky-300: #6a5ad2; /* info text */
+    --color-sky-700: #8577de; /* tint base (used with opacity) */
+    --color-sky-800: #7a6bd9;
+    --color-sky-900: #6d5dd3;
+    --color-sky-950: #8577de;
+
+    /* Signature palette — usable as bg-sage / text-sage-ink etc. ---------- */
+    --color-paper: #efece3;
+    --color-ink: #2b2922;
+    --color-sage: #c7d5c2;
+    --color-sage-ink: #33503b;
+    --color-gold: #ecc65e;
+    --color-gold-ink: #4c3a0e;
+    --color-violet: #9b8fe0;
+    --color-violet-ink: #2b2560;
+    --color-sidebar: #1b1b18;
+
+    /* Soft elevation for cards -------------------------------------------- */
+    --shadow-card: 0 1px 2px rgba(28, 26, 18, 0.04),
+        0 12px 30px -18px rgba(28, 26, 18, 0.22);
+    --shadow-pop: 0 10px 30px -12px rgba(28, 26, 18, 0.28);
 }
 
-body {
-    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+@layer base {
+    :root {
+        color-scheme: light;
+    }
+
+    html,
+    body {
+        background-color: var(--color-paper);
+        color: var(--color-ink);
+    }
+
+    body {
+        font-family: var(--font-sans);
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+    }
+
+    /* Warm, unobtrusive scrollbars to match the light canvas */
+    * {
+        scrollbar-color: var(--color-slate-600) transparent;
+    }
+    *::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+    }
+    *::-webkit-scrollbar-thumb {
+        background-color: color-mix(in oklab, var(--color-slate-600) 70%, transparent);
+        border-radius: 9999px;
+        border: 2px solid transparent;
+        background-clip: content-box;
+    }
+}
+
+@layer components {
+    /* White elevated card — the default content surface */
+    .sb-card {
+        background-color: #ffffff;
+        border: 1px solid var(--color-slate-800);
+        border-radius: var(--radius-2xl);
+        box-shadow: var(--shadow-card);
+    }
+
+    /* Pastel statistic tile (sage / gold / violet variants set inline) */
+    .sb-stat {
+        border-radius: var(--radius-2xl);
+        padding: 1.25rem 1.375rem;
+        box-shadow: var(--shadow-card);
+    }
+
+    /* Rounded pill badge */
+    .sb-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        border-radius: 9999px;
+        padding: 0.125rem 0.625rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+        line-height: 1.4;
+    }
 }

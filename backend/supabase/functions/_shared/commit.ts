@@ -28,6 +28,10 @@ export interface ParsedTx {
   memo?: string;
   category?: string;
   tags?: string[];
+  /** Source account inferred from the document. */
+  account?: { name?: string; institution?: string; number_masked?: string };
+  /** Bank reference / session ID — strong dedup signal. */
+  reference?: string;
 }
 
 export interface CommitOptions {
@@ -42,6 +46,8 @@ export interface CommitResult {
   duplicates: number;
   rulesApplied: number;
   transactions: unknown[];
+  /** Human-readable reasons for rows that failed to insert (e.g. FK violations). */
+  insertErrors: string[];
 }
 
 export function ruleMatches(rule: Rule, tx: ParsedTx): boolean {
@@ -91,7 +97,21 @@ export async function commitParsedTransactions(
     catMap.set(c.name.toLowerCase(), c.id);
   }
 
+  // Account name → id map, for matching AI-inferred source accounts. Unmatched
+  // inferences stay in original_ai_data so the inbox can propose creating them.
+  const { data: accounts } = await admin
+    .from("accounts")
+    .select("id, name")
+    .eq("user_id", userId)
+    .eq("is_archived", false);
+
+  const accountMap = new Map<string, string>();
+  for (const a of accounts ?? []) {
+    accountMap.set(a.name.toLowerCase(), a.id);
+  }
+
   const committed: unknown[] = [];
+  const insertErrors: string[] = [];
   let duplicates = 0;
   let rulesApplied = 0;
 
@@ -126,13 +146,20 @@ export async function commitParsedTransactions(
       if (cid) categoryId = cid;
     }
 
-    // --- duplicate detection ---
+    // --- source account: explicit (imports) beats AI-inferred name match ---
+    const inferredAccountId = parsed.account?.name
+      ? accountMap.get(parsed.account.name.trim().toLowerCase()) ?? null
+      : null;
+    const accountId = opts.accountId ?? inferredAccountId;
+
+    // --- duplicate detection (reference ID is a strong signal) ---
     let duplicateGroupId: string | null = null;
     const { data: dupId } = await admin.rpc("find_duplicate", {
       p_user_id:     userId,
       p_payee:       parsed.payee ?? null,
       p_amount:      parsed.amount,
       p_occurred_at: parsed.occurred_at,
+      p_reference:   parsed.reference?.trim() || null,
     });
 
     if (dupId) {
@@ -158,7 +185,7 @@ export async function commitParsedTransactions(
       .from("transactions")
       .insert({
         user_id:            userId,
-        account_id:         opts.accountId ?? null,
+        account_id:         accountId,
         category_id:        categoryId,
         kind:               parsed.kind ?? "expense",
         occurred_at:        parsed.occurred_at,
@@ -167,6 +194,7 @@ export async function commitParsedTransactions(
         payee:              parsed.payee ?? null,
         memo:               finalMemo,
         tags:               finalTags,
+        metadata:           parsed.reference?.trim() ? { reference: parsed.reference.trim() } : {},
         original_ai_data:   parsed,
         review_status:      "pending_review",
         ingestion_id:       ingestionId,
@@ -177,6 +205,9 @@ export async function commitParsedTransactions(
 
     if (txErr) {
       console.error("[commit] tx insert error", txErr.message, "for parsed", JSON.stringify(parsed));
+      insertErrors.push(
+        `${parsed.payee ?? "(no payee)"} · ${parsed.amount} ${parsed.currency}: ${txErr.message}`,
+      );
     } else if (tx) {
       committed.push(tx);
     }
@@ -189,5 +220,20 @@ export async function commitParsedTransactions(
       .eq("id", ingestionId);
   }
 
-  return { committed: committed.length, duplicates, rulesApplied, transactions: committed };
+  // Persist the failure reason on the ingestion so the Activity page shows why
+  // an extraction produced fewer (or zero) inbox rows than expected.
+  if (insertErrors.length) {
+    await admin
+      .from("media_ingestions")
+      .update({ error: `commit: ${insertErrors.join(" | ")}`.slice(0, 1000) })
+      .eq("id", ingestionId);
+  }
+
+  return {
+    committed: committed.length,
+    duplicates,
+    rulesApplied,
+    transactions: committed,
+    insertErrors,
+  };
 }

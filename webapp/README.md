@@ -51,7 +51,8 @@ src/
     ├── Categories.tsx   Groups → categories browser + quick add
     ├── Rules.tsx        Auto-categorization rules (create/toggle/delete)
     ├── Reports.tsx      Current-month income/expense + category breakdown
-    └── NetWorth.tsx     Snapshot timeline chart, breakdown table, update action
+    ├── NetWorth.tsx     Snapshot timeline chart, breakdown table, update action
+    └── Activity.tsx     Unified success/failure log with copyable reports
 ```
 
 `npm run build` typechecks (`tsc --noEmit`) then bundles.

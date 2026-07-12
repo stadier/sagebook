@@ -45,6 +45,15 @@ Legend: ✅ done · 🔜 next up · 💡 idea / later
   filters run server-side; load-more pagination; client-side text search; rows
   expand to show tags and the original receipt/recording via signed URLs).
   *Why:* an unqueryable ledger is a write-only diary.
+- ✅ **Edit everything after the fact** — accepted transactions are editable in
+  place (payee, amount, currency, kind, date, category, account, memo, tags)
+  plus "Back to inbox" and "Reject"; accounts are editable (name, type,
+  currency, institution, opening balance — a manual balance permanently
+  overrides the inferred one); categories can be renamed/deleted. The
+  balance-recalc trigger now also covers the *old* account when a transaction
+  moves between accounts or is un-accepted (migration
+  `20260708000002_recalc_edges.sql`).
+  *Why:* AI inference is a draft; every inferred fact must be user-correctable.
 - ✅ **Categories & groups browser v1** (grouped listing + quick-add category).
   🔜 Still to add: drag between groups, nest/rename/merge, colors & icons editing.
   *Why:* the custom-taxonomy feature (e.g. real-estate) is only as good as the UI for
@@ -55,6 +64,30 @@ Legend: ✅ done · 🔜 next up · 💡 idea / later
   🔜 Still to add: file/image share-target (needs a custom SW POST handler),
   offline capture queue (IndexedDB, flush on reconnect).
   *Why:* gets a "mobile app" without a second codebase.
+- ✅ **Activity page + logging system** — `app_logs` table (owner-only RLS, 90-day
+  retention cron) receives client events from Capture/Import/Inbox/Net worth;
+  the Activity page merges them with `media_ingestions` into one timeline with
+  failure filters and a per-entry **Copy report** button for pasting into a
+  debugging conversation. The commit pipeline now returns per-row
+  `insertErrors` (surfaced in the Capture result and stamped onto the
+  ingestion) instead of swallowing them.
+  *Why:* "it failed" is only fixable when the failure is on record.
+- ✅ **AI provider routing** — any OpenAI-compatible provider via secrets
+  (`AI_BASE_URL` + `AI_API_KEY` + `AI_MODEL`: DeepSeek, Qwen/DashScope, GLM,
+  Kimi, …) using JSON-object mode with the schema embedded in the prompt.
+  Preference order: custom (cheapest) → Gemini → OpenRouter; override with
+  `AI_PROVIDER`. Gemini remains required for audio/video/pdf (OpenAI-compatible
+  chat APIs only take text + images).
+  🔜 Follow-up: Qwen-Omni for audio via compatible mode, removing the Gemini
+  dependency for voice notes.
+- ✅ **Backblaze B2 storage backend** — `storage-proxy` edge function keeps B2
+  credentials server-side (`_shared/b2.ts`, native B2 API): authenticated
+  uploads to `{userId}/…`, prefix-checked signed download URLs (1 h). Paths are
+  prefixed `b2:`; plain paths still resolve to the Supabase `ingest` bucket as
+  fallback, and process-media dispatches on the prefix. Secrets: `B2_KEY_ID`,
+  `B2_APP_KEY`, `B2_BUCKET_ID`, `B2_BUCKET_NAME`.
+  🔜 Follow-up: rotate the application key that was shared in chat; switch to a
+  bucket-scoped key (current one is a master key).
 - 💡 **Realtime inbox** (subscribe to pending_review inserts).
   *Why:* email/async ingestions should appear without refresh.
 
@@ -84,8 +117,13 @@ Legend: ✅ done · 🔜 next up · 💡 idea / later
   function into the shared rules/dedup/commit pipeline (extracted to
   `_shared/commit.ts`, now reused by all three entry points), optionally
   pre-assigned to an account, with the original file archived in storage.
-  🔜 Follow-up: XLSX (convert client-side), QIF, chunked imports >1000 rows,
-  server-side mapping templates (currently per-browser localStorage).
+  ✅ Now also accepts **Excel (.xlsx/.xls)** — first worksheet through the same
+  mapping flow (SheetJS, lazy-loaded) — and **PDF statements**, which route
+  through AI extraction (Mistral reads PDFs via document_url; Gemini as
+  fallback), with the selected account passed as a hint.
+  🔜 Follow-up: QIF, chunked imports >1000 rows, server-side mapping templates
+  (currently per-browser localStorage), page-by-page chunking + balance
+  reconciliation for long PDF statements.
 - ✅ **SMS/bank-alert path v1** via the PWA share-target (share the alert text →
   Capture pre-filled → extract).
   💡 Later: Android forwarder app / automation for hands-free forwarding, plus
@@ -106,13 +144,43 @@ Legend: ✅ done · 🔜 next up · 💡 idea / later
   disable, delete.
   *Why:* rules are powerful but nobody writes regex from scratch; harvest them from
   corrections instead.
-- 🔜 **Handle AI-proposed new categories.** When the model suggests a name that
-  doesn't exist, surface it in review as "create category 'X' under group …?" instead
-  of silently dropping to NULL.
-  *Why:* today an unmatched category string is simply lost.
+- ✅ **Itemized receipts are one transaction** — an explicit extraction rule:
+  a store receipt is the single amount paid (after discounts/promos), never one
+  transaction per item; the shopping list is preserved as `line_items`
+  (shown in the inbox chip and the transaction detail), the store becomes the
+  payee, and the category comes from what was bought (supermarket → Groceries,
+  rolling up under the Essentials group). Verified against a synthetic SPAR
+  receipt: 1 transaction, ₦42,590 post-discount, Groceries, 10 items captured.
+- ✅ **Inference & confirm flow** (migration `20260708000000_account_inference.sql`):
+  extraction now infers the **source account** (holder name, bank, masked number)
+  and the **reference ID** from bank receipts, with the user's accounts injected
+  into the prompt so known accounts auto-match. Unmatched inferences surface in
+  the inbox as one-click proposals — "Create account & assign" / "Create
+  category in group & assign" / Ignore — while the transaction stays
+  pending_review. Capture results list all inferences up front. Accounts created
+  this way carry `metadata.auto_balance`: their **opening balance is inferred**
+  (a ₦4m debit implies ≥₦4m was there; recomputed on every accepted transaction
+  until the user sets it manually). Reference IDs are a strong dedup signal in
+  `find_duplicate`. Accounts page shows live balances (`v_account_balances`)
+  with an "inferred balance" badge.
+- ✅ **Fix: defaults were never seeded for real signups** — nothing created
+  `profiles` rows (the seed trigger hangs off profiles), so real users had no
+  groups/categories and extraction ran taxonomy-blind. New `auth.users` trigger
+  creates the profile (and thereby the seed) at signup; existing users
+  backfilled (migration `20260708000001_seed_on_signup.sql`).
+- ✅ **Scheduled transactions** (migration `20260709000000`): expected money in/out
+  you log ahead of time — recurring (salary, rent, subscriptions) and one-off
+  debts (income = *receivable* "owed to me", expense = *payable* "I owe"). A
+  nightly `pg_cron` job (`materialize_due_scheduled`) posts each due item into
+  the review **inbox** as a pending transaction to confirm; recurring items
+  catch up any missed periods then advance, one-offs fire once and close. The
+  **Scheduled** page lists them by Recurring / Owed to me / I owe, with
+  add / pause / delete / "Post now" and a "Check for due items" button
+  (`run_my_scheduled`). Verified live: a 2-month-overdue monthly salary posted 3
+  occurrences and advanced; a payable fired once and closed; re-runs don't dupe.
 - 💡 **Rule enhancements:** amount ranges (`amount between`), currency match,
-  `set_account`, and an `auto_accept` flag for high-trust rules (e.g. recurring
-  salary) that skips the inbox.
+  `set_account`, and an `auto_accept` flag for high-trust rules that skips the
+  inbox.
   *Why:* the current match-fields (payee/memo/kind) can't express "any NGN transfer
   over 1m is real-estate related".
 - 💡 **Learning loop:** periodically mine accepted corrections (AI said X, user chose
@@ -125,6 +193,13 @@ Legend: ✅ done · 🔜 next up · 💡 idea / later
 
 - ✅ **Account assignment during review** — Accounts page (create/archive) plus an
   account picker on inbox accept/edit that remembers the last-used account.
+  ✅ **Merge accounts** (migration `20260709000001`): "Merge into…" on the
+  Accounts page folds one account into another — all transactions, transfer
+  legs, and scheduled items move over, source is deleted, target balance
+  recalculated (verified live). Pairs with **smarter placeholder naming**: when
+  a receipt reveals a source account but the model can't name it, the inbox now
+  proposes an auto-generated name (e.g. "Zenith Bank · ending 0710") you can
+  create now and rename/merge later.
   🔜 Still to add: require-account option, per-account registers with running
   balances.
   *Why:* net worth and account registers are meaningless while transactions float

@@ -66,6 +66,7 @@ export interface Transaction {
     review_status: "pending_review" | "accepted" | "rejected";
     duplicate_group_id: string | null;
     ingestion_id: string | null;
+    original_ai_data?: ParsedTransaction | null;
     created_at: string;
 }
 
@@ -76,6 +77,45 @@ export interface PendingTransaction extends Transaction {
     category_icon: string | null;
     media_kind: string | null;
     ingestion_model: string | null;
+    original_ai_data: ParsedTransaction | null;
+}
+
+/** Row shape of v_account_balances. */
+export interface AccountWithBalance extends Account {
+    current_balance: number;
+    metadata: { auto_balance?: boolean; number_masked?: string } | null;
+}
+
+export type Recurrence = "weekly" | "biweekly" | "monthly" | "quarterly" | "yearly";
+
+export interface ScheduledTransaction {
+    id: string;
+    name: string;
+    kind: "income" | "expense" | "transfer" | "adjustment";
+    schedule_kind: "recurring" | "one_off";
+    recurrence: Recurrence | null;
+    amount: number;
+    currency: string;
+    account_id: string | null;
+    category_id: string | null;
+    payee: string | null;
+    memo: string | null;
+    next_due: string;
+    active: boolean;
+    auto_post: boolean;
+    last_posted_at: string | null;
+}
+
+export interface InferredAccount {
+    name?: string;
+    institution?: string;
+    number_masked?: string;
+}
+
+export interface LineItem {
+    description: string;
+    quantity?: number;
+    amount?: number;
 }
 
 export interface ParsedTransaction {
@@ -87,6 +127,9 @@ export interface ParsedTransaction {
     memo?: string;
     category?: string;
     tags?: string[];
+    account?: InferredAccount;
+    reference?: string;
+    line_items?: LineItem[];
 }
 
 export interface ProcessMediaResult {
@@ -102,6 +145,7 @@ export interface ProcessMediaResult {
     committed: number;
     duplicates: number;
     rulesApplied: number;
+    insertErrors?: string[];
     inbox: Array<{
         id: string;
         payee: string | null;
