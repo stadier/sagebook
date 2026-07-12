@@ -70,7 +70,20 @@ export default function Accounts() {
         },
     });
 
+    // Fold one account into another — all transactions and scheduled items move.
+    const merge = useMutation({
+        mutationFn: async (args: { source: string; target: string }) => {
+            const { error } = await requireSupabase().rpc("merge_accounts", {
+                p_source: args.source,
+                p_target: args.target,
+            });
+            if (error) throw new Error(error.message);
+        },
+        onSuccess: () => qc.invalidateQueries(),
+    });
+
     const rows = (accounts.data ?? []).filter((a) => showArchived || !a.is_archived);
+    const allActive = (accounts.data ?? []).filter((a) => !a.is_archived);
 
     return (
         <div className="mx-auto max-w-3xl">
@@ -150,6 +163,36 @@ export default function Accounts() {
                         >
                             {a.is_archived ? "Unarchive" : "Archive"}
                         </button>
+                        {allActive.length > 1 && (
+                            <select
+                                className="rounded border border-slate-700 bg-slate-950 px-1.5 py-1 text-xs text-slate-400 outline-none focus:border-emerald-500"
+                                title="Merge this account into another (moves all its transactions)"
+                                value=""
+                                disabled={merge.isPending}
+                                onChange={(e) => {
+                                    const target = e.target.value;
+                                    if (!target) return;
+                                    const targetName = allActive.find((x) => x.id === target)?.name;
+                                    if (
+                                        window.confirm(
+                                            `Merge "${a.name}" into "${targetName}"? All of "${a.name}"'s transactions and scheduled items move over, then "${a.name}" is deleted.`,
+                                        )
+                                    ) {
+                                        merge.mutate({ source: a.id, target });
+                                    }
+                                    e.target.value = "";
+                                }}
+                            >
+                                <option value="">Merge into…</option>
+                                {allActive
+                                    .filter((x) => x.id !== a.id)
+                                    .map((x) => (
+                                        <option key={x.id} value={x.id}>
+                                            {x.name}
+                                        </option>
+                                    ))}
+                            </select>
+                        )}
                         <button
                             className="text-xs text-rose-400 hover:text-rose-300"
                             disabled={remove.isPending}
@@ -172,6 +215,9 @@ export default function Accounts() {
                 ))}
                 {accounts.isSuccess && rows.length === 0 && (
                     <p className="text-sm text-slate-500">No accounts yet — create your first below.</p>
+                )}
+                {merge.isError && (
+                    <p className="text-sm text-rose-400">{(merge.error as Error).message}</p>
                 )}
             </div>
 
