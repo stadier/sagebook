@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { requireSupabase } from "../lib/supabase";
+import { useTheme } from "../lib/useTheme";
+import IngestModal from "./ingest/IngestModal";
 
 type IconName =
-    | "capture"
-    | "import"
+    | "overview"
     | "inbox"
     | "transactions"
     | "accounts"
@@ -16,8 +17,7 @@ type IconName =
     | "activity";
 
 const NAV: { to: string; label: string; icon: IconName }[] = [
-    { to: "/capture", label: "Capture", icon: "capture" },
-    { to: "/import", label: "Import", icon: "import" },
+    { to: "/", label: "Overview", icon: "overview" },
     { to: "/inbox", label: "Inbox", icon: "inbox" },
     { to: "/transactions", label: "Transactions", icon: "transactions" },
     { to: "/accounts", label: "Accounts", icon: "accounts" },
@@ -32,11 +32,42 @@ const NAV: { to: string; label: string; icon: IconName }[] = [
 export default function AppShell() {
     const navigate = useNavigate();
     const location = useLocation();
+    const [params] = useSearchParams();
     const [open, setOpen] = useState(false);
+    const { theme, toggle: toggleTheme } = useTheme();
     const [email, setEmail] = useState<string | null>(null);
+    const [ingestOpen, setIngestOpen] = useState(false);
+    const [ingestText, setIngestText] = useState("");
 
     // Close the mobile drawer whenever the route changes.
     useEffect(() => setOpen(false), [location.pathname]);
+
+    // Deep links / the PWA share target land on /capture or /import — open the
+    // ingest modal (prefilled from any shared text) instead of a standalone page.
+    useEffect(() => {
+        if (location.pathname === "/capture" || location.pathname === "/import") {
+            const shared = [params.get("title"), params.get("text"), params.get("url")]
+                .filter(Boolean)
+                .join("\n");
+            setIngestText(shared);
+            setIngestOpen(true);
+        }
+        // params is derived from the URL; pathname changing is the trigger we want.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [location.pathname]);
+
+    function openIngest() {
+        setIngestText("");
+        setIngestOpen(true);
+    }
+
+    function closeIngest() {
+        setIngestOpen(false);
+        // Leave the /capture|/import URL so the effect above doesn't re-open it.
+        if (location.pathname === "/capture" || location.pathname === "/import") {
+            navigate("/", { replace: true });
+        }
+    }
 
     useEffect(() => {
         requireSupabase()
@@ -110,10 +141,11 @@ export default function AppShell() {
                         <NavLink
                             key={item.to}
                             to={item.to}
+                            end={item.to === "/"}
                             className={({ isActive }) =>
                                 `flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors ${
                                     isActive
-                                        ? "bg-white font-medium text-slate-200 shadow-sm"
+                                        ? "bg-white font-medium text-sidebar shadow-sm"
                                         : "text-white/65 hover:bg-white/10 hover:text-white"
                                 }`
                             }
@@ -125,8 +157,15 @@ export default function AppShell() {
                 </nav>
 
                 <button
-                    onClick={signOut}
+                    onClick={toggleTheme}
                     className="mt-3 flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-white/55 hover:bg-white/10 hover:text-white"
+                >
+                    {theme === "dark" ? <SunIcon /> : <MoonIcon />}
+                    {theme === "dark" ? "Light mode" : "Dark mode"}
+                </button>
+                <button
+                    onClick={signOut}
+                    className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-white/55 hover:bg-white/10 hover:text-white"
                 >
                     <LogoutIcon />
                     Sign out
@@ -153,6 +192,17 @@ export default function AppShell() {
                     <Outlet />
                 </main>
             </div>
+
+            {/* Floating "+" — the single entry point for all ingestion */}
+            <button
+                aria-label="Add"
+                onClick={openIngest}
+                className="fixed bottom-6 right-6 z-40 grid h-14 w-14 place-items-center rounded-full bg-emerald-600 text-white shadow-pop transition-transform hover:scale-105 hover:bg-emerald-500 active:scale-95"
+            >
+                <PlusIcon />
+            </button>
+
+            <IngestModal open={ingestOpen} onClose={closeIngest} initialText={ingestText} />
         </div>
     );
 }
@@ -180,19 +230,13 @@ function Svg({ children }: { children: React.ReactNode }) {
 
 function Icon({ name }: { name: IconName }) {
     switch (name) {
-        case "capture":
+        case "overview":
             return (
                 <Svg>
-                    <circle cx="12" cy="12" r="9" />
-                    <path d="M12 8v8M8 12h8" />
-                </Svg>
-            );
-        case "import":
-            return (
-                <Svg>
-                    <path d="M14 3v4a1 1 0 0 0 1 1h4" />
-                    <path d="M19 8v11a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h8z" />
-                    <path d="M12 11v5m0 0-2-2m2 2 2-2" />
+                    <rect x="4" y="4" width="7" height="9" rx="1.5" />
+                    <rect x="4" y="16" width="7" height="4" rx="1.5" />
+                    <rect x="14" y="4" width="6" height="4" rx="1.5" />
+                    <rect x="14" y="11" width="6" height="9" rx="1.5" />
                 </Svg>
             );
         case "inbox":
@@ -287,6 +331,14 @@ function BookIcon() {
     );
 }
 
+function PlusIcon() {
+    return (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden>
+            <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        </svg>
+    );
+}
+
 function MenuIcon() {
     return (
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -319,6 +371,23 @@ function LogoutIcon() {
             <path d="M15 4h3a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-3" />
             <path d="M10 12h9m0 0-3-3m3 3-3 3" />
             <path d="M10 12H3" />
+        </Svg>
+    );
+}
+
+function SunIcon() {
+    return (
+        <Svg>
+            <circle cx="12" cy="12" r="4" />
+            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+        </Svg>
+    );
+}
+
+function MoonIcon() {
+    return (
+        <Svg>
+            <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z" />
         </Svg>
     );
 }

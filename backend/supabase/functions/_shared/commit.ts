@@ -27,9 +27,11 @@ export interface ParsedTx {
   payee?: string;
   memo?: string;
   category?: string;
+  /** One short sentence explaining why this category was chosen. */
+  category_reason?: string;
   tags?: string[];
   /** Source account inferred from the document. */
-  account?: { name?: string; institution?: string; number_masked?: string };
+  account?: { name?: string; institution?: string; number_masked?: string; reason?: string };
   /** Bank reference / session ID — strong dedup signal. */
   reference?: string;
 }

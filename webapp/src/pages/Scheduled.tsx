@@ -154,10 +154,10 @@ export default function Scheduled() {
 
     return (
         <div className="mx-auto max-w-3xl">
-            <div className="mb-1 flex items-center justify-between">
+            <div className="mb-1 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <h1 className="text-xl font-semibold">Scheduled</h1>
                 <button
-                    className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm text-slate-200 hover:bg-slate-700 disabled:opacity-50"
+                    className="self-start rounded-lg bg-slate-800 px-3 py-1.5 text-sm text-slate-200 hover:bg-slate-700 disabled:opacity-50"
                     disabled={runNow.isPending}
                     onClick={() => runNow.mutate()}
                 >

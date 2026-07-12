@@ -49,9 +49,13 @@ function ConnectForm() {
     );
 }
 
+// In dev, prefill sign-in creds so we don't retype them on every reload.
+const DEV_EMAIL = import.meta.env.DEV ? "rjemekoba@gmail.com" : "";
+const DEV_PASSWORD = import.meta.env.DEV ? "Password1$" : "";
+
 function AuthForm() {
-    const [email, setEmail] = useState("");
-    const [password, setPassword] = useState("");
+    const [email, setEmail] = useState(DEV_EMAIL);
+    const [password, setPassword] = useState(DEV_PASSWORD);
     const [mode, setMode] = useState<"signin" | "signup">("signin");
     const [busy, setBusy] = useState(false);
     const [message, setMessage] = useState("");

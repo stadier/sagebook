@@ -90,6 +90,63 @@
     :root {
         color-scheme: light;
     }
+    :root.dark {
+        color-scheme: dark;
+
+        --color-slate-50: #fafaf6;
+        --color-slate-100: #ebebdf;
+        --color-slate-200: #e0ddd4;
+        --color-slate-300: #c0bdb2;
+        --color-slate-400: #9a9688;
+        --color-slate-500: #706c5f;
+        --color-slate-600: #4d4a40;
+        --color-slate-700: #35332c;
+        --color-slate-800: #272520;
+        --color-slate-900: #1c1b17;
+        --color-slate-950: #151412;
+
+        --color-paper: #111110;
+        --color-ink: #e0ddd4;
+        --color-sidebar: #0d0d0c;
+
+        --color-emerald-300: #6bc492;
+        --color-emerald-400: #52b07a;
+        --color-emerald-500: #46a36c;
+        --color-emerald-600: #3a9260;
+        --color-emerald-700: #2f7a4f;
+
+        --color-rose-200: #f0807a;
+        --color-rose-300: #e2635d;
+        --color-rose-400: #d94f48;
+        --color-rose-500: #c73e37;
+        --color-rose-600: #b53530;
+        --color-rose-900: #4a201e;
+        --color-rose-950: #3b1917;
+
+        --color-amber-300: #d4a32e;
+        --color-amber-400: #c79422;
+        --color-amber-500: #b58518;
+        --color-amber-900: #3e2e0e;
+        --color-amber-950: #332508;
+
+        --color-sky-200: #9489e0;
+        --color-sky-300: #8577de;
+        --color-sky-700: #3a3170;
+        --color-sky-800: #322a62;
+        --color-sky-900: #2b2456;
+        --color-sky-950: #231e48;
+
+        --color-sage: #2e3e32;
+        --color-sage-ink: #a3c4a8;
+        --color-gold: #4c3a0e;
+        --color-gold-ink: #ecc65e;
+        --color-violet: #2b2560;
+        --color-violet-ink: #9b8fe0;
+
+        --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.25),
+            0 8px 24px -12px rgba(0, 0, 0, 0.5);
+        --shadow-pop: 0 10px 30px -8px rgba(0, 0, 0, 0.6);
+    }
 
     html,
     body {
@@ -122,10 +179,12 @@
 @layer components {
     /* White elevated card — the default content surface */
     .sb-card {
-        background-color: #ffffff;
+        background-color: var(--color-slate-900);
         border: 1px solid var(--color-slate-800);
         border-radius: var(--radius-2xl);
         box-shadow: var(--shadow-card);
+        overflow: hidden;
+        min-width: 0;
     }
 
     /* Pastel statistic tile (sage / gold / violet variants set inline) */

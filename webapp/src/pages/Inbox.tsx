@@ -156,7 +156,7 @@ export default function Inbox() {
             )}
 
             {rows.length > 0 && (
-                <div className="mb-4 flex items-center gap-3 rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2 text-sm">
+                <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2 text-sm sm:gap-3">
                     <label className="flex items-center gap-2 text-slate-400">
                         <input
                             type="checkbox"
@@ -183,7 +183,7 @@ export default function Inbox() {
                             >
                                 Reject selected
                             </button>
-                            <span className="text-xs text-slate-500">
+                            <span className="hidden text-xs text-slate-500 sm:inline">
                                 Bulk accept keeps each item's current account/category.
                             </span>
                         </>
@@ -469,40 +469,50 @@ function InferencePanel({ tx }: { tx: PendingTransaction }) {
         !tx.account_id && hasAccountHint && !dismissed.has("account");
     const proposeCategory =
         !tx.category_id && ai.category && !dismissed.has("category");
+    // A source account / category that already resolved to an existing row: show
+    // it (with the model's rationale) so the match is auditable, not silent.
+    const matchedAccount = tx.account_id && acc?.name ? acc : null;
+    const matchedCategory = tx.category_id && ai.category ? ai : null;
     const infoChips: string[] = [];
-    if (tx.account_id && acc?.name) infoChips.push(`source: ${acc.name}`);
     if (ai.reference) infoChips.push(`ref: ${ai.reference}`);
     if (ai.line_items?.length) {
         infoChips.push(`${ai.line_items.length} items on receipt (see transaction detail)`);
     }
 
-    if (!proposeAccount && !proposeCategory && infoChips.length === 0) return null;
+    if (!proposeAccount && !proposeCategory && !matchedAccount && !matchedCategory && infoChips.length === 0) {
+        return null;
+    }
 
     return (
         <div className="mt-2 rounded-lg border border-sky-900/50 bg-sky-950/20 p-2 text-xs">
             <div className="mb-1 text-sky-300/80">Inferred from capture:</div>
 
             {proposeAccount && (
-                <div className="flex flex-wrap items-center gap-2 py-0.5">
-                    <span className="text-slate-300">
-                        New account: <span className="font-medium">{accountName}</span>
-                        {!acc?.name && (
-                            <span className="text-slate-500"> (auto-named — rename or merge later)</span>
-                        )}
-                    </span>
-                    <button
-                        className="rounded bg-sky-800/60 px-2 py-0.5 text-sky-200 hover:bg-sky-700/60 disabled:opacity-50"
-                        disabled={createAccount.isPending}
-                        onClick={() => createAccount.mutate()}
-                    >
-                        {createAccount.isPending ? "Creating…" : "Create account & assign"}
-                    </button>
-                    <button
-                        className="text-slate-500 hover:text-slate-300"
-                        onClick={() => setDismissed(new Set([...dismissed, "account"]))}
-                    >
-                        Ignore
-                    </button>
+                <div className="py-0.5">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-slate-300">
+                            New account: <span className="font-medium">{accountName}</span>
+                            {!acc?.name && (
+                                <span className="text-slate-500"> (auto-named — rename or merge later)</span>
+                            )}
+                        </span>
+                        <button
+                            className="rounded bg-sky-800/60 px-2 py-0.5 text-sky-200 hover:bg-sky-700/60 disabled:opacity-50"
+                            disabled={createAccount.isPending}
+                            onClick={() => createAccount.mutate()}
+                        >
+                            {createAccount.isPending ? "Creating…" : "Create account & assign"}
+                        </button>
+                        <button
+                            className="text-slate-500 hover:text-slate-300"
+                            onClick={() => setDismissed(new Set([...dismissed, "account"]))}
+                        >
+                            Ignore
+                        </button>
+                    </div>
+                    {acc?.reason && (
+                        <p className="mt-0.5 italic text-slate-500">Why: {acc.reason}</p>
+                    )}
                 </div>
             )}
             {createAccount.isError && (
@@ -510,41 +520,66 @@ function InferencePanel({ tx }: { tx: PendingTransaction }) {
             )}
 
             {proposeCategory && (
-                <div className="flex flex-wrap items-center gap-2 py-0.5">
-                    <span className="text-slate-300">
-                        New category: <span className="font-medium">{ai.category}</span>
-                    </span>
-                    <select
-                        className="rounded border border-slate-700 bg-slate-950 px-1.5 py-0.5 text-slate-300"
-                        value={categoryGroupId}
-                        onChange={(e) => setCategoryGroupId(e.target.value)}
-                    >
-                        <option value="">— pick group —</option>
-                        {(taxonomy.data ?? [])
-                            .filter((g) => g.id !== "__ungrouped__")
-                            .map((g) => (
-                                <option key={g.id} value={g.id}>
-                                    {g.name}
-                                </option>
-                            ))}
-                    </select>
-                    <button
-                        className="rounded bg-sky-800/60 px-2 py-0.5 text-sky-200 hover:bg-sky-700/60 disabled:opacity-50"
-                        disabled={createCategory.isPending || !categoryGroupId}
-                        onClick={() => createCategory.mutate()}
-                    >
-                        {createCategory.isPending ? "Creating…" : "Create & assign"}
-                    </button>
-                    <button
-                        className="text-slate-500 hover:text-slate-300"
-                        onClick={() => setDismissed(new Set([...dismissed, "category"]))}
-                    >
-                        Ignore
-                    </button>
+                <div className="py-0.5">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-slate-300">
+                            New category: <span className="font-medium">{ai.category}</span>
+                        </span>
+                        <select
+                            className="rounded border border-slate-700 bg-slate-950 px-1.5 py-0.5 text-slate-300"
+                            value={categoryGroupId}
+                            onChange={(e) => setCategoryGroupId(e.target.value)}
+                        >
+                            <option value="">— pick group —</option>
+                            {(taxonomy.data ?? [])
+                                .filter((g) => g.id !== "__ungrouped__")
+                                .map((g) => (
+                                    <option key={g.id} value={g.id}>
+                                        {g.name}
+                                    </option>
+                                ))}
+                        </select>
+                        <button
+                            className="rounded bg-sky-800/60 px-2 py-0.5 text-sky-200 hover:bg-sky-700/60 disabled:opacity-50"
+                            disabled={createCategory.isPending || !categoryGroupId}
+                            onClick={() => createCategory.mutate()}
+                        >
+                            {createCategory.isPending ? "Creating…" : "Create & assign"}
+                        </button>
+                        <button
+                            className="text-slate-500 hover:text-slate-300"
+                            onClick={() => setDismissed(new Set([...dismissed, "category"]))}
+                        >
+                            Ignore
+                        </button>
+                    </div>
+                    {ai.category_reason && (
+                        <p className="mt-0.5 italic text-slate-500">Why: {ai.category_reason}</p>
+                    )}
                 </div>
             )}
             {createCategory.isError && (
                 <p className="text-rose-400">{(createCategory.error as Error).message}</p>
+            )}
+
+            {matchedAccount && (
+                <div className="py-0.5">
+                    <span className="text-slate-400">
+                        Source account: <span className="text-slate-300">{matchedAccount.name}</span>
+                    </span>
+                    {matchedAccount.reason && (
+                        <p className="mt-0.5 italic text-slate-500">Why: {matchedAccount.reason}</p>
+                    )}
+                </div>
+            )}
+
+            {matchedCategory && matchedCategory.category_reason && (
+                <div className="py-0.5">
+                    <span className="text-slate-400">
+                        Category: <span className="text-slate-300">{matchedCategory.category}</span>
+                    </span>
+                    <p className="mt-0.5 italic text-slate-500">Why: {matchedCategory.category_reason}</p>
+                </div>
             )}
 
             {infoChips.length > 0 && (
@@ -659,7 +694,7 @@ function EditForm({
     }
 
     return (
-        <form onSubmit={submit} className="mt-3 grid grid-cols-2 gap-2 text-sm">
+        <form onSubmit={submit} className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
             <input className={inputCls} value={payee} onChange={(e) => setPayee(e.target.value)} placeholder="payee" />
             <div className="flex gap-2">
                 <input
@@ -701,12 +736,12 @@ function EditForm({
                 ))}
             </select>
             <input
-                className={`${inputCls} col-span-2`}
+                className={`${inputCls} sm:col-span-2`}
                 value={memo}
                 onChange={(e) => setMemo(e.target.value)}
                 placeholder="memo"
             />
-            <div className="col-span-2 flex gap-2">
+            <div className="flex gap-2 sm:col-span-2">
                 <button className={acceptCls} disabled={busy}>
                     Save & accept
                 </button>

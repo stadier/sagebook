@@ -1,9 +1,11 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { fmtDate, fmtMoney } from "../lib/format";
+import { fmtDate, fmtMoney } from "../../lib/format";
 import {
     type CsvMapping,
+    detectStatementMeta,
+    guessHeaderRow,
     guessMapping,
     headerSignature,
     type ImportTx,
@@ -14,12 +16,12 @@ import {
     parseOfx,
     parseWorkbook,
     saveTemplate,
-} from "../lib/importer";
-import { logEvent } from "../lib/logger";
-import { fileToBase64, uploadToIngest } from "../lib/storage";
-import { invokeFn } from "../lib/supabase";
-import { fetchAccounts } from "../lib/taxonomy";
-import type { ProcessMediaResult } from "../lib/types";
+    type StatementMeta,
+} from "../../lib/importer";
+import { logEvent } from "../../lib/logger";
+import { uploadToIngest } from "../../lib/storage";
+import { invokeFn, requireSupabase } from "../../lib/supabase";
+import { fetchAccounts } from "../../lib/taxonomy";
 
 const MAX_ROWS = 1000;
 
@@ -30,71 +32,119 @@ interface ImportResult {
     rulesApplied: number;
 }
 
-export default function Import() {
+/**
+ * Deterministic statement import (CSV / Excel / OFX) — column mapping, preview,
+ * and commit to ingest-import. Migrated from the old Import page; the ingest
+ * modal hands it a structured file (PDFs take the AI path in UnifiedEntry).
+ */
+export default function ImportFlow({
+    file,
+    onBack,
+    onClose,
+}: {
+    file: File;
+    onBack: () => void;
+    onClose: () => void;
+}) {
+    const qc = useQueryClient();
     const accounts = useQuery({ queryKey: ["accounts"], queryFn: fetchAccounts });
     const activeAccounts = (accounts.data ?? []).filter((a) => !a.is_archived);
 
-    const [file, setFile] = useState<File | null>(null);
-    const [fileKind, setFileKind] = useState<"csv" | "ofx" | "pdf" | null>(null);
+    const [fileKind, setFileKind] = useState<"csv" | "ofx" | null>(null);
     const [rows, setRows] = useState<string[][]>([]);
     const [ofxResult, setOfxResult] = useState<ReturnType<typeof parseOfx> | null>(null);
     const [mapping, setMapping] = useState<CsvMapping | null>(null);
     const [templateLoaded, setTemplateLoaded] = useState(false);
+    const [meta, setMeta] = useState<StatementMeta | null>(null);
     const [accountId, setAccountId] = useState("");
     const [currency, setCurrency] = useState("USD");
     const [parseError, setParseError] = useState("");
+    const [parsing, setParsing] = useState(true);
 
-    async function onFile(f: File | null) {
-        setFile(f);
-        setFileKind(null);
-        setRows([]);
-        setOfxResult(null);
-        setMapping(null);
-        setTemplateLoaded(false);
-        setParseError("");
-        if (!f) return;
-
-        const ext = f.name.toLowerCase().split(".").pop() ?? "";
-
-        // PDFs are unstructured — they go through AI extraction instead of
-        // the deterministic column-mapping flow.
-        if (ext === "pdf" || f.type === "application/pdf") {
-            setFileKind("pdf");
-            return;
-        }
-
-        // Excel: first worksheet → rows, then the normal CSV mapping flow.
-        if (ext === "xlsx" || ext === "xls") {
-            const parsed = await parseWorkbook(await f.arrayBuffer());
-            if (parsed.length < 2) {
-                setParseError("Could not find data rows in the first worksheet.");
-                return;
-            }
-            setFileKind("csv");
-            setRows(parsed);
-            const template = loadTemplate(headerSignature(parsed));
-            setTemplateLoaded(!!template);
-            setMapping(template ?? guessMapping(parsed[0].map(String)));
-            return;
-        }
-
-        const text = await f.text();
-        if (looksLikeOfx(text)) {
-            setFileKind("ofx");
-            setOfxResult(parseOfx(text, currency));
-            return;
-        }
-        const parsed = parseCsv(text);
-        if (parsed.length < 2) {
-            setParseError("Could not find data rows in this file. Is it a CSV, Excel, OFX, or PDF export?");
-            return;
-        }
+    // Shared setup for a parsed grid: detect the header row (statements have a
+    // title/summary preamble), auto-map from it, and lift account details.
+    function applyGrid(parsed: string[][]) {
+        const headerRow = guessHeaderRow(parsed);
         setFileKind("csv");
         setRows(parsed);
-        const template = loadTemplate(headerSignature(parsed));
+        const template = loadTemplate(headerSignature(parsed, headerRow));
         setTemplateLoaded(!!template);
-        setMapping(template ?? guessMapping(parsed[0].map(String)));
+        // Backfill fields added after a template may have been saved.
+        setMapping(
+            template
+                ? {
+                      ...template,
+                      headerRow: template.headerRow ?? headerRow,
+                      referenceCol: template.referenceCol ?? -1,
+                  }
+                : guessMapping(parsed[headerRow].map(String), headerRow),
+        );
+        const m = detectStatementMeta(parsed, headerRow);
+        setMeta(m);
+        if (m.currency && /^[A-Z]{3}$/.test(m.currency)) setCurrency(m.currency);
     }
+
+    // Parse the handed-in file once (and whenever it changes).
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            setFileKind(null);
+            setRows([]);
+            setOfxResult(null);
+            setMapping(null);
+            setTemplateLoaded(false);
+            setMeta(null);
+            setParseError("");
+            setParsing(true);
+
+            const ext = file.name.toLowerCase().split(".").pop() ?? "";
+
+            // Any failure here (bad file, xlsx-chunk load error, parser throw)
+            // must surface — otherwise the screen dead-ends with no explanation.
+            try {
+                if (ext === "xlsx" || ext === "xls") {
+                    const parsed = await parseWorkbook(await file.arrayBuffer());
+                    if (cancelled) return;
+                    if (parsed.length < 2) {
+                        setParseError("Could not find data rows in the first worksheet.");
+                        return;
+                    }
+                    applyGrid(parsed);
+                    return;
+                }
+
+                const text = await file.text();
+                if (cancelled) return;
+                if (looksLikeOfx(text)) {
+                    setFileKind("ofx");
+                    setOfxResult(parseOfx(text, currency));
+                    return;
+                }
+                const parsed = parseCsv(text);
+                if (parsed.length < 2) {
+                    setParseError("Could not find data rows in this file. Is it a CSV, Excel, or OFX export?");
+                    return;
+                }
+                applyGrid(parsed);
+            } catch (err) {
+                if (!cancelled) {
+                    const message = err instanceof Error ? err.message : String(err);
+                    setParseError(`Could not read this file: ${message}`);
+                    logEvent("error", "import", `Import parse failed: ${message}`, {
+                        file: { name: file.name, size: file.size },
+                    });
+                }
+            } finally {
+                if (!cancelled) setParsing(false);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+        // currency is only used as an OFX fallback at parse time; re-parsing on
+        // every currency keystroke would be wasteful, so it is intentionally omitted.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [file]);
 
     // Selecting an account defaults the row currency to that account's currency.
     function onAccount(id: string) {
@@ -102,6 +152,57 @@ export default function Import() {
         const acct = activeAccounts.find((a) => a.id === id);
         if (acct) setCurrency(acct.currency);
     }
+
+    // Does the statement's account already exist? Match on the number (which we
+    // store masked) or an exact name, so a re-import files under the same ledger.
+    const last4 = meta?.accountNumber?.slice(-4);
+    const existingMatch = activeAccounts.find(
+        (a) =>
+            (last4 && a.metadata?.number_masked?.includes(last4)) ||
+            (meta?.accountName && a.name.toLowerCase() === meta.accountName.toLowerCase()),
+    );
+
+    // Auto-select an existing matching account once, so the user needn't pick it.
+    useEffect(() => {
+        if (existingMatch && !accountId) {
+            setAccountId(existingMatch.id);
+            setCurrency(existingMatch.currency);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [existingMatch?.id]);
+
+    const createAccount = useMutation({
+        mutationFn: async () => {
+            if (!meta) throw new Error("no statement details");
+            const sb = requireSupabase();
+            const { data: u } = await sb.auth.getUser();
+            if (!u.user) throw new Error("not signed in");
+            const { data: created, error } = await sb
+                .from("accounts")
+                .insert({
+                    user_id: u.user.id,
+                    name: (meta.accountName || "Imported account").slice(0, 80),
+                    type: "checking",
+                    currency: (meta.currency || currency).toUpperCase().slice(0, 3),
+                    // The statement's opening balance is authoritative, so this is
+                    // a real (not inferred) opening balance.
+                    opening_balance: meta.openingBalance ?? 0,
+                    metadata: meta.accountNumber
+                        ? { number_masked: `••••${meta.accountNumber.slice(-4)}` }
+                        : {},
+                })
+                .select("id, currency")
+                .single();
+            if (error) throw new Error(error.message);
+            return created;
+        },
+        onSuccess: (created) => {
+            qc.invalidateQueries({ queryKey: ["accounts"] });
+            qc.invalidateQueries({ queryKey: ["account-balances"] });
+            setAccountId(created.id);
+            setCurrency(created.currency);
+        },
+    });
 
     const normalized: { txs: ImportTx[]; errors: string[] } | null =
         fileKind === "ofx"
@@ -112,13 +213,13 @@ export default function Import() {
 
     const doImport = useMutation({
         mutationFn: async (): Promise<ImportResult> => {
-            if (!normalized || !file) throw new Error("nothing to import");
+            if (!normalized) throw new Error("nothing to import");
             if (!normalized.txs.length) throw new Error("no valid rows to import");
             if (normalized.txs.length > MAX_ROWS) {
                 throw new Error(`too many rows (max ${MAX_ROWS}); split the file`);
             }
             if (fileKind === "csv" && mapping) {
-                saveTemplate(headerSignature(rows), mapping);
+                saveTemplate(headerSignature(rows, mapping.headerRow), mapping);
             }
             const storagePath = await uploadToIngest(file); // archive; ok if null
             return invokeFn<ImportResult>("ingest-import", {
@@ -129,7 +230,8 @@ export default function Import() {
             });
         },
         onSuccess: (r) => {
-            logEvent("info", "import", `Import: ${r.committed} rows saved from ${file?.name}`, {
+            qc.invalidateQueries({ queryKey: ["pending-review"] });
+            logEvent("info", "import", `Import: ${r.committed} rows saved from ${file.name}`, {
                 ingestionId: r.ingestionId,
                 committed: r.committed,
                 duplicates: r.duplicates,
@@ -139,134 +241,90 @@ export default function Import() {
         },
         onError: (error) => {
             logEvent("error", "import", `Import failed: ${(error as Error).message}`, {
-                file: file ? { name: file.name, size: file.size } : null,
+                file: { name: file.name, size: file.size },
                 rows: normalized?.txs.length ?? 0,
             });
         },
     });
 
-    // PDFs bypass column mapping: archive to storage, extract with the AI
-    // pipeline (rules, dedup, and account/category inference all apply).
-    const aiImport = useMutation({
-        mutationFn: async (): Promise<ProcessMediaResult> => {
-            if (!file) throw new Error("no file selected");
-            if (file.size > 15 * 1024 * 1024) {
-                throw new Error("PDF too large (max 15 MB)");
-            }
-            const storagePath = await uploadToIngest(file);
-            const payload: Record<string, unknown> = {
-                clientTime: new Date().toISOString(),
-                promptHint: accountId
-                    ? `Statement belongs to account: ${activeAccounts.find((a) => a.id === accountId)?.name}`
-                    : undefined,
-            };
-            if (storagePath) payload.storagePath = storagePath;
-            else payload.inlineMedia = { mimeType: "application/pdf", data: await fileToBase64(file) };
-            return invokeFn<ProcessMediaResult>("process-media", payload);
-        },
-        onSuccess: (r) => {
-            logEvent("info", "import", `PDF import: ${r.committed} rows saved from ${file?.name}`, {
-                ingestionId: r.ingestionId,
-                model: r.model,
-                committed: r.committed,
-                duplicates: r.duplicates,
-                insertErrors: r.insertErrors ?? [],
-            });
-        },
-        onError: (error) => {
-            logEvent("error", "import", `PDF import failed: ${(error as Error).message}`, {
-                file: file ? { name: file.name, size: file.size } : null,
-            });
-        },
-    });
-
-    if (aiImport.isSuccess) {
-        const r = aiImport.data;
-        return (
-            <div className="mx-auto max-w-2xl">
-                <h1 className="mb-4 text-xl font-semibold">PDF extracted</h1>
-                <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-sm">
-                    <p className="mb-2 text-slate-400">{r.parsed.summary}</p>
-                    <p className="text-slate-200">
-                        {r.committed} transaction{r.committed === 1 ? "" : "s"} sent to your inbox.
-                    </p>
-                    <p className="mt-1 text-slate-400">
-                        {r.duplicates} flagged as possible duplicates · {r.rulesApplied} rules applied
-                        · {r.model}
-                    </p>
-                    {(r.insertErrors?.length ?? 0) > 0 && (
-                        <p className="mt-2 text-xs text-amber-400">
-                            ⚠ {r.insertErrors!.length} row{r.insertErrors!.length === 1 ? "" : "s"} could
-                            not be saved: {r.insertErrors!.join(" · ")}
-                        </p>
-                    )}
-                    <div className="mt-4 flex gap-3">
-                        <Link
-                            to="/inbox"
-                            className="rounded-lg bg-emerald-600 px-3 py-2 font-medium text-white hover:bg-emerald-500"
-                        >
-                            Review in inbox →
-                        </Link>
-                        <button
-                            className={neutralCls}
-                            onClick={() => {
-                                aiImport.reset();
-                                onFile(null);
-                            }}
-                        >
-                            Import another file
-                        </button>
-                    </div>
-                </div>
-            </div>
-        );
-    }
-
     if (doImport.isSuccess) {
         const r = doImport.data;
         return (
-            <div className="mx-auto max-w-2xl">
-                <h1 className="mb-4 text-xl font-semibold">Import complete</h1>
-                <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-sm">
-                    <p className="text-slate-200">
-                        {r.committed} transaction{r.committed === 1 ? "" : "s"} sent to your inbox.
-                    </p>
-                    <p className="mt-1 text-slate-400">
-                        {r.duplicates} flagged as possible duplicates · {r.rulesApplied} rules applied.
-                    </p>
-                    <div className="mt-4 flex gap-3">
-                        <Link
-                            to="/inbox"
-                            className="rounded-lg bg-emerald-600 px-3 py-2 font-medium text-white hover:bg-emerald-500"
-                        >
-                            Review in inbox →
-                        </Link>
-                        <button className={neutralCls} onClick={() => doImport.reset()}>
-                            Import another file
-                        </button>
-                    </div>
+            <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-sm">
+                <p className="text-slate-200">
+                    {r.committed} transaction{r.committed === 1 ? "" : "s"} sent to your inbox.
+                </p>
+                <p className="mt-1 text-slate-400">
+                    {r.duplicates} flagged as possible duplicates · {r.rulesApplied} rules applied.
+                </p>
+                <div className="mt-4 flex gap-3">
+                    <Link
+                        to="/inbox"
+                        onClick={onClose}
+                        className="rounded-lg bg-emerald-600 px-3 py-2 font-medium text-white hover:bg-emerald-500"
+                    >
+                        Review in inbox →
+                    </Link>
+                    <button className={neutralCls} onClick={onBack}>
+                        Add another
+                    </button>
                 </div>
             </div>
         );
     }
 
     return (
-        <div className="mx-auto max-w-3xl">
-            <h1 className="mb-1 text-xl font-semibold">Import statement</h1>
-            <p className="mb-6 text-sm text-slate-400">
-                CSV, Excel, and OFX/QFX exports are parsed locally — no AI involved.
-                PDF statements go through AI extraction instead. Either way, rows land
-                in the inbox with rules and duplicate detection applied, so overlap with
-                receipts you already captured gets flagged, not double-counted.
-            </p>
+        <div>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-slate-200">
+                        {file.name} · {(file.size / 1024).toFixed(0)} KB
+                    </p>
+                    <p className="text-xs text-slate-500">
+                        Parsed locally — no AI. Rules and duplicate detection still apply.
+                    </p>
+                </div>
+                <button className={neutralCls} onClick={onBack}>
+                    ← Back
+                </button>
+            </div>
+
+            {meta && (meta.accountName || meta.accountNumber) && (
+                <div className="mb-4 rounded-xl border border-sky-900/50 bg-sky-950/20 p-3 text-xs">
+                    <div className="mb-1 text-sky-300/80">Detected account on this statement:</div>
+                    <div className="text-slate-300">
+                        {meta.accountName && <span className="font-medium">{meta.accountName}</span>}
+                        {meta.accountNumber && ` · ${meta.accountNumber}`}
+                        {meta.currency && ` · ${meta.currency}`}
+                        {meta.openingBalance !== undefined &&
+                            ` · opening ${fmtMoney(meta.openingBalance, meta.currency || currency)}`}
+                    </div>
+                    <div className="mt-2">
+                        {existingMatch ? (
+                            <span className="text-emerald-400">
+                                Filing under your existing “{existingMatch.name}”.
+                            </span>
+                        ) : (
+                            <button
+                                className="rounded bg-sky-800/60 px-2 py-1 text-sky-200 hover:bg-sky-700/60 disabled:opacity-50"
+                                disabled={createAccount.isPending}
+                                onClick={() => createAccount.mutate()}
+                            >
+                                {createAccount.isPending
+                                    ? "Creating…"
+                                    : "Create this account & file here"}
+                            </button>
+                        )}
+                        {createAccount.isError && (
+                            <span className="ml-2 text-rose-400">
+                                {(createAccount.error as Error).message}
+                            </span>
+                        )}
+                    </div>
+                </div>
+            )}
 
             <div className="mb-4 flex flex-wrap items-center gap-3">
-                <input
-                    type="file"
-                    accept=".csv,.txt,.ofx,.qfx,.xlsx,.xls,.pdf"
-                    onChange={(e) => onFile(e.target.files?.[0] ?? null)}
-                    className="text-sm text-slate-400 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-800 file:px-3 file:py-2 file:text-sm file:text-slate-200 hover:file:bg-slate-700"
-                />
                 <select className={inputCls} value={accountId} onChange={(e) => onAccount(e.target.value)}>
                     <option value="">File under account… (optional)</option>
                     {activeAccounts.map((a) => (
@@ -288,27 +346,15 @@ export default function Import() {
 
             {parseError && <p className="mb-4 text-sm text-rose-400">{parseError}</p>}
 
-            {fileKind === "pdf" && (
-                <div className="mb-4 rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-sm">
-                    <p className="mb-1 text-slate-200">
-                        {file?.name} · {((file?.size ?? 0) / 1024).toFixed(0)} KB
-                    </p>
-                    <p className="mb-3 text-xs text-slate-500">
-                        PDFs are extracted by the AI (accounts, categories, and references
-                        are inferred — you confirm everything in the inbox). Selecting an
-                        account above passes it as a hint.
-                    </p>
-                    <button
-                        className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
-                        disabled={aiImport.isPending}
-                        onClick={() => aiImport.mutate()}
-                    >
-                        {aiImport.isPending ? "Extracting…" : "Extract transactions"}
-                    </button>
-                    {aiImport.isError && (
-                        <p className="mt-2 text-xs text-rose-400">{(aiImport.error as Error).message}</p>
-                    )}
-                </div>
+            {parsing && !parseError && (
+                <p className="mb-4 text-sm text-slate-400">Reading file…</p>
+            )}
+
+            {!parsing && !parseError && !fileKind && (
+                <p className="mb-4 text-sm text-slate-500">
+                    Nothing to import from this file. If it's a bank export, make sure it's a
+                    CSV, Excel, or OFX/QFX — PDFs go through the AI capture path instead.
+                </p>
             )}
 
             {fileKind === "csv" && mapping && (
@@ -347,13 +393,15 @@ function MappingEditor({
     templateLoaded: boolean;
     onChange: (m: CsvMapping) => void;
 }) {
-    const headers = rows[0].map((h, i) => (mapping.hasHeader ? String(h) : `Column ${i + 1}`));
+    const headerRow = mapping.headerRow ?? 0;
+    const headerCells = rows[headerRow] ?? rows[0] ?? [];
+    const headers = headerCells.map((h, i) => (mapping.hasHeader ? String(h) : `Column ${i + 1}`));
     const set = <K extends keyof CsvMapping>(key: K, value: CsvMapping[K]) =>
         onChange({ ...mapping, [key]: value });
 
     const colSelect = (
         label: string,
-        key: "dateCol" | "amountCol" | "debitCol" | "creditCol" | "payeeCol" | "memoCol",
+        key: "dateCol" | "amountCol" | "debitCol" | "creditCol" | "payeeCol" | "memoCol" | "referenceCol",
         optional = false,
     ) => (
         <label className="flex items-center gap-2 text-sm text-slate-400">
@@ -389,6 +437,17 @@ function MappingEditor({
                         onChange={(e) => set("hasHeader", e.target.checked)}
                     />
                     First row is a header
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-400" title="1-based row that holds the column names; data starts on the next row. Statements often have a title/summary preamble above it.">
+                    Header row
+                    <input
+                        type="number"
+                        min={1}
+                        max={rows.length}
+                        className={`${inputCls} w-16`}
+                        value={headerRow + 1}
+                        onChange={(e) => set("headerRow", Math.max(0, Number(e.target.value) - 1))}
+                    />
                 </label>
                 {colSelect("Date", "dateCol")}
                 <label className="flex items-center gap-2 text-sm text-slate-400">
@@ -440,12 +499,13 @@ function MappingEditor({
                 )}
                 {colSelect("Payee", "payeeCol", true)}
                 {colSelect("Memo", "memoCol", true)}
+                {colSelect("Reference", "referenceCol", true)}
             </div>
 
             <div className="mt-3 overflow-x-auto">
                 <table className="w-full text-xs">
                     <tbody className="divide-y divide-slate-800/60">
-                        {rows.slice(0, 4).map((row, i) => (
+                        {rows.slice(headerRow, headerRow + 4).map((row, i) => (
                             <tr key={i} className={i === 0 && mapping.hasHeader ? "text-slate-500" : "text-slate-300"}>
                                 {row.map((cell, j) => (
                                     <td key={j} className="whitespace-nowrap px-2 py-1">
