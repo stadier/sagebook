@@ -13,6 +13,7 @@ import Inbox from "./pages/Inbox";
 import NetWorth from "./pages/NetWorth";
 import Reports from "./pages/Reports";
 import Rules from "./pages/Rules";
+import Scheduled from "./pages/Scheduled";
 import Transactions from "./pages/Transactions";
 import Welcome from "./pages/Welcome";
 
@@ -67,6 +68,7 @@ export default function App() {
                             <Route path="/accounts" element={<Accounts />} />
                             <Route path="/categories" element={<Categories />} />
                             <Route path="/rules" element={<Rules />} />
+                            <Route path="/scheduled" element={<Scheduled />} />
                             <Route path="/reports" element={<Reports />} />
                             <Route path="/net-worth" element={<NetWorth />} />
                             <Route path="/activity" element={<Activity />} />

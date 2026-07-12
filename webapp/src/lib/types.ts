@@ -86,6 +86,26 @@ export interface AccountWithBalance extends Account {
     metadata: { auto_balance?: boolean; number_masked?: string } | null;
 }
 
+export type Recurrence = "weekly" | "biweekly" | "monthly" | "quarterly" | "yearly";
+
+export interface ScheduledTransaction {
+    id: string;
+    name: string;
+    kind: "income" | "expense" | "transfer" | "adjustment";
+    schedule_kind: "recurring" | "one_off";
+    recurrence: Recurrence | null;
+    amount: number;
+    currency: string;
+    account_id: string | null;
+    category_id: string | null;
+    payee: string | null;
+    memo: string | null;
+    next_due: string;
+    active: boolean;
+    auto_post: boolean;
+    last_posted_at: string | null;
+}
+
 export interface InferredAccount {
     name?: string;
     institution?: string;

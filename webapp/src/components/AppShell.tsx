@@ -10,6 +10,7 @@ type IconName =
     | "accounts"
     | "categories"
     | "rules"
+    | "scheduled"
     | "reports"
     | "networth"
     | "activity";
@@ -22,6 +23,7 @@ const NAV: { to: string; label: string; icon: IconName }[] = [
     { to: "/accounts", label: "Accounts", icon: "accounts" },
     { to: "/categories", label: "Categories", icon: "categories" },
     { to: "/rules", label: "Rules", icon: "rules" },
+    { to: "/scheduled", label: "Scheduled", icon: "scheduled" },
     { to: "/reports", label: "Reports", icon: "reports" },
     { to: "/net-worth", label: "Net worth", icon: "networth" },
     { to: "/activity", label: "Activity", icon: "activity" },
@@ -230,6 +232,14 @@ function Icon({ name }: { name: IconName }) {
                     <circle cx="16" cy="6" r="2" />
                     <circle cx="8" cy="12" r="2" />
                     <circle cx="14" cy="18" r="2" />
+                </Svg>
+            );
+        case "scheduled":
+            return (
+                <Svg>
+                    <rect x="4" y="5" width="16" height="16" rx="2" />
+                    <path d="M4 9h16M8 3v4M16 3v4" />
+                    <path d="M12 13v3l2 1" />
                 </Svg>
             );
         case "reports":
