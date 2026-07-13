@@ -27,6 +27,10 @@ interface ImportRequest {
   /** Optional archived copy of the statement in the ingest bucket. */
   storagePath?: string | null;
   filename?: string;
+  /** Reuse an existing ingestion (chunked/batched imports share one record). */
+  ingestionId?: string | null;
+  /** Total rows across all batches — for the ingestion summary on batch 1. */
+  totalRows?: number;
 }
 
 function validateTx(tx: ParsedTx, i: number): string | null {
@@ -117,36 +121,51 @@ app.post("/ingest-import", async (c) => {
     }
   }
 
-  const { data: ingestion, error: ingErr } = await admin
-    .from("media_ingestions")
-    .insert({
-      user_id:      userId,
-      storage_path: body.storagePath ?? null,
-      media_kind:   "text",
-      mime_type:    "text/csv",
-      bytes:        JSON.stringify(body.transactions).length,
-      status:       "parsed",
-      prompt_hint:  body.filename ?? "statement import",
-      parsed_payload: {
-        summary: `Imported ${body.transactions.length} rows from ${body.filename ?? "statement"}`,
-        transactions: body.transactions,
-        confidence: 1,
-      },
-      model: "deterministic-import",
-    })
-    .select("id")
-    .single();
-
-  if (ingErr || !ingestion) {
-    return c.json({ error: "could not create ingestion", detail: ingErr?.message }, 500);
+  // Batched imports share a single ingestion record: batch 1 creates it and
+  // returns its id; later batches pass ingestionId to reuse it.
+  let ingestionId = body.ingestionId ?? null;
+  if (ingestionId) {
+    const { data: existing } = await admin
+      .from("media_ingestions")
+      .select("id")
+      .eq("id", ingestionId)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (!existing) {
+      return c.json({ error: "ingestion not found" }, 404);
+    }
+  } else {
+    const total = body.totalRows ?? body.transactions.length;
+    const { data: ingestion, error: ingErr } = await admin
+      .from("media_ingestions")
+      .insert({
+        user_id:      userId,
+        storage_path: body.storagePath ?? null,
+        media_kind:   "text",
+        mime_type:    "text/csv",
+        bytes:        JSON.stringify(body.transactions).length,
+        status:       "parsed",
+        prompt_hint:  body.filename ?? "statement import",
+        parsed_payload: {
+          summary: `Imported ${total} rows from ${body.filename ?? "statement"}`,
+          confidence: 1,
+        },
+        model: "deterministic-import",
+      })
+      .select("id")
+      .single();
+    if (ingErr || !ingestion) {
+      return c.json({ error: "could not create ingestion", detail: ingErr?.message }, 500);
+    }
+    ingestionId = ingestion.id;
   }
 
   const result = await commitParsedTransactions(
-    admin, userId, ingestion.id, body.transactions,
+    admin, userId, ingestionId, body.transactions,
     { accountId: body.accountId ?? null, markApplied: true },
   );
 
-  return c.json({ ingestionId: ingestion.id, ...result });
+  return c.json({ ingestionId, ...result });
 });
 
 Deno.serve((req) => app.fetch(req));

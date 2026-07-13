@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import { fmtDate, fmtMoney } from "../../lib/format";
 import {
     type CsvMapping,
@@ -18,19 +17,15 @@ import {
     saveTemplate,
     type StatementMeta,
 } from "../../lib/importer";
+import { importJobRunning, startImport } from "../../lib/importJob";
 import { logEvent } from "../../lib/logger";
 import { uploadToIngest } from "../../lib/storage";
-import { invokeFn, requireSupabase } from "../../lib/supabase";
+import { requireSupabase } from "../../lib/supabase";
 import { fetchAccounts } from "../../lib/taxonomy";
 
-const MAX_ROWS = 1000;
-
-interface ImportResult {
-    ingestionId: string;
-    committed: number;
-    duplicates: number;
-    rulesApplied: number;
-}
+// Batching lets the background job handle large statements; the per-request cap
+// lives in ingest-import. This is just a sanity ceiling on a single file.
+const MAX_ROWS = 10000;
 
 /**
  * Deterministic statement import (CSV / Excel / OFX) — column mapping, preview,
@@ -218,12 +213,18 @@ export default function ImportFlow({
               ? normalizeCsv(rows, mapping, currency.toUpperCase())
               : null;
 
-    const doImport = useMutation({
-        mutationFn: async (): Promise<ImportResult> => {
+    // Prepare (resolve account, archive the file), kick off the batched
+    // background job, then minimize: progress shows in the persistent bar and
+    // survives closing this modal + navigating away.
+    const begin = useMutation({
+        mutationFn: async () => {
             if (!normalized) throw new Error("nothing to import");
             if (!normalized.txs.length) throw new Error("no valid rows to import");
             if (normalized.txs.length > MAX_ROWS) {
                 throw new Error(`too many rows (max ${MAX_ROWS}); split the file`);
+            }
+            if (importJobRunning()) {
+                throw new Error("an import is already running — let it finish first");
             }
             if (fileKind === "csv" && mapping) {
                 saveTemplate(headerSignature(rows, mapping.headerRow), mapping);
@@ -234,60 +235,35 @@ export default function ImportFlow({
             let acctId = accountId;
             if (!acctId && canCreateAccount) {
                 acctId = (await insertDetectedAccount()).id;
+                qc.invalidateQueries({ queryKey: ["accounts"] });
+                qc.invalidateQueries({ queryKey: ["account-balances"] });
             }
             const storagePath = await uploadToIngest(file); // archive; ok if null
-            return invokeFn<ImportResult>("ingest-import", {
-                transactions: normalized.txs,
+            // Fire-and-forget: startImport runs the batched loop and reports
+            // progress via the store (it catches its own errors).
+            void startImport({
+                txs: normalized.txs,
                 accountId: acctId || null,
                 storagePath,
                 filename: file.name,
             });
         },
-        onSuccess: (r) => {
-            qc.invalidateQueries({ queryKey: ["pending-review"] });
-            qc.invalidateQueries({ queryKey: ["accounts"] });
-            qc.invalidateQueries({ queryKey: ["account-balances"] });
-            logEvent("info", "import", `Import: ${r.committed} rows saved from ${file.name}`, {
-                ingestionId: r.ingestionId,
-                committed: r.committed,
-                duplicates: r.duplicates,
-                rulesApplied: r.rulesApplied,
-                skipped: normalized?.errors.length ?? 0,
-            });
+        onSuccess: () => {
+            // Refresh the inbox as batches land, then minimize to the bar.
+            const iv = setInterval(
+                () => qc.invalidateQueries({ queryKey: ["pending-review"] }),
+                2000,
+            );
+            setTimeout(() => clearInterval(iv), 120000);
+            onClose();
         },
         onError: (error) => {
-            logEvent("error", "import", `Import failed: ${(error as Error).message}`, {
+            logEvent("error", "import", `Import kickoff failed: ${(error as Error).message}`, {
                 file: { name: file.name, size: file.size },
                 rows: normalized?.txs.length ?? 0,
             });
         },
     });
-
-    if (doImport.isSuccess) {
-        const r = doImport.data;
-        return (
-            <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-sm">
-                <p className="text-slate-200">
-                    {r.committed} transaction{r.committed === 1 ? "" : "s"} sent to your inbox.
-                </p>
-                <p className="mt-1 text-slate-400">
-                    {r.duplicates} flagged as possible duplicates · {r.rulesApplied} rules applied.
-                </p>
-                <div className="mt-4 flex gap-3">
-                    <Link
-                        to="/inbox"
-                        onClick={onClose}
-                        className="rounded-lg bg-emerald-600 px-3 py-2 font-medium text-white hover:bg-emerald-500"
-                    >
-                        Review in inbox →
-                    </Link>
-                    <button className={neutralCls} onClick={onBack}>
-                        Add another
-                    </button>
-                </div>
-            </div>
-        );
-    }
 
     return (
         <div>
@@ -391,13 +367,13 @@ export default function ImportFlow({
                 <PreviewPane
                     txs={normalized.txs}
                     errors={normalized.errors}
-                    busy={doImport.isPending}
-                    onImport={() => doImport.mutate()}
+                    busy={begin.isPending}
+                    onImport={() => begin.mutate()}
                 />
             )}
 
-            {doImport.isError && (
-                <p className="mt-3 text-sm text-rose-400">{(doImport.error as Error).message}</p>
+            {begin.isError && (
+                <p className="mt-3 text-sm text-rose-400">{(begin.error as Error).message}</p>
             )}
         </div>
     );

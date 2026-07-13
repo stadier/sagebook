@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate, useSearchParams } from "reac
 import { requireSupabase } from "../lib/supabase";
 import { useTheme } from "../lib/useTheme";
 import IngestModal from "./ingest/IngestModal";
+import ImportProgress from "./ingest/ImportProgress";
 
 type IconName =
     | "overview"
@@ -203,6 +204,9 @@ export default function AppShell() {
             </button>
 
             <IngestModal open={ingestOpen} onClose={closeIngest} initialText={ingestText} />
+
+            {/* Persistent background-import progress, visible on every page. */}
+            <ImportProgress />
         </div>
     );
 }
