@@ -1,34 +1,30 @@
-import { useEffect, useState } from "react";
-import { NavLink, Outlet, useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { type FormEvent, useEffect, useState } from "react";
+import { Link, NavLink, Outlet, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { requireSupabase } from "../lib/supabase";
 import { useTheme } from "../lib/useTheme";
+import { Icon, NAV, navItem, Svg } from "./nav";
 import IngestModal from "./ingest/IngestModal";
 import ImportProgress from "./ingest/ImportProgress";
 
-type IconName =
-    | "overview"
-    | "inbox"
-    | "transactions"
-    | "accounts"
-    | "categories"
-    | "rules"
-    | "scheduled"
-    | "reports"
-    | "networth"
-    | "activity";
+// The top bar only has room for a few destinations. Overview is always pinned
+// first; the next RECENT_LIMIT slots track the most-recently-visited pages, so
+// the bar quietly follows where you work. Everything else lives behind "Apps".
+const RECENT_KEY = "sb-nav-recent";
+const RECENT_LIMIT = 2; // Overview (pinned) + these + the Apps button = 4 slots
+const DEFAULT_RECENT = ["/transactions", "/inbox"];
 
-const NAV: { to: string; label: string; icon: IconName }[] = [
-    { to: "/", label: "Overview", icon: "overview" },
-    { to: "/inbox", label: "Inbox", icon: "inbox" },
-    { to: "/transactions", label: "Transactions", icon: "transactions" },
-    { to: "/accounts", label: "Accounts", icon: "accounts" },
-    { to: "/categories", label: "Categories", icon: "categories" },
-    { to: "/rules", label: "Rules", icon: "rules" },
-    { to: "/scheduled", label: "Scheduled", icon: "scheduled" },
-    { to: "/reports", label: "Reports", icon: "reports" },
-    { to: "/net-worth", label: "Net worth", icon: "networth" },
-    { to: "/activity", label: "Activity", icon: "activity" },
-];
+function loadRecent(): string[] {
+    try {
+        const raw = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "null");
+        if (Array.isArray(raw)) {
+            const valid = raw.filter((r) => typeof r === "string" && r !== "/" && navItem(r));
+            if (valid.length) return valid.slice(0, RECENT_LIMIT);
+        }
+    } catch {
+        /* ignore malformed storage */
+    }
+    return DEFAULT_RECENT;
+}
 
 export default function AppShell() {
     const navigate = useNavigate();
@@ -39,9 +35,33 @@ export default function AppShell() {
     const [email, setEmail] = useState<string | null>(null);
     const [ingestOpen, setIngestOpen] = useState(false);
     const [ingestText, setIngestText] = useState("");
+    const [captureText, setCaptureText] = useState("");
+    const [menuOpen, setMenuOpen] = useState(false);
+    const [appsOpen, setAppsOpen] = useState(false);
+    const [recent, setRecent] = useState<string[]>(loadRecent);
 
-    // Close the mobile drawer whenever the route changes.
-    useEffect(() => setOpen(false), [location.pathname]);
+    // Close the mobile drawer + the Apps popup whenever the route changes.
+    useEffect(() => {
+        setOpen(false);
+        setAppsOpen(false);
+    }, [location.pathname]);
+
+    // Track visited pages so the top bar keeps the current one within reach.
+    // New destinations are prepended; existing ones keep their slot (no reshuffle
+    // on every click), and the oldest drops off past the limit. Overview is
+    // pinned separately, so it never occupies a recent slot.
+    useEffect(() => {
+        const path = location.pathname;
+        if (path === "/" || !navItem(path)) return;
+        setRecent((prev) => (prev.includes(path) ? prev : [path, ...prev].slice(0, RECENT_LIMIT)));
+    }, [location.pathname]);
+
+    useEffect(() => {
+        localStorage.setItem(RECENT_KEY, JSON.stringify(recent));
+    }, [recent]);
+
+    // Pinned Overview + the recent slots — the routes shown as top-bar pills.
+    const topNav = ["/", ...recent];
 
     // Deep links / the PWA share target land on /capture or /import — open the
     // ingest modal (prefilled from any shared text) instead of a standalone page.
@@ -85,9 +105,196 @@ export default function AppShell() {
     const name = email ? email.split("@")[0] : "there";
     const initial = (email?.[0] ?? "S").toUpperCase();
 
+    // Typing in the top-bar "capture" field and pressing Enter is the fast path
+    // into the ingest modal — mapping Twisty's prominent search bar onto
+    // Sagebook's capture-first core.
+    function submitCapture(e: FormEvent) {
+        e.preventDefault();
+        setIngestText(captureText);
+        setIngestOpen(true);
+        setCaptureText("");
+    }
+
     return (
-        <div className="flex min-h-screen bg-paper">
-            {/* Backdrop (mobile only, when drawer is open) */}
+        <div className="flex h-screen flex-col overflow-hidden bg-paper">
+            {/* ---- Top navigation bar (Twisty-style) — fixed above the scroll  */}
+            <header className="z-30 shrink-0 border-b border-slate-800 bg-paper/85 backdrop-blur">
+                <div className="flex h-16 items-center gap-3 px-4 sm:gap-4 sm:px-6">
+                    {/* Hamburger (below lg) + brand */}
+                    <button
+                        aria-label="Open menu"
+                        onClick={() => setOpen(true)}
+                        className="rounded-xl p-2 text-slate-400 hover:bg-slate-800 hover:text-slate-200 lg:hidden"
+                    >
+                        <MenuIcon />
+                    </button>
+                    <Link to="/" className="flex shrink-0 items-center gap-2.5">
+                        <span className="grid h-9 w-9 place-items-center rounded-xl bg-coral text-white shadow-sm">
+                            <BookIcon />
+                        </span>
+                        <span className="text-lg font-semibold tracking-tight text-slate-200">
+                            Sage<span className="text-coral">book</span>
+                        </span>
+                    </Link>
+
+                    {/* Primary nav — pinned Overview + recent pages on lg+; the
+                        full set lives behind the "Apps" launcher. */}
+                    <nav className="ml-1 hidden min-w-0 flex-1 items-center gap-1 lg:flex">
+                        {topNav.map((to) => {
+                            const item = navItem(to);
+                            if (!item) return null;
+                            return (
+                                <NavLink
+                                    key={to}
+                                    to={to}
+                                    end={to === "/"}
+                                    className={({ isActive }) =>
+                                        `shrink-0 rounded-full px-3.5 py-1.5 text-sm transition-colors ${
+                                            isActive
+                                                ? "bg-coral-soft font-semibold text-coral-ink"
+                                                : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                                        }`
+                                    }
+                                >
+                                    {item.label}
+                                </NavLink>
+                            );
+                        })}
+
+                        <div className="relative">
+                            <button
+                                onClick={() => setAppsOpen((v) => !v)}
+                                aria-label="All apps"
+                                aria-expanded={appsOpen}
+                                className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm transition-colors ${
+                                    appsOpen
+                                        ? "bg-slate-800 text-slate-200"
+                                        : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                                }`}
+                            >
+                                <GridIcon />
+                                Apps
+                            </button>
+                            {appsOpen && (
+                                <>
+                                    <button
+                                        aria-hidden
+                                        tabIndex={-1}
+                                        onClick={() => setAppsOpen(false)}
+                                        className="fixed inset-0 z-40 cursor-default"
+                                    />
+                                    <div className="absolute left-0 top-11 z-50 w-[340px] rounded-2xl border border-slate-800 bg-slate-900 p-2 shadow-pop">
+                                        <p className="px-2 pb-1.5 pt-1 text-[0.7rem] font-medium uppercase tracking-wide text-slate-500">
+                                            All apps
+                                        </p>
+                                        <div className="grid grid-cols-3 gap-1">
+                                            {NAV.map((item) => {
+                                                const active = location.pathname === item.to;
+                                                return (
+                                                    <Link
+                                                        key={item.to}
+                                                        to={item.to}
+                                                        onClick={() => setAppsOpen(false)}
+                                                        className={`flex flex-col items-center gap-2 rounded-xl px-2 py-3 text-center transition-colors ${
+                                                            active
+                                                                ? "bg-coral-soft text-coral-ink"
+                                                                : "text-slate-300 hover:bg-slate-950"
+                                                        }`}
+                                                    >
+                                                        <span
+                                                            className={`grid h-9 w-9 place-items-center rounded-lg ${
+                                                                active ? "bg-coral/15" : "bg-slate-950"
+                                                            }`}
+                                                        >
+                                                            <Icon name={item.icon} />
+                                                        </span>
+                                                        <span className="text-xs font-medium leading-tight">
+                                                            {item.label}
+                                                        </span>
+                                                    </Link>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    </nav>
+
+                    {/* Right cluster: capture, theme, avatar */}
+                    <div className="ml-auto flex items-center gap-2 sm:gap-3">
+                        <form onSubmit={submitCapture} className="hidden sm:block">
+                            <div className="flex items-center gap-2 rounded-full border border-slate-800 bg-slate-900 px-3.5 py-2 shadow-sm focus-within:border-coral/60 focus-within:ring-2 focus-within:ring-coral/20">
+                                <SearchIcon />
+                                <input
+                                    value={captureText}
+                                    onChange={(e) => setCaptureText(e.target.value)}
+                                    placeholder="Capture anything…"
+                                    className="w-28 bg-transparent text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none lg:w-40 xl:w-52"
+                                />
+                            </div>
+                        </form>
+
+                        <button
+                            aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                            onClick={toggleTheme}
+                            className="grid h-10 w-10 place-items-center rounded-full border border-slate-800 bg-slate-900 text-slate-400 shadow-sm hover:text-slate-200"
+                        >
+                            {theme === "dark" ? <SunIcon /> : <MoonIcon />}
+                        </button>
+
+                        <div className="relative">
+                            <button
+                                onClick={() => setMenuOpen((v) => !v)}
+                                aria-label="Account menu"
+                                className="grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-coral-400 to-coral-600 text-sm font-semibold text-white shadow-sm ring-2 ring-slate-900 transition-transform hover:scale-105"
+                            >
+                                {initial}
+                            </button>
+                            {menuOpen && (
+                                <>
+                                    <button
+                                        aria-hidden
+                                        tabIndex={-1}
+                                        onClick={() => setMenuOpen(false)}
+                                        className="fixed inset-0 z-40 cursor-default"
+                                    />
+                                    <div className="absolute right-0 top-12 z-50 w-56 overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 shadow-pop">
+                                        <div className="border-b border-slate-800 px-4 py-3">
+                                            <p className="text-[0.7rem] uppercase tracking-wide text-slate-500">
+                                                Welcome back
+                                            </p>
+                                            <p className="truncate text-sm font-medium capitalize text-slate-200">
+                                                {name}
+                                            </p>
+                                        </div>
+                                        <NavLink
+                                            to="/settings"
+                                            onClick={() => setMenuOpen(false)}
+                                            className="flex items-center gap-3 px-4 py-2.5 text-sm text-slate-300 hover:bg-slate-800"
+                                        >
+                                            <Icon name="settings" />
+                                            Settings
+                                        </NavLink>
+                                        <button
+                                            onClick={() => {
+                                                setMenuOpen(false);
+                                                signOut();
+                                            }}
+                                            className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-slate-300 hover:bg-slate-800"
+                                        >
+                                            <LogoutIcon />
+                                            Sign out
+                                        </button>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            {/* ---- Mobile slide-over drawer (below lg) ---------------------- */}
             {open && (
                 <button
                     aria-label="Close menu"
@@ -95,48 +302,29 @@ export default function AppShell() {
                     className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm lg:hidden"
                 />
             )}
-
-            {/* Sidebar — static on desktop, slide-over drawer on mobile */}
             <aside
-                className={`fixed inset-y-0 left-0 z-50 flex w-64 shrink-0 flex-col bg-sidebar p-4 transition-transform duration-300 ease-out lg:static lg:z-auto lg:translate-x-0 ${
+                className={`fixed inset-y-0 left-0 z-50 flex w-64 shrink-0 flex-col bg-sidebar p-4 transition-transform duration-300 ease-out lg:hidden ${
                     open ? "translate-x-0" : "-translate-x-full"
                 }`}
             >
-                {/* Brand */}
                 <div className="mb-6 flex items-center justify-between px-1">
                     <div className="flex items-center gap-2.5">
-                        <span className="grid h-9 w-9 place-items-center rounded-xl bg-emerald-500/20 text-emerald-300">
+                        <span className="grid h-9 w-9 place-items-center rounded-xl bg-coral text-white">
                             <BookIcon />
                         </span>
                         <span className="text-lg font-semibold tracking-tight text-white">
-                            <span className="text-emerald-400">Sage</span>book
+                            Sage<span className="text-coral-400">book</span>
                         </span>
                     </div>
                     <button
                         aria-label="Close menu"
                         onClick={() => setOpen(false)}
-                        className="rounded-lg p-1.5 text-white/60 hover:bg-white/10 hover:text-white lg:hidden"
+                        className="rounded-lg p-1.5 text-white/60 hover:bg-white/10 hover:text-white"
                     >
                         <CloseIcon />
                     </button>
                 </div>
 
-                {/* Welcome / avatar */}
-                <div className="mb-5 flex items-center gap-3 rounded-2xl bg-white/[0.04] px-3 py-3">
-                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 text-sm font-semibold text-white">
-                        {initial}
-                    </span>
-                    <div className="min-w-0">
-                        <p className="text-[0.7rem] uppercase tracking-wide text-white/40">
-                            Welcome back
-                        </p>
-                        <p className="truncate text-sm font-medium capitalize text-white/90">
-                            {name}
-                        </p>
-                    </div>
-                </div>
-
-                {/* Nav */}
                 <nav className="flex flex-1 flex-col gap-1 overflow-y-auto">
                     {NAV.map((item) => (
                         <NavLink
@@ -173,32 +361,16 @@ export default function AppShell() {
                 </button>
             </aside>
 
-            {/* Main column */}
-            <div className="flex min-w-0 flex-1 flex-col">
-                {/* Mobile top bar */}
-                <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-slate-800 bg-paper/90 px-4 py-3 backdrop-blur lg:hidden">
-                    <button
-                        aria-label="Open menu"
-                        onClick={() => setOpen(true)}
-                        className="rounded-lg p-1.5 text-slate-300 hover:bg-slate-800"
-                    >
-                        <MenuIcon />
-                    </button>
-                    <span className="text-base font-semibold tracking-tight">
-                        <span className="text-emerald-500">Sage</span>book
-                    </span>
-                </header>
-
-                <main className="min-w-0 flex-1 p-4 sm:p-6 lg:p-8">
-                    <Outlet />
-                </main>
-            </div>
+            {/* ---- Main content — the only scrolling region ---------------- */}
+            <main className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6">
+                <Outlet />
+            </main>
 
             {/* Floating "+" — the single entry point for all ingestion */}
             <button
                 aria-label="Add"
                 onClick={openIngest}
-                className="fixed bottom-6 right-6 z-40 grid h-14 w-14 place-items-center rounded-full bg-emerald-600 text-white shadow-pop transition-transform hover:scale-105 hover:bg-emerald-500 active:scale-95"
+                className="fixed bottom-6 right-6 z-40 grid h-14 w-14 place-items-center rounded-full bg-coral text-white shadow-pop transition-transform hover:scale-105 hover:bg-coral-600 active:scale-95"
             >
                 <PlusIcon />
             </button>
@@ -211,109 +383,17 @@ export default function AppShell() {
     );
 }
 
-/* --- Icons (inline, stroke-based line set) ------------------------------- */
+/* --- Icons local to the shell chrome ------------------------------------- */
 
-function Svg({ children }: { children: React.ReactNode }) {
+function GridIcon() {
     return (
-        <svg
-            width="19"
-            height="19"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.7"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden
-            className="shrink-0"
-        >
-            {children}
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden className="shrink-0">
+            <rect x="4" y="4" width="6" height="6" rx="1.4" stroke="currentColor" strokeWidth="1.8" />
+            <rect x="14" y="4" width="6" height="6" rx="1.4" stroke="currentColor" strokeWidth="1.8" />
+            <rect x="4" y="14" width="6" height="6" rx="1.4" stroke="currentColor" strokeWidth="1.8" />
+            <rect x="14" y="14" width="6" height="6" rx="1.4" stroke="currentColor" strokeWidth="1.8" />
         </svg>
     );
-}
-
-function Icon({ name }: { name: IconName }) {
-    switch (name) {
-        case "overview":
-            return (
-                <Svg>
-                    <rect x="4" y="4" width="7" height="9" rx="1.5" />
-                    <rect x="4" y="16" width="7" height="4" rx="1.5" />
-                    <rect x="14" y="4" width="6" height="4" rx="1.5" />
-                    <rect x="14" y="11" width="6" height="9" rx="1.5" />
-                </Svg>
-            );
-        case "inbox":
-            return (
-                <Svg>
-                    <path d="M4 13h4l1.5 3h5L16 13h4" />
-                    <path d="M5 13 7 5h10l2 8v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z" />
-                </Svg>
-            );
-        case "transactions":
-            return (
-                <Svg>
-                    <path d="M6 3h9l3 3v15l-2-1-2 1-2-1-2 1-2-1-2 1V4a1 1 0 0 1 1-1z" />
-                    <path d="M9 8h6M9 12h6M9 16h4" />
-                </Svg>
-            );
-        case "accounts":
-            return (
-                <Svg>
-                    <path d="M3 10 12 4l9 6" />
-                    <path d="M5 10v8M19 10v8M9 10v8M15 10v8M3 20h18" />
-                </Svg>
-            );
-        case "categories":
-            return (
-                <Svg>
-                    <rect x="4" y="4" width="7" height="7" rx="1.5" />
-                    <rect x="13" y="4" width="7" height="7" rx="1.5" />
-                    <rect x="4" y="13" width="7" height="7" rx="1.5" />
-                    <rect x="13" y="13" width="7" height="7" rx="1.5" />
-                </Svg>
-            );
-        case "rules":
-            return (
-                <Svg>
-                    <path d="M4 6h10M18 6h2M4 12h2M10 12h10M4 18h8M16 18h4" />
-                    <circle cx="16" cy="6" r="2" />
-                    <circle cx="8" cy="12" r="2" />
-                    <circle cx="14" cy="18" r="2" />
-                </Svg>
-            );
-        case "scheduled":
-            return (
-                <Svg>
-                    <rect x="4" y="5" width="16" height="16" rx="2" />
-                    <path d="M4 9h16M8 3v4M16 3v4" />
-                    <path d="M12 13v3l2 1" />
-                </Svg>
-            );
-        case "reports":
-            return (
-                <Svg>
-                    <path d="M4 20V4M20 20H4" />
-                    <rect x="7" y="12" width="3" height="5" rx="0.5" />
-                    <rect x="12" y="8" width="3" height="9" rx="0.5" />
-                    <rect x="17" y="10" width="3" height="7" rx="0.5" />
-                </Svg>
-            );
-        case "networth":
-            return (
-                <Svg>
-                    <path d="M3 17l5-5 3 3 4-6 3 4" />
-                    <path d="M3 21h18" />
-                    <path d="M16 6h4v4" />
-                </Svg>
-            );
-        case "activity":
-            return (
-                <Svg>
-                    <path d="M3 12h4l2 6 4-14 2 8h6" />
-                </Svg>
-            );
-    }
 }
 
 function BookIcon() {
@@ -339,6 +419,15 @@ function PlusIcon() {
     return (
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden>
             <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        </svg>
+    );
+}
+
+function SearchIcon() {
+    return (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden className="shrink-0 text-slate-500">
+            <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.8" />
+            <path d="m20 20-3.5-3.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
         </svg>
     );
 }

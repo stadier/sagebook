@@ -6,6 +6,7 @@ import AppShell from "./components/AppShell";
 import { getSupabase } from "./lib/supabase";
 import Accounts from "./pages/Accounts";
 import Activity from "./pages/Activity";
+import Budgets from "./pages/Budgets";
 import Categories from "./pages/Categories";
 import Inbox from "./pages/Inbox";
 import NetWorth from "./pages/NetWorth";
@@ -13,6 +14,7 @@ import Overview from "./pages/Overview";
 import Reports from "./pages/Reports";
 import Rules from "./pages/Rules";
 import Scheduled from "./pages/Scheduled";
+import Settings from "./pages/Settings";
 import Transactions from "./pages/Transactions";
 import Welcome from "./pages/Welcome";
 
@@ -70,9 +72,11 @@ export default function App() {
                             <Route path="/categories" element={<Categories />} />
                             <Route path="/rules" element={<Rules />} />
                             <Route path="/scheduled" element={<Scheduled />} />
+                            <Route path="/budgets" element={<Budgets />} />
                             <Route path="/reports" element={<Reports />} />
                             <Route path="/net-worth" element={<NetWorth />} />
                             <Route path="/activity" element={<Activity />} />
+                            <Route path="/settings" element={<Settings />} />
                             <Route path="*" element={<Navigate to="/" replace />} />
                         </Route>
                     </Routes>

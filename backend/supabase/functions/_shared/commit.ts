@@ -73,6 +73,105 @@ export function ruleMatches(rule: Rule, tx: ParsedTx): boolean {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Keyword-based category inference — fallback when no rule or AI matched.
+// Maps common payee/memo keywords to default category names. The lookup is
+// case-insensitive; first match wins, so more-specific patterns come first.
+// ---------------------------------------------------------------------------
+const KEYWORD_RULES: { keywords: string[]; category: string }[] = [
+  // Fees & Charges — bank/tax/regulatory deductions
+  { keywords: ["value added tax", "vat ", "stamp duty", "sms alert", "account maintenance",
+                "bank charge", "bank fee", "service charge", "withholding tax",
+                "commission", "atm charge", "card maintenance"],
+    category: "Fees & Charges" },
+
+  // Groceries & supermarkets
+  { keywords: ["supermarket", "grocery", "groceries", "market", "foodstuff",
+                "shoprite", "spar ", "game stores"],
+    category: "Groceries" },
+
+  // Food & Dining — restaurants, fast-food, delivery
+  { keywords: ["restaurant", "eatery", "kitchen", "chicken republic", "kfc",
+                "dominos", "pizza", "cafe", "bakery", "suya", "food"],
+    category: "Food & Dining" },
+
+  // Transport
+  { keywords: ["uber", "bolt", "taxi", "fuel", "petrol", "filling station",
+                "tollgate", "parking", "transport"],
+    category: "Transport" },
+
+  // Utilities
+  { keywords: ["electricity", "power", "phcn", "ekedc", "ikedc", "dstv",
+                "gotv", "startimes", "cable", "internet", "isp", "airtime",
+                "mtn", "glo", "airtel", "9mobile", "data bundle", "water board"],
+    category: "Utilities" },
+
+  // Health
+  { keywords: ["pharmacy", "hospital", "clinic", "medical", "health",
+                "diagnostic", "laboratory"],
+    category: "Health" },
+
+  // Education
+  { keywords: ["school", "university", "college", "tuition", "education",
+                "academy", "institute"],
+    category: "Education" },
+
+  // Subscriptions
+  { keywords: ["netflix", "spotify", "youtube", "apple.com", "google play",
+                "amazon prime", "subscription", "icloud"],
+    category: "Subscriptions" },
+
+  // Entertainment
+  { keywords: ["cinema", "film house", "concert", "event", "tickets",
+                "entertainment", "betting", "bet9ja", "sportybet"],
+    category: "Entertainment" },
+
+  // Shopping
+  { keywords: ["shopping", "mall", "store", "amazon", "jumia", "konga",
+                "aliexpress"],
+    category: "Shopping" },
+
+  // Travel
+  { keywords: ["airline", "flight", "hotel", "booking", "travel", "air peace",
+                "dana air", "arik"],
+    category: "Travel" },
+
+  // Salary / Income (credits)
+  { keywords: ["salary", "payroll", "wage"],
+    category: "Salary" },
+
+  // Savings
+  { keywords: ["savings", "fixed deposit", "piggyvest", "cowrywise"],
+    category: "Savings & Deposits" },
+
+  // Transfer — surname matching handled separately; this catches generic labels
+  { keywords: ["transfer", "trf"],
+    category: "Transfer" },
+];
+
+export function inferCategoryFromKeywords(tx: ParsedTx, userLastName?: string): { name: string; reason: string } | null {
+  const text = `${tx.payee ?? ""} ${tx.memo ?? ""}`.toLowerCase();
+
+  for (const rule of KEYWORD_RULES) {
+    for (const kw of rule.keywords) {
+      if (text.includes(kw)) {
+        return { name: rule.category, reason: `keyword "${kw}" in transaction text` };
+      }
+    }
+  }
+
+  // Heuristic: if the user's surname appears in the payee, likely a family transfer
+  if (userLastName) {
+    const surname = userLastName.toLowerCase();
+    const payee = (tx.payee ?? "").toLowerCase();
+    if (payee.includes(surname) && tx.kind === "expense") {
+      return { name: "Transfer", reason: `payee shares surname "${userLastName}"` };
+    }
+  }
+
+  return null;
+}
+
 export async function commitParsedTransactions(
   admin: SupabaseClient,
   userId: string,
@@ -146,6 +245,18 @@ export async function commitParsedTransactions(
         ?? catMap.get(key.split(">").pop()!.trim())
         ?? catMap.get(key.split(":").pop()!.trim());
       if (cid) categoryId = cid;
+    }
+
+    // Fall back to keyword-based inference when no rule or AI matched
+    if (!categoryId) {
+      const inferred = inferCategoryFromKeywords(parsed);
+      if (inferred) {
+        const cid = catMap.get(inferred.name.toLowerCase());
+        if (cid) {
+          categoryId = cid;
+          parsed.category_reason = inferred.reason;
+        }
+      }
     }
 
     // --- source account: explicit (imports) beats AI-inferred name match ---

@@ -5,9 +5,9 @@ import { fmtDateTime, fmtMoney } from "../lib/format";
 import { logEvent } from "../lib/logger";
 import { invokeFn, requireSupabase } from "../lib/supabase";
 import { fetchAccounts, fetchTaxonomy } from "../lib/taxonomy";
-import type { Account, PendingTransaction } from "../lib/types";
+import type { Account, ParsedTransaction, PendingTransaction } from "../lib/types";
 
-type ReviewAction = "accept" | "reject" | "edit";
+type ReviewAction = "accept" | "reject" | "edit" | "merge" | "unlink";
 
 const LAST_ACCOUNT_KEY = "sagebook.webapp.lastAccount";
 
@@ -305,7 +305,12 @@ function InboxCard({
                     </div>
                     <InferencePanel tx={tx} />
                     {tx.duplicate_group_id && (
-                        <DuplicateCompare groupId={tx.duplicate_group_id} excludeId={tx.id} />
+                        <DuplicateCompare
+                            groupId={tx.duplicate_group_id}
+                            currentTx={tx}
+                            busy={busy}
+                            onAction={onAction}
+                        />
                     )}
                 </div>
                 <div
@@ -600,21 +605,31 @@ interface DuplicateSibling {
     currency: string;
     occurred_at: string;
     review_status: string;
+    original_ai_data: ParsedTransaction | null;
     media_ingestions: { media_kind: string } | null;
 }
 
-/** The other transaction(s) sharing this duplicate group, for comparison. */
-function DuplicateCompare({ groupId, excludeId }: { groupId: string; excludeId: string }) {
+function DuplicateCompare({
+    groupId,
+    currentTx,
+    busy,
+    onAction,
+}: {
+    groupId: string;
+    currentTx: PendingTransaction;
+    busy: boolean;
+    onAction: (action: ReviewAction, patch?: Record<string, unknown>) => void;
+}) {
     const siblings = useQuery({
-        queryKey: ["dup-group", groupId, excludeId],
+        queryKey: ["dup-group", groupId, currentTx.id],
         queryFn: async () => {
             const { data, error } = await requireSupabase()
                 .from("transactions")
                 .select(
-                    "id, payee, amount, currency, occurred_at, review_status, media_ingestions(media_kind)",
+                    "id, payee, amount, currency, occurred_at, review_status, original_ai_data, media_ingestions(media_kind)",
                 )
                 .eq("duplicate_group_id", groupId)
-                .neq("id", excludeId)
+                .neq("id", currentTx.id)
                 .order("occurred_at", { ascending: false });
             if (error) throw new Error(error.message);
             return (data ?? []) as unknown as DuplicateSibling[];
@@ -623,35 +638,86 @@ function DuplicateCompare({ groupId, excludeId }: { groupId: string; excludeId: 
 
     if (!siblings.data?.length) return null;
 
+    const currentHasItems = !!currentTx.original_ai_data?.line_items?.length;
+
     return (
         <div className="mt-2 rounded-lg border border-amber-900/50 bg-amber-950/20 p-2 text-xs">
             <div className="mb-1 text-amber-300/80">Matches on record:</div>
-            {siblings.data.map((s) => (
-                <div key={s.id} className="flex items-center gap-2 py-0.5 text-slate-400">
-                    <span
-                        className={`rounded px-1.5 py-0.5 ${
-                            s.review_status === "accepted"
-                                ? "bg-emerald-500/15 text-emerald-300"
-                                : s.review_status === "rejected"
-                                  ? "bg-rose-500/15 text-rose-300"
-                                  : "bg-slate-700/50 text-slate-300"
-                        }`}
-                    >
-                        {s.review_status.replace("_", " ")}
-                    </span>
-                    <span>{fmtDateTime(s.occurred_at)}</span>
-                    <span className="text-slate-300">{s.payee ?? "(no payee)"}</span>
-                    {s.media_ingestions?.media_kind && (
-                        <span>via {s.media_ingestions.media_kind}</span>
-                    )}
-                    <span className="ml-auto font-medium text-slate-200">
-                        {fmtMoney(Number(s.amount), s.currency)}
-                    </span>
-                </div>
-            ))}
-            <div className="mt-1 text-slate-500">
-                If this is the same event, Reject this copy; the record above stays.
-            </div>
+            {siblings.data.map((s) => {
+                const siblingHasItems = !!(s.original_ai_data as ParsedTransaction | null)?.line_items?.length;
+                const richer = siblingHasItems && !currentHasItems
+                    ? "sibling"
+                    : currentHasItems && !siblingHasItems
+                      ? "current"
+                      : null;
+
+                return (
+                    <div key={s.id} className="py-1">
+                        <div className="flex items-center gap-2 text-slate-400">
+                            <span
+                                className={`rounded px-1.5 py-0.5 ${
+                                    s.review_status === "accepted"
+                                        ? "bg-emerald-500/15 text-emerald-300"
+                                        : s.review_status === "rejected"
+                                          ? "bg-rose-500/15 text-rose-300"
+                                          : "bg-slate-700/50 text-slate-300"
+                                }`}
+                            >
+                                {s.review_status.replace("_", " ")}
+                            </span>
+                            <span>{fmtDateTime(s.occurred_at)}</span>
+                            <span className="text-slate-300">{s.payee ?? "(no payee)"}</span>
+                            {s.media_ingestions?.media_kind && (
+                                <span>via {s.media_ingestions.media_kind}</span>
+                            )}
+                            <span className="ml-auto font-medium text-slate-200">
+                                {fmtMoney(Number(s.amount), s.currency)}
+                            </span>
+                        </div>
+                        {richer && (
+                            <div className="mt-0.5 text-amber-400/70">
+                                {richer === "sibling"
+                                    ? `This copy has ${(s.original_ai_data as ParsedTransaction).line_items!.length} line items`
+                                    : `Current card has ${currentTx.original_ai_data!.line_items!.length} line items`}
+                            </div>
+                        )}
+                        {s.review_status !== "rejected" && (
+                            <div className="mt-1.5 flex flex-wrap gap-2">
+                                <button
+                                    className="rounded bg-emerald-800/50 px-2 py-0.5 text-emerald-200 hover:bg-emerald-700/50 disabled:opacity-50"
+                                    disabled={busy}
+                                    onClick={() => {
+                                        onAction("merge", { secondary_id: s.id });
+                                    }}
+                                    title="Accept this card and reject the other, merging line items and references from both"
+                                >
+                                    Keep this, merge data
+                                </button>
+                                <button
+                                    className="rounded bg-amber-800/50 px-2 py-0.5 text-amber-200 hover:bg-amber-700/50 disabled:opacity-50"
+                                    disabled={busy}
+                                    onClick={() => {
+                                        onAction("reject");
+                                    }}
+                                    title="Reject this card — the other record stays"
+                                >
+                                    Keep other, reject this
+                                </button>
+                                <button
+                                    className="rounded bg-slate-700/50 px-2 py-0.5 text-slate-300 hover:bg-slate-600/50 disabled:opacity-50"
+                                    disabled={busy}
+                                    onClick={() => {
+                                        onAction("unlink");
+                                    }}
+                                    title="These are not duplicates — unlink from this group"
+                                >
+                                    Not a duplicate
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                );
+            })}
         </div>
     );
 }

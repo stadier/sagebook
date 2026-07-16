@@ -84,7 +84,7 @@ export default function NetWorthChart({ points, currency }: { points: Point[]; c
                             x2={plotR}
                             y1={y(v)}
                             y2={y(v)}
-                            stroke="#1e293b"
+                            stroke="var(--color-slate-800)"
                             strokeWidth={1}
                         />
                         <text
@@ -114,7 +114,7 @@ export default function NetWorthChart({ points, currency }: { points: Point[]; c
                             strokeDasharray="3 3"
                         />
                         {/* 2px surface ring so the marker separates from the line */}
-                        <circle cx={hoverX} cy={hoverY} r={6} fill="#0f172a" />
+                        <circle cx={hoverX} cy={hoverY} r={6} fill="var(--color-slate-900)" />
                         <circle cx={hoverX} cy={hoverY} r={4} fill={MARK} />
                     </g>
                 )}

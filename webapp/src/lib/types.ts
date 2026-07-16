@@ -199,3 +199,63 @@ export interface CategorySummaryRow {
     total_amount: number;
     tx_count: number;
 }
+
+export interface IngestAddress {
+    id: string;
+    slug: string;
+    is_active: boolean;
+    created_at: string;
+}
+
+export type BudgetPeriod = "monthly" | "quarterly" | "yearly" | "custom";
+export type BudgetLineKind = "income" | "expense" | "saving" | "transfer";
+
+export interface Budget {
+    id: string;
+    name: string;
+    period_kind: BudgetPeriod;
+    starts_on: string;
+    ends_on: string;
+    currency: string;
+    is_template: boolean;
+    cloned_from: string | null;
+    notes: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface BudgetCategory {
+    id: string;
+    budget_id: string;
+    category_id: string | null;
+    group_id: string | null;
+    label: string | null;
+    kind: BudgetLineKind;
+    planned_amount: number;
+    rollover: boolean;
+    sort_order: number;
+    notes: string | null;
+}
+
+export interface BudgetAllocation {
+    id: string;
+    budget_category_id: string;
+    month: string;
+    amount: number;
+}
+
+export interface BudgetProgress {
+    budget_category_id: string;
+    budget_id: string;
+    category_id: string | null;
+    group_id: string | null;
+    label: string;
+    kind: BudgetLineKind;
+    planned_amount: number;
+    rollover: boolean;
+    sort_order: number;
+    actual_amount: number;
+    remaining: number;
+    pct_used: number;
+    tx_count: number;
+}
