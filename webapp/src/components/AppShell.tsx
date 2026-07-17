@@ -235,6 +235,16 @@ export default function AppShell() {
                             </div>
                         </form>
 
+                        {/* Sage — the financial voice (the generative console) */}
+                        <Link
+                            to="/console"
+                            aria-label="Open Sage — the financial voice"
+                            className="flex shrink-0 items-center gap-1.5 rounded-full bg-coral px-3 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-coral-600"
+                        >
+                            <SparkIcon />
+                            <span className="hidden sm:inline">Ask Sage</span>
+                        </Link>
+
                         <button
                             aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
                             onClick={toggleTheme}
@@ -419,6 +429,19 @@ function PlusIcon() {
     return (
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden>
             <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        </svg>
+    );
+}
+
+function SparkIcon() {
+    return (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden className="shrink-0">
+            <path
+                d="M12 3l1.6 5.2L19 10l-5.4 1.8L12 17l-1.6-5.2L5 10l5.4-1.8z"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinejoin="round"
+            />
         </svg>
     );
 }

@@ -4,16 +4,25 @@ The production web application that replaces the `test-shell`. It sits directly 
 existing Supabase backend (Postgres + RLS, `process-media`, `commit-transactions`,
 `review-transaction` edge functions) — no new server is required.
 
+The app is the home of **Sage**, Sagebook's financial voice. See
+[FINANCIAL_OS.md](FINANCIAL_OS.md) for the product positioning; this spec covers the
+information architecture and screens that carry it.
+
 ---
 
 ## 1. Goals
 
+- **Voice-first.** There is always one place to *tell Sagebook what happened* or
+  *ask Sagebook about your money*. The Console (`/console`) is the clearest
+  expression of this: a calm sidebar + a prompt canvas that generates a dashboard
+  in response to what you ask. Capture and query are one motion, one prompt.
 - **Capture-first.** The fastest path in the app is "get a financial event into the
   inbox": snap a receipt, speak a voice note, type a sentence, drop a PDF.
 - **Review-second.** Everything AI-extracted lands in a review inbox; the human
   accepts, edits, or rejects. Nothing hits reports until accepted.
 - **Understand-third.** Dashboards for spending by category group, net worth,
-  multi-currency positions.
+  multi-currency positions — pre-built as browsable pages, and generated on
+  demand from the Console.
 
 ## 2. Stack
 
@@ -36,6 +45,8 @@ a raw API harness).
 ```
 /                     → redirect to /inbox (or /welcome when signed out)
 /welcome              Sign in / sign up
+/console              Sage — the financial voice: sidebar + prompt canvas that
+                      generates a dashboard from what you ask (full-screen shell)
 /capture              Full-page capture (also available everywhere as a drawer)
 /inbox                Review queue (pending_review transactions)
 /transactions         Accepted ledger with filters (account, category, date, tag, search)

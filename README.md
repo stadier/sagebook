@@ -1,4 +1,24 @@
-# Sagebook Backend - Hosted Supabase Deployment
+# Sagebook
+
+> Your money has a lot to say. Sagebook gives it a voice.
+
+Sagebook is a **financial operating system** — an always-on surface where you
+speak, type, snap, or forward anything money-related and it becomes a living,
+queryable record. Its interface is **Sage**, the financial voice you talk to:
+*tell Sagebook what happened, ask Sagebook about your money.* Everything Sage
+extracts lands in a review inbox for you to confirm — nothing hits your reports
+until a human nods.
+
+- **Product vision & voice:** [docs/FINANCIAL_OS.md](docs/FINANCIAL_OS.md)
+- **Web app design & IA:** [docs/WEBAPP_DESIGN.md](docs/WEBAPP_DESIGN.md)
+- **How captures flow into the ledger:** [docs/INGESTION_PIPELINES.md](docs/INGESTION_PIPELINES.md)
+
+The web app lives in [`webapp/`](webapp/); the section below covers the Supabase
+backend it runs on.
+
+---
+
+## Backend — Hosted Supabase Deployment
 
 This repository is designed to run with Supabase. If you do not want to use Docker locally, you can deploy to a hosted Supabase project instead.
 

@@ -8,6 +8,7 @@ import Accounts from "./pages/Accounts";
 import Activity from "./pages/Activity";
 import Budgets from "./pages/Budgets";
 import Categories from "./pages/Categories";
+import Console from "./pages/Console";
 import Inbox from "./pages/Inbox";
 import NetWorth from "./pages/NetWorth";
 import Overview from "./pages/Overview";
@@ -60,6 +61,9 @@ export default function App() {
                     <Welcome />
                 ) : (
                     <Routes>
+                        {/* Sage — the financial voice. Full-screen shell with its
+                            own sidebar, so it sits outside the AppShell top nav. */}
+                        <Route path="/console" element={<Console />} />
                         <Route element={<AppShell />}>
                             <Route path="/" element={<Overview />} />
                             {/* Deep links / PWA share target — AppShell opens the ingest modal
