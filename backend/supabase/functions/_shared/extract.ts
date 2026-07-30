@@ -15,6 +15,11 @@ const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY") ?? "";
 const OPENROUTER_MODEL   = Deno.env.get("OPENROUTER_MODEL")   ?? "openrouter/auto";
 const GEMINI_API_KEY     = Deno.env.get("GEMINI_API_KEY")      ?? "";
 const GEMINI_MODEL       = Deno.env.get("GEMINI_MODEL")        ?? "gemini-2.0-flash";
+/** Statements run long; the default cap truncates the JSON mid-array. 2.0-flash
+ *  tops out at 8192, later models go far higher — raise this alongside the model. */
+const GEMINI_MAX_OUTPUT_TOKENS = Number(
+    Deno.env.get("GEMINI_MAX_OUTPUT_TOKENS") ?? "8192",
+) || 8192;
 
 const AI_BASE_URL = (Deno.env.get("AI_BASE_URL") ?? "").replace(/\/$/, "");
 const AI_API_KEY  = Deno.env.get("AI_API_KEY")  ?? "";
@@ -187,11 +192,13 @@ Rules:
 
 export function pickProvider(kind: MediaKind): Provider | null {
     const textOrImage = kind === "text" || kind === "image";
-    // Custom provider is tried first for everything — it may or may not
-    // support PDF/audio/video natively, but a timeout / error will trigger
-    // the fallback in extractTransactions().
+    // OpenAI-compatible providers only take text and images. Handing them a PDF
+    // or audio used to "work" — the bytes went in as a text blob and the model
+    // dutifully returned an empty transaction list. That is worse than an
+    // error: it never throws, so the Gemini fallback below never runs and the
+    // upload silently extracts nothing. Only Gemini sees non-text media.
     const available: Record<Provider, boolean> = {
-        custom:     customConfigured,
+        custom:     customConfigured && textOrImage,
         gemini:     !!GEMINI_API_KEY,
         openrouter: !!OPENROUTER_API_KEY && textOrImage,
     };
@@ -332,8 +339,19 @@ export async function extractWithGemini(
             responseMimeType:  "application/json",
             responseSchema:    RESPONSE_SCHEMA as unknown as Record<string, unknown>,
             temperature:       0.1,
+            maxOutputTokens:   GEMINI_MAX_OUTPUT_TOKENS,
         },
     });
+
+    // A truncated response is unparseable JSON, which the caller would report
+    // as "model returned non-JSON" — accurate but useless. Name the real cause.
+    if (response.candidates?.[0]?.finishReason === "MAX_TOKENS") {
+        throw new Error(
+            `${GEMINI_MODEL} hit its ${GEMINI_MAX_OUTPUT_TOKENS}-token output limit before finishing. ` +
+            "The document holds more transactions than one extraction can return — " +
+            "import it as a statement (CSV, Excel, OFX, or a text-layer PDF) instead.",
+        );
+    }
 
     return response.text ?? "";
 }
@@ -375,22 +393,13 @@ export async function extractWithOpenAICompat(
                     url: `data:${input.inlineMedia.mimeType};base64,${input.inlineMedia.data}`,
                 },
             });
-        } else if (input.inlineMedia.mimeType === "application/pdf") {
-            // Standard OpenAI-compatible APIs don't support native PDF content
-            // parts.  Include the raw text as context and let the model work
-            // with the text prompt — the PDF bytes are effectively passed
-            // through as unstructured text that models with PDF-reading
-            // capability (e.g. certain Mistral models) can handle.
-            const b64 = input.inlineMedia.data;
-            content.push({
-                type: "text",
-                text: `A PDF document was supplied (≈${((b64.length * 3) / 4 / 1024).toFixed(0)} KB base64).  The raw data follows:\n\n${b64}`,
-            });
         } else {
-            content.push({
-                type: "text",
-                text: `Non-image media (${input.inlineMedia.mimeType}) supplied. Use Gemini for best extraction from audio/video/pdf.`,
-            });
+            // Throw rather than pad the prompt with a note or the raw base64:
+            // the model would answer with an empty, confident-looking payload
+            // and the caller could not tell that nothing was ever read.
+            throw new Error(
+                `OpenAI-compatible providers cannot read ${input.inlineMedia.mimeType}; PDF, audio, and video need GEMINI_API_KEY.`,
+            );
         }
     }
 
@@ -465,6 +474,115 @@ export async function extractWithOpenAICompat(
 }
 
 // -----------------------------------------------------------------------------
+// Generic text-in / JSON-out call
+// -----------------------------------------------------------------------------
+
+/**
+ * Run a text-only prompt against the configured providers and return the raw
+ * JSON string, falling back provider by provider. Separate from
+ * extractTransactions() because callers other than the ledger extractor (e.g.
+ * transaction summaries) need their own schema and system prompt.
+ */
+export async function generateJson(opts: {
+    system: string;
+    user: string;
+    schema: Record<string, unknown>;
+    /** Name used in the OpenAI json_schema wrapper. */
+    schemaName?: string;
+    maxOutputTokens?: number;
+}): Promise<{ raw: string; provider: Provider; model: string }> {
+    const candidates = (["custom", "gemini", "openrouter"] as Provider[]).filter((p) =>
+        p === "custom"     ? customConfigured
+      : p === "gemini"     ? !!GEMINI_API_KEY
+      : /* openrouter */     !!OPENROUTER_API_KEY,
+    );
+    if (!candidates.length) {
+        throw new Error(
+            "No AI provider configured. Set AI_BASE_URL + AI_API_KEY + AI_MODEL, GEMINI_API_KEY, or OPENROUTER_API_KEY.",
+        );
+    }
+
+    let lastError: Error | null = null;
+    for (const provider of candidates) {
+        const model = selectedModelForProvider(provider);
+        try {
+            if (provider === "gemini") {
+                if (!genai) throw new Error("GEMINI_API_KEY is not configured");
+                const response = await genai.models.generateContent({
+                    model: GEMINI_MODEL,
+                    contents: [{ role: "user", parts: [{ text: opts.user }] }],
+                    config: {
+                        systemInstruction: opts.system,
+                        responseMimeType:  "application/json",
+                        responseSchema:    opts.schema,
+                        temperature:       0.2,
+                        maxOutputTokens:   opts.maxOutputTokens ?? GEMINI_MAX_OUTPUT_TOKENS,
+                    },
+                });
+                if (response.candidates?.[0]?.finishReason === "MAX_TOKENS") {
+                    throw new Error(`${model} hit its output-token limit; send a smaller batch`);
+                }
+                return { raw: response.text ?? "", provider, model };
+            }
+
+            const cfg = openAIConfigForProvider(provider)!;
+            const system = cfg.schemaMode === "json_object"
+                ? `${opts.system}\n\nRespond with a single JSON object (no markdown fences) conforming to this JSON Schema:\n${JSON.stringify(opts.schema)}`
+                : opts.system;
+
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 60_000);
+            let response: Response;
+            try {
+                response = await fetch(`${cfg.baseUrl}/chat/completions`, {
+                    method: "POST",
+                    headers: {
+                        Authorization: `Bearer ${cfg.apiKey}`,
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        model: cfg.model,
+                        temperature: 0.2,
+                        messages: [
+                            { role: "system", content: system },
+                            { role: "user", content: opts.user },
+                        ],
+                        response_format: cfg.schemaMode === "json_schema"
+                            ? {
+                                type: "json_schema",
+                                json_schema: {
+                                    name: opts.schemaName ?? "sagebook_payload",
+                                    strict: true,
+                                    schema: opts.schema,
+                                },
+                            }
+                            : { type: "json_object" },
+                    }),
+                    signal: controller.signal,
+                });
+            } finally {
+                clearTimeout(timeout);
+            }
+
+            const bodyText = await response.text();
+            if (!response.ok) {
+                throw new Error(`got status: ${response.status} ${response.statusText}. ${bodyText}`);
+            }
+            const payload = safeParse<{ choices?: Array<{ message?: { content?: unknown } }> }>(bodyText);
+            const raw = payload?.choices?.[0]?.message?.content;
+            if (typeof raw !== "string") {
+                throw new Error(`${cfg.baseUrl} response missing message content`);
+            }
+            return { raw, provider, model };
+        } catch (err) {
+            lastError = err instanceof Error ? err : new Error(String(err));
+            console.warn(`[generateJson] ${provider}/${model} failed`, lastError.message);
+        }
+    }
+    throw lastError ?? new Error("all providers failed");
+}
+
+// -----------------------------------------------------------------------------
 // High-level extract helper (picks provider, calls the right function)
 // -----------------------------------------------------------------------------
 
@@ -477,7 +595,7 @@ export async function extractTransactions(
     const textOrImage = mediaKind === "text" || mediaKind === "image";
     const allProviders = ["custom", "gemini", "openrouter"] as Provider[];
     const candidates = allProviders.filter((p) => {
-        if (p === "custom")   return customConfigured;
+        if (p === "custom")   return customConfigured && textOrImage;
         if (p === "gemini")   return !!GEMINI_API_KEY;
         if (p === "openrouter") return !!OPENROUTER_API_KEY && textOrImage;
         return false;

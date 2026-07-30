@@ -61,7 +61,14 @@ export interface Transaction {
     currency: string;
     payee: string | null;
     memo: string | null;
+    /** Generated one-line reading of the row; null until summarized. */
+    summary: string | null;
+    /** Model that wrote `summary`, or "user" when hand-edited. */
+    summary_model: string | null;
+    summary_at: string | null;
     tags: string[];
+    /** Provenance from the source document — currently the bank reference. */
+    metadata: { reference?: string } | null;
     category_id: string | null;
     account_id: string | null;
     review_status: "pending_review" | "accepted" | "rejected";

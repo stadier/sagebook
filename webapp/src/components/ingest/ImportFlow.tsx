@@ -19,6 +19,7 @@ import {
 } from "../../lib/importer";
 import { importJobRunning, startImport } from "../../lib/importJob";
 import { logEvent } from "../../lib/logger";
+import { pdfGridFor } from "../../lib/pdfTable";
 import { uploadToIngest } from "../../lib/storage";
 import { requireSupabase } from "../../lib/supabase";
 import { fetchAccounts } from "../../lib/taxonomy";
@@ -97,6 +98,21 @@ export default function ImportFlow({
             // Any failure here (bad file, xlsx-chunk load error, parser throw)
             // must surface — otherwise the screen dead-ends with no explanation.
             try {
+                if (ext === "pdf") {
+                    // Rebuilt from the PDF's text layer; pdfGridFor reuses the
+                    // parse done during classification.
+                    const grid = await pdfGridFor(file);
+                    if (cancelled) return;
+                    if (grid.length < 2) {
+                        setParseError(
+                            "No transaction table found in this PDF. If it's a scan or a photo, use Capture instead — AI reads those.",
+                        );
+                        return;
+                    }
+                    applyGrid(grid);
+                    return;
+                }
+
                 if (ext === "xlsx" || ext === "xls") {
                     const parsed = await parseWorkbook(await file.arrayBuffer());
                     if (cancelled) return;
@@ -350,7 +366,7 @@ export default function ImportFlow({
             {!parsing && !parseError && !fileKind && (
                 <p className="mb-4 text-sm text-slate-500">
                     Nothing to import from this file. If it's a bank export, make sure it's a
-                    CSV, Excel, or OFX/QFX — PDFs go through the AI capture path instead.
+                    CSV, Excel, OFX/QFX, or a PDF statement with selectable text.
                 </p>
             )}
 

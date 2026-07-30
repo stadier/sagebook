@@ -1,7 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type DragEvent, type FormEvent, useRef, useState } from "react";
-import { classifyFile, runProcessMedia } from "../../lib/ingest";
+import { classifyFile, classifyFileAsync, runProcessMedia } from "../../lib/ingest";
 import { logEvent } from "../../lib/logger";
+import { runSummaryBacklog } from "../../lib/summaryJob";
 import type { ProcessMediaResult } from "../../lib/types";
 import IngestionResult from "./IngestionResult";
 import VoiceRecorder from "./VoiceRecorder";
@@ -25,6 +26,7 @@ export default function UnifiedEntry({
     const [hint, setHint] = useState("");
     const [files, setFiles] = useState<File[]>([]);
     const [dragOver, setDragOver] = useState(false);
+    const [classifying, setClassifying] = useState(false);
     const fileInput = useRef<HTMLInputElement>(null);
 
     const capture = useMutation({
@@ -66,6 +68,11 @@ export default function UnifiedEntry({
         },
         onSuccess: (data, input) => {
             qc.invalidateQueries({ queryKey: ["pending-review"] });
+            // Captured rows arrive without a summary; fill them in the
+            // background and refresh the inbox once they land.
+            void runSummaryBacklog().then(() =>
+                qc.invalidateQueries({ queryKey: ["pending-review"] }),
+            );
             for (const result of data.results) {
                 const failures = result.insertErrors ?? [];
                 logEvent(
@@ -88,12 +95,18 @@ export default function UnifiedEntry({
         },
     });
 
-    function addFiles(incoming: File[]) {
+    async function addFiles(incoming: File[]) {
+        setClassifying(true);
         const structured: File[] = [];
         const ai: File[] = [];
-        for (const f of incoming) {
-            if (classifyFile(f) === "structured") structured.push(f);
-            else ai.push(f);
+        try {
+            for (const f of incoming) {
+                // Async because a PDF has to be sniffed for a transaction table.
+                if ((await classifyFileAsync(f)) === "structured") structured.push(f);
+                else ai.push(f);
+            }
+        } finally {
+            setClassifying(false);
         }
         // If there's exactly one structured file and nothing else, go to import flow
         if (structured.length === 1 && ai.length === 0 && files.length === 0) {
@@ -115,7 +128,7 @@ export default function UnifiedEntry({
         e.preventDefault();
         setDragOver(false);
         const dropped = Array.from(e.dataTransfer.files ?? []);
-        if (dropped.length > 0) addFiles(dropped);
+        if (dropped.length > 0) void addFiles(dropped);
     }
 
     function submit(e: FormEvent) {
@@ -185,7 +198,7 @@ export default function UnifiedEntry({
                         accept="image/*,application/pdf,audio/*,video/*,text/*,.csv,.ofx,.qfx,.xlsx,.xls"
                         onChange={(e) => {
                             const selected = Array.from(e.target.files ?? []);
-                            if (selected.length > 0) addFiles(selected);
+                            if (selected.length > 0) void addFiles(selected);
                         }}
                         className="text-sm text-slate-400 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-800 file:px-3 file:py-2 file:text-sm file:text-slate-200 hover:file:bg-slate-700"
                     />
@@ -227,10 +240,14 @@ export default function UnifiedEntry({
             />
 
             <p className="text-xs text-slate-500">
-                Receipts, photos, audio, and PDFs are read by AI. CSV, Excel, and OFX/QFX
+                Receipts, photos, and audio are read by AI. CSV, Excel, OFX/QFX, and PDF
                 statements open the column mapper instead — all land in your inbox for review.
                 {files.length > 1 && " Each file is extracted separately; duplicates are auto-detected."}
             </p>
+
+            {classifying && (
+                <p className="text-xs text-slate-400">Reading file…</p>
+            )}
 
             <button
                 className="self-start rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"

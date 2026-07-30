@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Fragment, type FormEvent, useState } from "react";
+import { Fragment, type FormEvent, type ReactNode, useState } from "react";
 import { fmtDate, fmtMoney } from "../lib/format";
 import { signedUrlFor } from "../lib/storage";
 import { requireSupabase } from "../lib/supabase";
+import { regenerateSummaries, runSummaryBacklog, useSummaryJob } from "../lib/summaryJob";
 import { fetchAccounts, fetchTaxonomy } from "../lib/taxonomy";
 import type { Transaction } from "../lib/types";
 
@@ -55,10 +56,12 @@ export default function Transactions() {
     const rows = (txs.data ?? []).filter(
         (t) =>
             !term ||
+            (t.summary ?? "").toLowerCase().includes(term) ||
             (t.payee ?? "").toLowerCase().includes(term) ||
             (t.memo ?? "").toLowerCase().includes(term) ||
             (t.categories?.name ?? "").toLowerCase().includes(term),
     );
+    const missingSummaries = (txs.data ?? []).filter((t) => !t.summary).length;
     const maybeMore = (txs.data?.length ?? 0) === limit;
     const filtersActive = Object.values(filters).some(Boolean);
 
@@ -87,6 +90,7 @@ export default function Transactions() {
             const accountName = new Map((accounts.data ?? []).map((a) => [a.id, a.name]));
             const records = (data ?? []).map((t) => ({
                 date: t.occurred_at,
+                summary: t.summary ?? "",
                 payee: t.payee ?? "",
                 memo: t.memo ?? "",
                 amount: t.amount,
@@ -127,7 +131,7 @@ export default function Transactions() {
                 </div>
                 <input
                     className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none focus:border-emerald-500 sm:w-64"
-                    placeholder="Search payee, memo, category…"
+                    placeholder="Search summary, payee, memo, category…"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                 />
@@ -237,9 +241,11 @@ export default function Transactions() {
                 </p>
             )}
 
+            {missingSummaries > 0 && <SummaryBacklogBanner missing={missingSummaries} />}
+
             {rows.length > 0 && (
                 <p className="mb-2 text-xs text-slate-600">
-                    Click a row to see tags and the original receipt/recording.
+                    Click a row for the full details — original narration, reference, and source capture.
                 </p>
             )}
             {rows.length > 0 && (
@@ -248,7 +254,7 @@ export default function Transactions() {
                     <thead>
                         <tr className="border-b border-slate-800 text-left text-xs text-slate-500">
                             <th className="py-2 pr-4 font-medium">Date</th>
-                            <th className="py-2 pr-4 font-medium">Payee</th>
+                            <th className="py-2 pr-4 font-medium">What happened</th>
                             <th className="py-2 pr-4 font-medium">Category</th>
                             <th className="py-2 text-right font-medium">Amount</th>
                         </tr>
@@ -264,8 +270,17 @@ export default function Transactions() {
                                     {fmtDate(t.occurred_at)}
                                 </td>
                                 <td className="py-2 pr-4">
-                                    <div className="text-slate-200">{t.payee ?? "—"}</div>
-                                    {t.memo && <div className="text-xs text-slate-500">{t.memo}</div>}
+                                    {/* The summary is the readable line; the raw
+                                        narration stays underneath, truncated, so
+                                        the row is skimmable but nothing is hidden. */}
+                                    <div className="text-slate-200">
+                                        {t.summary ?? t.payee ?? "—"}
+                                    </div>
+                                    {(t.summary ? (t.payee ?? t.memo) : t.memo) && (
+                                        <div className="truncate text-xs text-slate-500">
+                                            {t.summary ? (t.payee ?? t.memo) : t.memo}
+                                        </div>
+                                    )}
                                 </td>
                                 <td className="py-2 pr-4">
                                     {t.categories ? (
@@ -350,6 +365,8 @@ function TxDetail({ tx }: { tx: TxRow }) {
 
     return (
         <div className="flex flex-col gap-2 text-xs">
+            {!editing && <TxFacts tx={tx} onRegenerated={() => qc.invalidateQueries()} />}
+
             {tx.tags.length > 0 && !editing && (
                 <div className="flex flex-wrap gap-1">
                     {tx.tags.map((tag) => (
@@ -449,6 +466,98 @@ function TxDetail({ tx }: { tx: TxRow }) {
     );
 }
 
+/**
+ * Everything the summary line leaves out. The list row is deliberately one
+ * readable sentence, so this is where the raw record lives: what the bank
+ * actually wrote, the reference, the account, and the exact timestamp.
+ */
+function TxFacts({ tx, onRegenerated }: { tx: TxRow; onRegenerated: () => void }) {
+    const accounts = useQuery({ queryKey: ["accounts"], queryFn: fetchAccounts });
+    const account = (accounts.data ?? []).find((a) => a.id === tx.account_id);
+    const reference = tx.metadata?.reference;
+
+    const regenerate = useMutation({
+        mutationFn: () => regenerateSummaries([tx.id]),
+        onSuccess: onRegenerated,
+    });
+
+    const rows: Array<[string, ReactNode]> = [];
+    if (tx.summary) {
+        rows.push([
+            "Summary",
+            <span className="flex flex-wrap items-baseline gap-2">
+                <span className="text-slate-200">{tx.summary}</span>
+                <span className="text-slate-600">
+                    {tx.summary_model === "user" ? "· edited by you" : `· ${tx.summary_model ?? "generated"}`}
+                </span>
+            </span>,
+        ]);
+    }
+    rows.push(["Amount", `${tx.kind === "expense" ? "−" : tx.kind === "income" ? "+" : ""}${fmtMoney(tx.amount, tx.currency)} · ${tx.kind}`]);
+    rows.push(["Date", new Date(tx.occurred_at).toLocaleString()]);
+    if (tx.payee) rows.push(["Payee", tx.payee]);
+    // The memo holds the bank's verbatim narration — never truncated here.
+    if (tx.memo && tx.memo !== tx.payee) rows.push(["Narration", <span className="break-words">{tx.memo}</span>]);
+    if (reference) rows.push(["Reference", <span className="break-all font-mono">{reference}</span>]);
+    rows.push(["Account", account?.name ?? "— unassigned —"]);
+    rows.push(["Category", tx.categories?.name ?? "— uncategorized —"]);
+    if (tx.original_ai_data?.category_reason) {
+        rows.push(["Why this category", tx.original_ai_data.category_reason]);
+    }
+    rows.push(["Added", new Date(tx.created_at).toLocaleString()]);
+
+    return (
+        <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-3">
+            <dl className="grid gap-x-4 gap-y-1.5 sm:grid-cols-[8rem_1fr]">
+                {rows.map(([label, value], i) => (
+                    <Fragment key={i}>
+                        <dt className="text-slate-500">{label}</dt>
+                        <dd className="mb-1 text-slate-300 sm:mb-0">{value}</dd>
+                    </Fragment>
+                ))}
+            </dl>
+            {tx.summary_model !== "user" && (
+                <button
+                    className="mt-2 text-slate-500 hover:text-slate-300 disabled:opacity-50"
+                    disabled={regenerate.isPending}
+                    onClick={() => regenerate.mutate()}
+                    title="Ask the model to rewrite this summary from the narration"
+                >
+                    {regenerate.isPending ? "Rewriting…" : tx.summary ? "↻ Rewrite summary" : "✨ Generate summary"}
+                </button>
+            )}
+            {regenerate.isError && (
+                <p className="mt-1 text-rose-400">{(regenerate.error as Error).message}</p>
+            )}
+        </div>
+    );
+}
+
+/** Prompt to fill in summaries when the loaded page has rows without one. */
+function SummaryBacklogBanner({ missing }: { missing: number }) {
+    const qc = useQueryClient();
+    const job = useSummaryJob();
+    const running = job.status === "running";
+
+    return (
+        <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-sky-900/50 bg-sky-950/20 px-3 py-2 text-xs">
+            <span className="text-slate-300">
+                {running
+                    ? `Writing summaries… ${job.summarized} done, ${job.remaining} to go.`
+                    : `${missing} transaction${missing === 1 ? " has" : "s have"} no plain-language summary yet.`}
+            </span>
+            {job.status === "error" && <span className="text-rose-400">{job.error}</span>}
+            <button
+                className="ml-auto rounded bg-sky-800/60 px-2 py-1 text-sky-200 hover:bg-sky-700/60 disabled:opacity-50"
+                disabled={running}
+                onClick={() => void runSummaryBacklog().then(() => qc.invalidateQueries())}
+            >
+                {running ? "Working…" : "Generate summaries"}
+            </button>
+        </div>
+    );
+}
+
 function toLocalInput(iso: string): string {
     const d = new Date(iso);
     const pad = (n: number) => String(n).padStart(2, "0");
@@ -466,6 +575,7 @@ function TxEditForm({
     onSave: (patch: Record<string, unknown>) => void;
     onCancel: () => void;
 }) {
+    const [summary, setSummary] = useState(tx.summary ?? "");
     const [payee, setPayee] = useState(tx.payee ?? "");
     const [amount, setAmount] = useState(String(tx.amount));
     const [currency, setCurrency] = useState(tx.currency);
@@ -481,7 +591,14 @@ function TxEditForm({
 
     function submit(e: FormEvent) {
         e.preventDefault();
+        const trimmedSummary = summary.trim();
         onSave({
+            summary: trimmedSummary || null,
+            // Claim the summary as the user's once they touch it, so a later
+            // regeneration pass leaves their wording alone.
+            ...(trimmedSummary !== (tx.summary ?? "")
+                ? { summary_model: trimmedSummary ? "user" : null, summary_at: new Date().toISOString() }
+                : {}),
             payee: payee.trim() || null,
             amount: Number(amount),
             currency: currency.trim().toUpperCase(),
@@ -496,6 +613,13 @@ function TxEditForm({
 
     return (
         <form onSubmit={submit} className="grid gap-2 sm:grid-cols-2">
+            <input
+                className={`${editInputCls} sm:col-span-2`}
+                value={summary}
+                onChange={(e) => setSummary(e.target.value)}
+                placeholder="summary — the one line shown in the list"
+                maxLength={200}
+            />
             <input className={editInputCls} value={payee} onChange={(e) => setPayee(e.target.value)} placeholder="payee" />
             <div className="flex flex-wrap gap-2">
                 <input

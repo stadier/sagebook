@@ -6,6 +6,7 @@
 import { useSyncExternalStore } from "react";
 import type { ImportTx } from "./importer";
 import { logEvent } from "./logger";
+import { runSummaryBacklog } from "./summaryJob";
 import { invokeFn } from "./supabase";
 
 export interface ImportJobState {
@@ -120,6 +121,10 @@ export async function startImport(opts: {
             duplicates,
             total,
         });
+        // Imported rows land with no summary; fill them in the background so the
+        // list is readable without the user asking. Failures are self-reported
+        // by the summary job and never fail the import.
+        void runSummaryBacklog();
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         set({ status: "error", error: message });

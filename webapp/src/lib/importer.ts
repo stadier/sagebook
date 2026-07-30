@@ -152,15 +152,24 @@ export function detectStatementMeta(rows: string[][], headerRow: number): Statem
     };
     for (const row of rows.slice(0, headerRow)) {
         row.forEach((cell, idx) => {
-            const c = String(cell).toLowerCase();
-            if (/account\s*name/.test(c) && !meta.accountName) {
-                meta.accountName = valueAfter(row, idx);
-            } else if (/account\s*(number|no\b|#)/.test(c) && !meta.accountNumber) {
-                meta.accountNumber = valueAfter(row, idx).replace(/\s+/g, "");
-            } else if (/^\s*currency/.test(c) && !meta.currency) {
-                meta.currency = valueAfter(row, idx).toUpperCase().slice(0, 3);
-            } else if (/opening\s*balance/.test(c) && meta.openingBalance === undefined) {
-                const v = parseAmount(valueAfter(row, idx));
+            // A cell may hold the label alone (value in the next cell, as CSV
+            // exports do) or "LABEL: value" in one cell — the usual shape once
+            // a PDF preamble is flattened into a grid. Match on the label part
+            // and prefer the inline value when there is one.
+            const text = String(cell);
+            const colon = text.indexOf(":");
+            const label = (colon >= 0 ? text.slice(0, colon) : text).toLowerCase();
+            const inline = colon >= 0 ? text.slice(colon + 1).trim() : "";
+            const value = () => inline || valueAfter(row, idx);
+
+            if (/account\s*name/.test(label) && !meta.accountName) {
+                meta.accountName = value();
+            } else if (/account\s*(number|no\b|#)/.test(label) && !meta.accountNumber) {
+                meta.accountNumber = value().replace(/\s+/g, "");
+            } else if (/^\s*currency/.test(label) && !meta.currency) {
+                meta.currency = value().toUpperCase().slice(0, 3);
+            } else if (/opening\s*balance/.test(label) && meta.openingBalance === undefined) {
+                const v = parseAmount(value());
                 if (v !== null) meta.openingBalance = v;
             }
         });

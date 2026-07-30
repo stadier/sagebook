@@ -4,6 +4,7 @@
 // path plus the file classification that decides which flow a dropped file
 // takes.
 
+import { looksLikeTable, pdfGridFor } from "./pdfTable";
 import { fileToBase64, uploadToIngest } from "./storage";
 import { invokeFn } from "./supabase";
 import type { ProcessMediaResult } from "./types";
@@ -19,16 +20,30 @@ const STRUCTURED_EXTS = ["csv", "txt", "ofx", "qfx", "xls", "xlsx"];
 /**
  * Decide how a dropped file should be ingested:
  * - "structured": CSV / Excel / OFX exports → the column-mapping import flow.
- * - "ai": receipts, photos, audio, video, and PDFs → process-media extraction.
+ * - "ai": receipts, photos, audio, video → process-media extraction.
  *
- * PDFs are unstructured, so they take the AI path — matching the prior Import
- * page behaviour.
+ * PDFs are decided by `classifyFileAsync`: a statement PDF with a text layer
+ * is a table and belongs in the mapper; a scanned receipt is not. This sync
+ * version cannot read the file, so it answers "ai" for them.
  */
 export function classifyFile(file: File): "structured" | "ai" {
     const ext = file.name.toLowerCase().split(".").pop() ?? "";
     // A .txt could be a CSV export; treat it as structured and let the parser
     // decide (it falls back to an OFX check first).
     return STRUCTURED_EXTS.includes(ext) ? "structured" : "ai";
+}
+
+/**
+ * Classification that can inspect the file. Only PDFs differ from the sync
+ * answer: one carrying a parseable transaction table goes to the mapper (exact
+ * numbers, no row limit), anything else — scans, receipts — goes to AI.
+ */
+export async function classifyFileAsync(file: File): Promise<"structured" | "ai"> {
+    const sync = classifyFile(file);
+    if (sync === "structured") return sync;
+    const ext = file.name.toLowerCase().split(".").pop() ?? "";
+    if (ext !== "pdf" && file.type !== "application/pdf") return "ai";
+    return looksLikeTable(await pdfGridFor(file)) ? "structured" : "ai";
 }
 
 export interface ProcessMediaInput {

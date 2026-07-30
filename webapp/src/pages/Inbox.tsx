@@ -280,7 +280,12 @@ function InboxCard({
                 <input type="checkbox" className="mt-1" checked={checked} onChange={onToggle} />
                 <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-medium text-slate-100">{tx.payee ?? "(no payee)"}</span>
+                        <span className="font-medium text-slate-100">
+                            {tx.summary ?? tx.payee ?? "(no payee)"}
+                        </span>
+                        {tx.summary && tx.payee && (
+                            <span className="text-xs text-slate-500">{tx.payee}</span>
+                        )}
                         {tx.category_name && (
                             <span
                                 className="rounded px-2 py-0.5 text-xs"

@@ -18,9 +18,70 @@ backend it runs on.
 
 ---
 
+## Quick Start — Running the Project Locally
+
+### Prerequisites
+
+- [Node.js](https://nodejs.org/) (v18+)
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (required for the local Supabase backend)
+- [Supabase CLI](https://supabase.com/docs/guides/cli)
+- (Optional but recommended) [VS Code](https://code.visualstudio.com/) with the Supabase extension
+
+### 1. Start the Supabase Backend
+
+```powershell
+cd backend/supabase
+supabase start
+```
+
+This spins up all local Supabase services (Postgres, GoTrue, Storage, Edge Functions, etc.) using Docker. The first run pulls images and applies migrations — subsequent starts are faster.
+
+### 2. Set Required Secrets
+
+While the backend is running, set the Gemini API key used by the `process-media` edge function:
+
+```powershell
+supabase secrets set GEMINI_API_KEY="your_gemini_api_key_here"
+```
+
+### 3. Start the Web App
+
+In a **separate terminal**:
+
+```powershell
+cd webapp
+npm install     # first time only
+npm run dev
+```
+
+This launches the Vite dev server (default: `http://localhost:5173`). The web app is pre-configured to talk to the local Supabase instance.
+
+### 4. (Optional) Start the Test Shell
+
+A barebones HTML harness for exercising edge functions in isolation:
+
+```powershell
+cd test-shell
+npm install     # first time only
+npm run dev
+```
+
+Launches on `http://localhost:5174` (or next available port).
+
+### Stopping the Backend
+
+```powershell
+cd backend/supabase
+supabase stop
+```
+
+> ⚠️ `supabase stop` preserves your data in Docker volumes. Use `supabase stop --no-backup` to reset everything.
+
+---
+
 ## Backend — Hosted Supabase Deployment
 
-This repository is designed to run with Supabase. If you do not want to use Docker locally, you can deploy to a hosted Supabase project instead.
+If you prefer not to run Docker locally, you can deploy to a hosted Supabase project instead.
 
 ## Use a Hosted Supabase Project
 

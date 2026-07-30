@@ -4,7 +4,7 @@
 import { getSupabase } from "./supabase";
 
 export type LogLevel = "info" | "warn" | "error";
-export type LogSource = "capture" | "import" | "inbox" | "networth" | "app";
+export type LogSource = "capture" | "import" | "inbox" | "networth" | "summaries" | "app";
 
 export function logEvent(
     level: LogLevel,
