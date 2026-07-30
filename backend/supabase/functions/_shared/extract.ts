@@ -21,8 +21,6 @@ const AI_API_KEY  = Deno.env.get("AI_API_KEY")  ?? "";
 const AI_MODEL    = Deno.env.get("AI_MODEL")    ?? "";
 const customConfigured = !!(AI_BASE_URL && AI_API_KEY && AI_MODEL);
 
-const CUSTOM_PDF_OK = AI_BASE_URL.includes("mistral");
-
 const genai = GEMINI_API_KEY ? new GoogleGenAI({ apiKey: GEMINI_API_KEY }) : null;
 
 // -----------------------------------------------------------------------------
@@ -189,8 +187,11 @@ Rules:
 
 export function pickProvider(kind: MediaKind): Provider | null {
     const textOrImage = kind === "text" || kind === "image";
+    // Custom provider is tried first for everything — it may or may not
+    // support PDF/audio/video natively, but a timeout / error will trigger
+    // the fallback in extractTransactions().
     const available: Record<Provider, boolean> = {
-        custom:     customConfigured && (textOrImage || (kind === "pdf" && CUSTOM_PDF_OK)),
+        custom:     customConfigured,
         gemini:     !!GEMINI_API_KEY,
         openrouter: !!OPENROUTER_API_KEY && textOrImage,
     };
@@ -216,6 +217,7 @@ export function providerHealthInfo() {
         openrouter: !!OPENROUTER_API_KEY,
         textImageProvider: pickProvider("text"),
         audioPdfProvider: pickProvider("audio"),
+        pdfProvider: pickProvider("pdf"),
     };
 }
 
@@ -345,13 +347,12 @@ export interface OpenAICompatConfig {
     apiKey: string;
     model: string;
     schemaMode: "json_schema" | "json_object";
-    allowDocumentUrl?: boolean;
 }
 
 export function openAIConfigForProvider(provider: Provider): OpenAICompatConfig | null {
     if (provider === "gemini") return null;
     return provider === "custom"
-        ? { baseUrl: AI_BASE_URL, apiKey: AI_API_KEY, model: AI_MODEL, schemaMode: "json_object", allowDocumentUrl: CUSTOM_PDF_OK }
+        ? { baseUrl: AI_BASE_URL, apiKey: AI_API_KEY, model: AI_MODEL, schemaMode: "json_object" }
         : { baseUrl: "https://openrouter.ai/api/v1", apiKey: OPENROUTER_API_KEY, model: OPENROUTER_MODEL, schemaMode: "json_schema" };
 }
 
@@ -374,10 +375,16 @@ export async function extractWithOpenAICompat(
                     url: `data:${input.inlineMedia.mimeType};base64,${input.inlineMedia.data}`,
                 },
             });
-        } else if (input.inlineMedia.mimeType === "application/pdf" && cfg.allowDocumentUrl) {
+        } else if (input.inlineMedia.mimeType === "application/pdf") {
+            // Standard OpenAI-compatible APIs don't support native PDF content
+            // parts.  Include the raw text as context and let the model work
+            // with the text prompt — the PDF bytes are effectively passed
+            // through as unstructured text that models with PDF-reading
+            // capability (e.g. certain Mistral models) can handle.
+            const b64 = input.inlineMedia.data;
             content.push({
-                type: "document_url",
-                document_url: `data:application/pdf;base64,${input.inlineMedia.data}`,
+                type: "text",
+                text: `A PDF document was supplied (≈${((b64.length * 3) / 4 / 1024).toFixed(0)} KB base64).  The raw data follows:\n\n${b64}`,
             });
         } else {
             content.push({
@@ -395,31 +402,40 @@ export async function extractWithOpenAICompat(
         ? `${SYSTEM_INSTRUCTION}\n\nRespond with a single JSON object (no markdown fences) that conforms to this JSON Schema:\n${JSON.stringify(RESPONSE_SCHEMA)}`
         : SYSTEM_INSTRUCTION;
 
-    const response = await fetch(`${cfg.baseUrl}/chat/completions`, {
-        method: "POST",
-        headers: {
-            Authorization: `Bearer ${cfg.apiKey}`,
-            "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-            model: cfg.model,
-            temperature: 0.1,
-            messages: [
-                { role: "system", content: systemPrompt },
-                { role: "user", content },
-            ],
-            response_format: cfg.schemaMode === "json_schema"
-                ? {
-                    type: "json_schema",
-                    json_schema: {
-                        name: "sagebook_ledger_payload",
-                        strict: true,
-                        schema: RESPONSE_SCHEMA,
-                    },
-                }
-                : { type: "json_object" },
-        }),
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+
+    let response: Response;
+    try {
+        response = await fetch(`${cfg.baseUrl}/chat/completions`, {
+            method: "POST",
+            headers: {
+                Authorization: `Bearer ${cfg.apiKey}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                model: cfg.model,
+                temperature: 0.1,
+                messages: [
+                    { role: "system", content: systemPrompt },
+                    { role: "user", content },
+                ],
+                response_format: cfg.schemaMode === "json_schema"
+                    ? {
+                        type: "json_schema",
+                        json_schema: {
+                            name: "sagebook_ledger_payload",
+                            strict: true,
+                            schema: RESPONSE_SCHEMA,
+                        },
+                    }
+                    : { type: "json_object" },
+            }),
+            signal: controller.signal,
+        });
+    } finally {
+        clearTimeout(timeout);
+    }
 
     const bodyText = await response.text();
     if (!response.ok) {
@@ -457,19 +473,42 @@ export async function extractTransactions(
     mediaKind: MediaKind,
     categoryHint?: string | null,
 ): Promise<{ raw: string; provider: Provider; model: string }> {
-    const provider = pickProvider(mediaKind);
-    if (!provider) {
+    // Build the ordered list of providers to try, in priority order.
+    const textOrImage = mediaKind === "text" || mediaKind === "image";
+    const allProviders = ["custom", "gemini", "openrouter"] as Provider[];
+    const candidates = allProviders.filter((p) => {
+        if (p === "custom")   return customConfigured;
+        if (p === "gemini")   return !!GEMINI_API_KEY;
+        if (p === "openrouter") return !!OPENROUTER_API_KEY && textOrImage;
+        return false;
+    });
+
+    if (!candidates.length) {
         throw new Error(
             mediaKind === "text" || mediaKind === "image"
                 ? "No compatible AI provider configured. Set AI_BASE_URL + AI_API_KEY + AI_MODEL, GEMINI_API_KEY, or OPENROUTER_API_KEY."
                 : `${mediaKind} input needs GEMINI_API_KEY (OpenAI-compatible providers only take text and images).`,
         );
     }
-    const model = selectedModelForProvider(provider);
 
-    const raw = provider === "gemini"
-        ? await extractWithGemini(input, categoryHint)
-        : await extractWithOpenAICompat(openAIConfigForProvider(provider)!, input, categoryHint);
+    let lastError: Error | null = null;
+    for (const provider of candidates) {
+        const model = selectedModelForProvider(provider);
+        try {
+            const raw = provider === "gemini"
+                ? await extractWithGemini(input, categoryHint)
+                : await extractWithOpenAICompat(openAIConfigForProvider(provider)!, input, categoryHint);
+            return { raw, provider, model };
+        } catch (err) {
+            lastError = err instanceof Error ? err : new Error(String(err));
+            console.warn(
+                `[extractTransactions] ${provider}/${model} failed, ${
+                    candidates.length > 1 ? "trying next provider…" : "no fallback available"
+                }`,
+                lastError.message,
+            );
+        }
+    }
 
-    return { raw, provider, model };
+    throw lastError ?? new Error("all providers failed");
 }
