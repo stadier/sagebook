@@ -1,24 +1,14 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { Input, PageHeader, QueryError, Select } from "../components/ui";
+import { QK, useRules, useTaxonomy } from "../lib/queries";
 import { requireSupabase } from "../lib/supabase";
-import { fetchTaxonomy } from "../lib/taxonomy";
 import type { Rule } from "../lib/types";
 
 export default function Rules() {
     const qc = useQueryClient();
-
-    const rules = useQuery({
-        queryKey: ["rules"],
-        queryFn: async () => {
-            const { data, error } = await requireSupabase()
-                .from("rules")
-                .select("*")
-                .order("priority", { ascending: false });
-            if (error) throw new Error(error.message);
-            return (data ?? []) as Rule[];
-        },
-    });
+    const rules = useRules();
 
     const update = useMutation({
         mutationFn: async (args: { id: string; patch: Record<string, unknown> }) => {
@@ -28,7 +18,7 @@ export default function Rules() {
                 .eq("id", args.id);
             if (error) throw new Error(error.message);
         },
-        onSuccess: () => qc.invalidateQueries({ queryKey: ["rules"] }),
+        onSuccess: () => qc.invalidateQueries({ queryKey: QK.rules }),
     });
 
     const remove = useMutation({
@@ -36,29 +26,26 @@ export default function Rules() {
             const { error } = await requireSupabase().from("rules").delete().eq("id", id);
             if (error) throw new Error(error.message);
         },
-        onSuccess: () => qc.invalidateQueries({ queryKey: ["rules"] }),
+        onSuccess: () => qc.invalidateQueries({ queryKey: QK.rules }),
     });
 
     return (
-        <div className="mx-auto max-w-3xl">
-            <h1 className="mb-1 text-xl font-semibold">Rules</h1>
-            <p className="mb-6 text-sm text-slate-400">
-                Applied to every new extraction, highest priority first — first match wins.
-                Use them to pin recurring payees to a category and tags automatically.
-            </p>
+        <>
+            <PageHeader
+                title="Rules"
+                subtitle="Applied to every new extraction, highest priority first — first match wins. Use them to pin recurring payees to a category and tags automatically."
+            />
 
             <CreateRuleForm />
 
-            {rules.isLoading && <p className="mt-6 text-sm text-slate-400">Loading…</p>}
-            {rules.isError && (
-                <p className="mt-6 text-sm text-rose-400">{(rules.error as Error).message}</p>
-            )}
+            {rules.isLoading && <p className="text-sm text-slate-400">Loading…</p>}
+            <QueryError error={rules.error} />
 
-            <div className="mt-6 flex flex-col gap-2">
+            <div className="flex flex-col gap-2.5">
                 {(rules.data ?? []).map((rule) => (
                     <div
                         key={rule.id}
-                        className={`flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3 ${
+                        className={`sb-card flex items-center gap-3 px-5 py-3.5 ${
                             rule.active ? "" : "opacity-50"
                         }`}
                     >
@@ -99,7 +86,7 @@ export default function Rules() {
                     </p>
                 )}
             </div>
-        </div>
+        </>
     );
 }
 
@@ -117,7 +104,7 @@ function CreateRuleForm() {
     const [tags, setTags] = useState("");
     const [priority, setPriority] = useState("0");
 
-    const taxonomy = useQuery({ queryKey: ["taxonomy"], queryFn: fetchTaxonomy });
+    const taxonomy = useTaxonomy();
 
     const create = useMutation({
         mutationFn: async () => {
@@ -145,7 +132,7 @@ function CreateRuleForm() {
             setCategoryName("");
             setTags("");
             setPriority("0");
-            qc.invalidateQueries({ queryKey: ["rules"] });
+            qc.invalidateQueries({ queryKey: QK.rules });
         },
     });
 
@@ -155,28 +142,27 @@ function CreateRuleForm() {
     }
 
     return (
-        <form onSubmit={submit} className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+        <form onSubmit={submit} className="sb-card p-4">
             <h2 className="mb-3 text-sm font-semibold text-slate-200">New rule</h2>
             <div className="grid gap-2 sm:grid-cols-2">
-                <input
-                    className={inputCls}
+                <Input
                     placeholder="Rule name"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     required
                 />
                 <div className="flex flex-wrap gap-2">
-                    <select
-                        className={`${inputCls} w-full sm:w-28`}
+                    <Select
+                        className="w-full sm:w-28"
                         value={matchField}
                         onChange={(e) => setMatchField(e.target.value as Rule["match_field"])}
                     >
                         <option value="payee">payee</option>
                         <option value="memo">memo</option>
                         <option value="kind">kind</option>
-                    </select>
-                    <select
-                        className={`${inputCls} w-full sm:w-32`}
+                    </Select>
+                    <Select
+                        className="w-full sm:w-32"
                         value={matchOp}
                         onChange={(e) => setMatchOp(e.target.value as Rule["match_op"])}
                     >
@@ -184,20 +170,16 @@ function CreateRuleForm() {
                         <option value="equals">equals</option>
                         <option value="starts_with">starts with</option>
                         <option value="regex">regex</option>
-                    </select>
-                    <input
-                        className={`${inputCls} min-w-0 flex-1`}
+                    </Select>
+                    <Input
+                        className="min-w-0 flex-1"
                         placeholder="value"
                         value={matchValue}
                         onChange={(e) => setMatchValue(e.target.value)}
                         required
                     />
                 </div>
-                <select
-                    className={inputCls}
-                    value={categoryName}
-                    onChange={(e) => setCategoryName(e.target.value)}
-                >
+                <Select value={categoryName} onChange={(e) => setCategoryName(e.target.value)}>
                     <option value="">— set no category —</option>
                     {(taxonomy.data ?? []).map((group) => (
                         <optgroup key={group.id} label={group.name}>
@@ -209,16 +191,16 @@ function CreateRuleForm() {
                             ))}
                         </optgroup>
                     ))}
-                </select>
+                </Select>
                 <div className="flex gap-2">
-                    <input
-                        className={`${inputCls} min-w-0 flex-1`}
+                    <Input
+                        className="min-w-0 flex-1"
                         placeholder="tags, comma-separated"
                         value={tags}
                         onChange={(e) => setTags(e.target.value)}
                     />
-                    <input
-                        className={`${inputCls} w-24`}
+                    <Input
+                        className="w-24"
                         type="number"
                         title="priority (higher wins)"
                         value={priority}
@@ -227,17 +209,14 @@ function CreateRuleForm() {
                 </div>
             </div>
             <button
-                className="mt-3 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+                className="sb-btn sb-btn-primary mt-3"
                 disabled={create.isPending || !name.trim() || !matchValue.trim()}
             >
                 {create.isPending ? "Creating…" : "Create rule"}
             </button>
-            {create.isError && (
-                <p className="mt-2 text-xs text-rose-400">{(create.error as Error).message}</p>
-            )}
+            <div className="mt-2">
+                <QueryError error={create.error} />
+            </div>
         </form>
     );
 }
-
-const inputCls =
-    "rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500";

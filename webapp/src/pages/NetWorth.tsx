@@ -1,25 +1,15 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import NetWorthChart from "../components/NetWorthChart";
+import { Card, CardHeader, Empty, PageHeader, QueryError, StatCard } from "../components/ui";
+import { accountTypeLabel } from "../lib/constants";
 import { fmtDate, fmtMoney } from "../lib/format";
 import { logEvent } from "../lib/logger";
+import { QK, useNetWorthSnapshots } from "../lib/queries";
 import { invokeFn, requireSupabase } from "../lib/supabase";
-import type { NetWorthSnapshot } from "../lib/types";
 
 export default function NetWorth() {
     const qc = useQueryClient();
-
-    const snapshots = useQuery({
-        queryKey: ["net-worth"],
-        queryFn: async () => {
-            const { data, error } = await requireSupabase()
-                .from("net_worth_snapshots")
-                .select("*")
-                .order("as_of", { ascending: true })
-                .limit(365);
-            if (error) throw new Error(error.message);
-            return (data ?? []) as NetWorthSnapshot[];
-        },
-    });
+    const snapshots = useNetWorthSnapshots();
 
     // One click: sync today's FX rates, fill missing base_amounts, snapshot.
     const update = useMutation({
@@ -31,7 +21,7 @@ export default function NetWorth() {
             const snap = await sb.rpc("refresh_my_net_worth");
             if (snap.error) throw new Error(snap.error.message);
         },
-        onSuccess: () => qc.invalidateQueries({ queryKey: ["net-worth"] }),
+        onSuccess: () => qc.invalidateQueries({ queryKey: QK.netWorth }),
         onError: (error) => {
             logEvent("error", "networth", `Net worth update failed: ${(error as Error).message}`);
         },
@@ -41,30 +31,23 @@ export default function NetWorth() {
     const latest = rows.length ? rows[rows.length - 1] : null;
 
     return (
-        <div className="mx-auto max-w-3xl">
-            <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-                <div>
-                    <h1 className="text-xl font-semibold">Net worth</h1>
-                    <p className="text-sm text-slate-400">
-                        Account balances converted to your base currency, snapshotted daily.
-                    </p>
-                </div>
+        <>
+            <PageHeader
+                title="Net worth"
+                subtitle="Account balances converted to your base currency, snapshotted daily."
+            >
                 <button
-                    className="self-start rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+                    className="sb-btn sb-btn-primary"
                     disabled={update.isPending}
                     onClick={() => update.mutate()}
                 >
                     {update.isPending ? "Updating…" : "Update now"}
                 </button>
-            </div>
+            </PageHeader>
 
-            {update.isError && (
-                <p className="mb-4 text-sm text-rose-400">{(update.error as Error).message}</p>
-            )}
+            <QueryError error={update.error} />
+            <QueryError error={snapshots.error} />
             {snapshots.isLoading && <p className="text-sm text-slate-400">Loading…</p>}
-            {snapshots.isError && (
-                <p className="text-sm text-rose-400">{(snapshots.error as Error).message}</p>
-            )}
 
             {snapshots.isSuccess && !latest && (
                 <p className="text-sm text-slate-500">
@@ -75,29 +58,27 @@ export default function NetWorth() {
 
             {latest && (
                 <>
-                    <div className="mb-6 grid gap-4 sm:grid-cols-3">
-                        <StatTile
+                    <div className="grid gap-3.5 sm:grid-cols-3">
+                        <StatCard
                             label={`Net worth · ${fmtDate(latest.as_of)}`}
                             value={fmtMoney(Number(latest.net_worth), latest.base_currency)}
-                            tone="text-slate-100"
+                            tone="dark"
                         />
-                        <StatTile
+                        <StatCard
                             label="Assets"
                             value={fmtMoney(Number(latest.assets), latest.base_currency)}
-                            tone="text-emerald-400"
+                            tone="positive"
                         />
-                        <StatTile
+                        <StatCard
                             label="Liabilities"
                             value={fmtMoney(Number(latest.liabilities), latest.base_currency)}
-                            tone="text-rose-300"
+                            tone="negative"
                         />
                     </div>
 
-                    {rows.length >= 2 ? (
-                        <div className="mb-6 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-                            <h2 className="mb-2 text-sm font-medium text-slate-200">
-                                Net worth over time
-                            </h2>
+                    <Card feature>
+                        <CardHeader title="Net worth over time" />
+                        {rows.length >= 2 ? (
                             <NetWorthChart
                                 points={rows.map((s) => ({
                                     date: s.as_of,
@@ -105,62 +86,66 @@ export default function NetWorth() {
                                 }))}
                                 currency={latest.base_currency}
                             />
-                        </div>
-                    ) : (
-                        <p className="mb-6 text-xs text-slate-500">
-                            The trend line appears once there are snapshots on two or more days.
-                        </p>
-                    )}
+                        ) : (
+                            <Empty>
+                                The trend line appears once there are snapshots on two or more days.
+                            </Empty>
+                        )}
+                    </Card>
 
-                    <h2 className="mb-2 text-sm font-medium text-slate-200">
-                        Breakdown · {fmtDate(latest.as_of)}
-                    </h2>
-                    <div className="-mx-1 overflow-x-auto px-1">
-                    <table className="w-full min-w-[28rem] text-sm">
-                        <thead>
-                            <tr className="border-b border-slate-800 text-left text-xs text-slate-500">
-                                <th className="py-2 pr-4 font-medium">Account</th>
-                                <th className="py-2 pr-4 font-medium">Balance</th>
-                                <th className="py-2 text-right font-medium">
-                                    In {latest.base_currency}
-                                </th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-800/60">
-                            {(latest.breakdown ?? []).map((b) => (
-                                <tr key={b.account_id}>
-                                    <td className="py-2 pr-4">
-                                        <div className="text-slate-200">{b.name}</div>
-                                        <div className="text-xs text-slate-500">{b.type.replace("_", " ")}</div>
-                                    </td>
-                                    <td className="py-2 pr-4 text-slate-300">
-                                        {fmtMoney(Number(b.balance), b.currency)}
-                                    </td>
-                                    <td className="py-2 text-right text-slate-200">
-                                        {b.rate_missing ? (
-                                            <span className="text-xs text-amber-400" title="No FX rate for this currency yet — excluded from totals. Try 'Update now'.">
-                                                ⚠ no rate
-                                            </span>
-                                        ) : (
-                                            fmtMoney(Number(b.base_amount ?? 0), latest.base_currency)
-                                        )}
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                    </div>
+                    <Card padded={false}>
+                        <div className="border-b border-slate-800 px-5 py-4">
+                            <h2 className="text-[0.8125rem] font-bold text-slate-200">
+                                Breakdown · {fmtDate(latest.as_of)}
+                            </h2>
+                        </div>
+                        <div className="overflow-x-auto">
+                            <table className="w-full min-w-[28rem] text-sm">
+                                <thead>
+                                    <tr className="border-b border-slate-800 text-left text-[0.6875rem] font-bold uppercase tracking-[0.06em] text-slate-500">
+                                        <th className="px-5 py-3">Account</th>
+                                        <th className="px-5 py-3">Balance</th>
+                                        <th className="px-5 py-3 text-right">
+                                            In {latest.base_currency}
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {(latest.breakdown ?? []).map((b) => (
+                                        <tr key={b.account_id} className="border-b border-slate-800 last:border-0">
+                                            <td className="px-5 py-3">
+                                                <div className="font-medium text-slate-200">{b.name}</div>
+                                                <div className="text-xs text-slate-500">
+                                                    {accountTypeLabel(b.type)}
+                                                </div>
+                                            </td>
+                                            <td className="px-5 py-3 text-slate-300 tnum">
+                                                {fmtMoney(Number(b.balance), b.currency)}
+                                            </td>
+                                            <td className="px-5 py-3 text-right font-bold text-slate-200 tnum">
+                                                {b.rate_missing ? (
+                                                    <span
+                                                        className="text-xs font-semibold text-amber-400"
+                                                        title="No FX rate for this currency yet — excluded from totals. Try 'Update now'."
+                                                    >
+                                                        ⚠ no rate
+                                                    </span>
+                                                ) : (
+                                                    fmtMoney(
+                                                        Number(b.base_amount ?? 0),
+                                                        latest.base_currency,
+                                                    )
+                                                )}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </Card>
                 </>
             )}
-        </div>
+        </>
     );
 }
 
-function StatTile({ label, value, tone }: { label: string; value: string; tone: string }) {
-    return (
-        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-            <div className="text-xs text-slate-500">{label}</div>
-            <div className={`mt-1 text-lg font-semibold ${tone}`}>{value}</div>
-        </div>
-    );
-}

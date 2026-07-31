@@ -13,7 +13,7 @@ export default function ImportProgress() {
     const pct = job.total > 0 ? Math.round((job.processed / job.total) * 100) : 0;
 
     return (
-        <div className="fixed bottom-24 right-6 z-50 w-80 max-w-[calc(100vw-3rem)] rounded-xl border border-slate-800 bg-slate-900 p-4 shadow-pop">
+        <div className="fixed bottom-24 right-6 z-50 w-80 max-w-[calc(100vw-3rem)] sb-card p-4 shadow-pop">
             <div className="mb-1 flex items-center justify-between gap-2">
                 <span className="truncate text-sm font-medium text-slate-100">
                     {job.status === "running" && "Importing…"}

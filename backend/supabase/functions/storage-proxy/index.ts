@@ -7,48 +7,28 @@
 //   POST /storage-proxy/upload  (raw bytes; x-file-name / x-file-type headers)
 //     → { storagePath: "b2:<userId>/<uuid>-<name>" }
 //   POST /storage-proxy/sign    { path: "b2:..." }
-//     → { url } (temporary read URL, 1h)
+//     → { url } (temporary read URL)
 // =============================================================================
 
-import { cors } from "https://deno.land/x/hono@v4.3.11/middleware.ts";
-import { Hono } from "https://deno.land/x/hono@v4.3.11/mod.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { b2Configured, b2SignedUrl, b2Upload } from "../_shared/b2.ts";
+import { MAX_UPLOAD_BYTES, SIGNED_URL_TTL_SECONDS } from "../_shared/constants.ts";
+import {
+  createApp,
+  errorMessage,
+  ownsStoragePath,
+  readJson,
+  requireUser,
+  serve,
+} from "../_shared/http.ts";
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
-const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
-
-const MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
-
-async function requireUser(authHeader: string): Promise<string | null> {
-  if (!authHeader.toLowerCase().startsWith("bearer ")) return null;
-  const client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    global: { headers: { Authorization: authHeader } },
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  const { data, error } = await client.auth.getUser();
-  return error || !data?.user ? null : data.user.id;
-}
-
-const app = new Hono();
-
-app.use(
-  "*",
-  cors({
-    origin: "*",
-    allowHeaders: [
-      "authorization", "content-type", "x-client-info", "apikey",
-      "x-file-name", "x-file-type",
-    ],
-    allowMethods: ["POST", "OPTIONS"],
-  }),
-);
-
-app.get("/storage-proxy/health", (c) => c.json({ ok: true, b2: b2Configured() }));
+const app = createApp("storage-proxy", {
+  allowHeaders: ["x-file-name", "x-file-type"],
+  health: () => ({ b2: b2Configured() }),
+});
 
 app.post("/storage-proxy/upload", async (c) => {
-  const userId = await requireUser(c.req.header("authorization") ?? "");
-  if (!userId) return c.json({ error: "invalid session" }, 401);
+  const auth = await requireUser(c);
+  if (!auth.ok) return auth.response;
   if (!b2Configured()) return c.json({ error: "B2 storage is not configured" }, 503);
 
   const bytes = await c.req.arrayBuffer();
@@ -63,46 +43,39 @@ app.post("/storage-proxy/upload", async (c) => {
     c.req.header("x-file-type") ||
     c.req.header("content-type") ||
     "application/octet-stream";
-  const path = `${userId}/${crypto.randomUUID()}-${safeName}`;
+  const path = `${auth.userId}/${crypto.randomUUID()}-${safeName}`;
 
   try {
     await b2Upload(path, bytes, contentType);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error("[storage-proxy] upload failed:", message);
-    return c.json({ error: "upload failed", detail: message }, 502);
+    console.error("[storage-proxy] upload failed:", errorMessage(err));
+    return c.json({ error: "upload failed", detail: errorMessage(err) }, 502);
   }
 
   return c.json({ storagePath: `b2:${path}` });
 });
 
 app.post("/storage-proxy/sign", async (c) => {
-  const userId = await requireUser(c.req.header("authorization") ?? "");
-  if (!userId) return c.json({ error: "invalid session" }, 401);
+  const auth = await requireUser(c);
+  if (!auth.ok) return auth.response;
   if (!b2Configured()) return c.json({ error: "B2 storage is not configured" }, 503);
 
-  let body: { path?: string };
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ error: "body must be JSON" }, 400);
-  }
+  const parsed = await readJson<{ path?: string }>(c);
+  if (!parsed.ok) return parsed.response;
 
-  const raw = body.path ?? "";
+  const raw = parsed.body.path ?? "";
   if (!raw.startsWith("b2:")) return c.json({ error: "path must start with b2:" }, 400);
-  const path = raw.slice(3);
-  if (!path.startsWith(`${userId}/`)) {
+  if (!ownsStoragePath(auth.userId, raw)) {
     return c.json({ error: "path must be under your own folder" }, 403);
   }
 
   try {
-    const url = await b2SignedUrl(path, 3600);
+    const url = await b2SignedUrl(raw.slice(3), SIGNED_URL_TTL_SECONDS);
     return c.json({ url });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error("[storage-proxy] sign failed:", message);
-    return c.json({ error: "sign failed", detail: message }, 502);
+    console.error("[storage-proxy] sign failed:", errorMessage(err));
+    return c.json({ error: "sign failed", detail: errorMessage(err) }, 502);
   }
 });
 
-Deno.serve((req) => app.fetch(req));
+serve(app);

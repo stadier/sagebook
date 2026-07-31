@@ -3,22 +3,19 @@
  * Query cache keys), so a generated view is live data, not a mock. Rendered by
  * <GeneratedView> from the panel ids on a matched intent. */
 
-import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import NetWorthChart from "../NetWorthChart";
-import { currentMonthStart, fmtDate, fmtMoney } from "../../lib/format";
-import { requireSupabase } from "../../lib/supabase";
-import type {
-    AccountWithBalance,
-    CategorySummaryRow,
-    MonthlySummaryRow,
-    NetWorthSnapshot,
-    PendingTransaction,
-    Transaction,
-} from "../../lib/types";
+import { fmtDate, fmtMoney } from "../../lib/format";
+import {
+    useAccountBalances,
+    useCategorySummary,
+    useMonthlySummary,
+    useNetWorthSnapshots,
+    usePendingReview,
+    useRecentTransactions,
+} from "../../lib/queries";
 import type { PanelId } from "../../lib/console/intents";
-
-type RecentTx = Pick<Transaction, "id" | "kind" | "occurred_at" | "amount" | "currency" | "payee">;
+import type { MonthlySummaryRow } from "../../lib/types";
 
 /** Render the ordered panels for a matched intent. */
 export default function GeneratedView({ panels }: { panels: PanelId[] }) {
@@ -57,102 +54,12 @@ function renderPanel(id: PanelId) {
     }
 }
 
-/* --- shared query hooks (cache keys match the classic dashboard) ---------- */
-
-function useNetWorth() {
-    return useQuery({
-        queryKey: ["net-worth"],
-        queryFn: async () => {
-            const { data, error } = await requireSupabase()
-                .from("net_worth_snapshots")
-                .select("*")
-                .order("as_of", { ascending: true })
-                .limit(365);
-            if (error) throw new Error(error.message);
-            return (data ?? []) as NetWorthSnapshot[];
-        },
-    });
-}
-
-function useMonthly() {
-    const month = currentMonthStart();
-    return useQuery({
-        queryKey: ["monthly-summary", month],
-        queryFn: async () => {
-            const { data, error } = await requireSupabase()
-                .from("v_monthly_summary")
-                .select("*")
-                .eq("month", month);
-            if (error) throw new Error(error.message);
-            return (data ?? []) as MonthlySummaryRow[];
-        },
-    });
-}
-
-function useCategories() {
-    const month = currentMonthStart();
-    return useQuery({
-        queryKey: ["category-summary", month],
-        queryFn: async () => {
-            const { data, error } = await requireSupabase()
-                .from("v_category_summary")
-                .select("*")
-                .eq("month", month)
-                .order("total_amount", { ascending: false });
-            if (error) throw new Error(error.message);
-            return (data ?? []) as CategorySummaryRow[];
-        },
-    });
-}
-
-function useBalances() {
-    return useQuery({
-        queryKey: ["account-balances"],
-        queryFn: async () => {
-            const { data, error } = await requireSupabase()
-                .from("v_account_balances")
-                .select("*")
-                .order("created_at");
-            if (error) throw new Error(error.message);
-            return (data ?? []) as AccountWithBalance[];
-        },
-    });
-}
-
-function useRecent() {
-    return useQuery({
-        queryKey: ["recent-transactions"],
-        queryFn: async () => {
-            const { data, error } = await requireSupabase()
-                .from("transactions")
-                .select("id, kind, occurred_at, amount, currency, payee")
-                .eq("review_status", "accepted")
-                .order("occurred_at", { ascending: false })
-                .limit(6);
-            if (error) throw new Error(error.message);
-            return (data ?? []) as RecentTx[];
-        },
-    });
-}
-
-function usePending() {
-    return useQuery({
-        queryKey: ["pending-review"],
-        queryFn: async () => {
-            const { data, error } = await requireSupabase()
-                .from("v_pending_review")
-                .select("*")
-                .order("occurred_at", { ascending: false });
-            if (error) throw new Error(error.message);
-            return (data ?? []) as PendingTransaction[];
-        },
-    });
-}
-
-/* --- panels --------------------------------------------------------------- */
+/* --- panels ---------------------------------------------------------------
+   Every panel reads through lib/queries, so a generated view shares the
+   dashboard's cache rather than refetching the same rows. */
 
 function NetWorthPanel() {
-    const q = useNetWorth();
+    const q = useNetWorthSnapshots();
     const rows = q.data ?? [];
     const latest = rows.length ? rows[rows.length - 1] : null;
     const first = rows.length ? rows[0] : null;
@@ -202,7 +109,7 @@ function NetWorthPanel() {
 }
 
 function MonthPanel() {
-    const q = useMonthly();
+    const q = useMonthlySummary();
     const monthLabel = new Date().toLocaleDateString(undefined, { month: "long", year: "numeric" });
     const income = (q.data ?? []).filter((r) => r.kind === "income");
     const expense = (q.data ?? []).filter((r) => r.kind === "expense");
@@ -219,7 +126,7 @@ function MonthPanel() {
 }
 
 function CategoriesPanel() {
-    const q = useCategories();
+    const q = useCategorySummary();
     const rows = (q.data ?? []).slice(0, 6);
     const max = rows.length ? Math.max(...rows.map((r) => Number(r.total_amount))) : 0;
     return (
@@ -253,7 +160,7 @@ function CategoriesPanel() {
 }
 
 function AccountsPanel() {
-    const q = useBalances();
+    const q = useAccountBalances();
     const active = (q.data ?? []).filter((a) => !a.is_archived);
     return (
         <Panel title="Accounts" to="/accounts" cta="Manage">
@@ -283,7 +190,7 @@ function AccountsPanel() {
 }
 
 function RecentPanel() {
-    const q = useRecent();
+    const q = useRecentTransactions();
     const rows = q.data ?? [];
     return (
         <Panel title="Recent activity" to="/transactions" cta="View all">
@@ -310,7 +217,7 @@ function RecentPanel() {
 }
 
 function InboxPanel() {
-    const q = usePending();
+    const q = usePendingReview();
     const count = q.data?.length ?? 0;
     return (
         <div className="sb-card flex flex-col justify-between bg-navy p-6 text-navy-ink">
@@ -329,7 +236,7 @@ function InboxPanel() {
             <Link
                 to="/inbox"
                 className={`inline-flex items-center justify-center rounded-full px-4 py-2.5 text-sm font-medium transition-colors ${
-                    count > 0 ? "bg-coral text-white hover:bg-coral-600" : "bg-white/10 text-white/70 hover:bg-white/15"
+                    count > 0 ? "bg-coral text-coral-fg hover:bg-coral-600" : "bg-white/10 text-white/70 hover:bg-white/15"
                 }`}
             >
                 {count > 0 ? "Review inbox →" : "Open inbox →"}

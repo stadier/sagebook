@@ -1,42 +1,34 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
+import {
+    Avatar,
+    Card,
+    Input,
+    PageHeader,
+    Pill,
+    QueryError,
+    Select,
+    SectionLabel,
+    StatCard,
+    tintFor,
+} from "../components/ui";
+import {
+    ACCOUNT_SECTIONS,
+    ACCOUNT_TYPES,
+    accountTypeLabel,
+    DEFAULT_CURRENCY,
+} from "../lib/constants";
 import { fmtMoney } from "../lib/format";
+import { QK, useAccountBalances } from "../lib/queries";
 import { requireSupabase } from "../lib/supabase";
 import type { AccountType, AccountWithBalance } from "../lib/types";
-
-async function fetchAccountBalances(): Promise<AccountWithBalance[]> {
-    const { data, error } = await requireSupabase()
-        .from("v_account_balances")
-        .select("*")
-        .order("created_at");
-    if (error) throw new Error(error.message);
-    return (data ?? []) as AccountWithBalance[];
-}
-
-const ACCOUNT_TYPES: Array<{ value: AccountType; label: string }> = [
-    { value: "cash", label: "Cash" },
-    { value: "checking", label: "Checking" },
-    { value: "savings", label: "Savings" },
-    { value: "credit_card", label: "Credit card" },
-    { value: "loan", label: "Loan" },
-    { value: "investment", label: "Investment" },
-    { value: "retirement", label: "Retirement" },
-    { value: "real_estate", label: "Real estate" },
-    { value: "vehicle", label: "Vehicle" },
-    { value: "crypto", label: "Crypto" },
-    { value: "other_asset", label: "Other asset" },
-    { value: "other_liability", label: "Other liability" },
-];
 
 export default function Accounts() {
     const qc = useQueryClient();
     const [showArchived, setShowArchived] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
 
-    const accounts = useQuery({
-        queryKey: ["account-balances"],
-        queryFn: fetchAccountBalances,
-    });
+    const accounts = useAccountBalances();
 
     const setArchived = useMutation({
         mutationFn: async (args: { id: string; archived: boolean }) => {
@@ -47,8 +39,8 @@ export default function Accounts() {
             if (error) throw new Error(error.message);
         },
         onSuccess: () => {
-            qc.invalidateQueries({ queryKey: ["accounts"] });
-            qc.invalidateQueries({ queryKey: ["account-balances"] });
+            qc.invalidateQueries({ queryKey: QK.accounts });
+            qc.invalidateQueries({ queryKey: QK.accountBalances });
         },
     });
 
@@ -85,16 +77,23 @@ export default function Accounts() {
     const rows = (accounts.data ?? []).filter((a) => showArchived || !a.is_archived);
     const allActive = (accounts.data ?? []).filter((a) => !a.is_archived);
 
+    // The design stacks accounts by asset class, each class its own card.
+    const sections = ACCOUNT_SECTIONS.map((s) => ({
+        ...s,
+        accounts: rows.filter((a) => s.types.includes(a.type)),
+    })).filter((s) => s.accounts.length > 0);
+
+    const assets = allActive.reduce((s, a) => s + Math.max(0, Number(a.current_balance)), 0);
+    const liabilities = allActive.reduce((s, a) => s + Math.min(0, Number(a.current_balance)), 0);
+    const baseCurrency = allActive[0]?.currency ?? DEFAULT_CURRENCY;
+
     return (
-        <div className="mx-auto max-w-3xl">
-            <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                    <h1 className="text-xl font-semibold">Accounts</h1>
-                    <p className="text-sm text-slate-400">
-                        Where transactions are filed on accept — the basis for balances and net worth.
-                    </p>
-                </div>
-                <label className="flex items-center gap-2 text-sm text-slate-400">
+        <>
+            <PageHeader
+                title="Accounts"
+                subtitle={`${allActive.length} active · where transactions are filed on accept`}
+            >
+                <label className="flex items-center gap-2 text-[0.8125rem] text-slate-400">
                     <input
                         type="checkbox"
                         checked={showArchived}
@@ -102,18 +101,29 @@ export default function Accounts() {
                     />
                     Show archived
                 </label>
+            </PageHeader>
+
+            <div className="grid gap-3.5 sm:grid-cols-3">
+                <StatCard label="Total assets" value={fmtMoney(assets, baseCurrency)} />
+                <StatCard
+                    label="Total liabilities"
+                    value={fmtMoney(liabilities, baseCurrency)}
+                    tone="negative"
+                />
+                <StatCard label="Net worth" value={fmtMoney(assets + liabilities, baseCurrency)} tone="dark" />
             </div>
 
             {accounts.isLoading && <p className="text-sm text-slate-400">Loading…</p>}
-            {accounts.isError && (
-                <p className="text-sm text-rose-400">{(accounts.error as Error).message}</p>
-            )}
+            <QueryError error={accounts.error} />
 
-            <div className="mb-6 flex flex-col gap-2">
-                {rows.map((a) => (
+            {sections.map((section) => (
+                <div key={section.label}>
+                    <SectionLabel>{section.label}</SectionLabel>
+                    <Card padded={false}>
+                {section.accounts.map((a) => (
                     <div
                         key={a.id}
-                        className={`rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3 ${
+                        className={`border-b border-slate-800 px-5 py-3.5 last:border-0 ${
                             a.is_archived ? "opacity-50" : ""
                         }`}
                     >
@@ -124,30 +134,34 @@ export default function Accounts() {
                         />
                     ) : (
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                        <div className="flex items-center gap-3 sm:flex-1">
+                        <div className="flex items-center gap-3.5 sm:flex-1">
+                            <Avatar label={a.name} tint={tintFor(a.name)} />
                             <div className="min-w-0 flex-1">
-                                <div className="flex flex-wrap items-center gap-2 text-sm font-medium text-slate-100">
+                                <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-100">
                                     {a.name}
                                     {a.metadata?.auto_balance && (
-                                        <span
-                                            className="rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-normal text-sky-300"
-                                            title="Opening balance is inferred from observed activity (a debit implies the funds were there). Set an opening balance manually to take over."
-                                        >
-                                            inferred balance
+                                        <span title="Opening balance is inferred from observed activity (a debit implies the funds were there). Set an opening balance manually to take over.">
+                                            <Pill tint="indigo">inferred</Pill>
                                         </span>
                                     )}
                                 </div>
                                 <div className="text-xs text-slate-500">
-                                    {ACCOUNT_TYPES.find((t) => t.value === a.type)?.label ?? a.type}
+                                    {accountTypeLabel(a.type)}
                                     {a.institution ? ` · ${a.institution}` : ""}
                                     {a.metadata?.number_masked ? ` · ${a.metadata.number_masked}` : ""}
                                 </div>
                             </div>
-                            <div className="shrink-0 text-right text-sm">
-                                <div className="font-medium text-slate-100">
+                            <div className="shrink-0 text-right">
+                                <div
+                                    className={`text-[0.9375rem] font-bold tnum ${
+                                        Number(a.current_balance) < 0
+                                            ? "text-rose-400"
+                                            : "text-slate-100"
+                                    }`}
+                                >
                                     {fmtMoney(Number(a.current_balance), a.currency)}
                                 </div>
-                                <div className="text-xs text-slate-600">
+                                <div className="text-xs text-slate-500">
                                     opened at {fmtMoney(Number(a.opening_balance), a.currency)}
                                 </div>
                             </div>
@@ -167,8 +181,9 @@ export default function Accounts() {
                                 {a.is_archived ? "Unarchive" : "Archive"}
                             </button>
                             {allActive.length > 1 && (
-                                <select
-                                    className="rounded border border-slate-700 bg-slate-950 px-1.5 py-1 text-xs text-slate-400 outline-none focus:border-emerald-500"
+                                <Select
+                                    compact
+                                    className="!px-2 !py-1 text-xs"
                                     title="Merge this account into another (moves all its transactions)"
                                     value=""
                                     disabled={merge.isPending}
@@ -194,7 +209,7 @@ export default function Accounts() {
                                                 {x.name}
                                             </option>
                                         ))}
-                                </select>
+                                </Select>
                             )}
                             <button
                                 className="text-xs text-rose-400 hover:text-rose-300"
@@ -217,16 +232,17 @@ export default function Accounts() {
                     )}
                     </div>
                 ))}
-                {accounts.isSuccess && rows.length === 0 && (
-                    <p className="text-sm text-slate-500">No accounts yet — create your first below.</p>
-                )}
-                {merge.isError && (
-                    <p className="text-sm text-rose-400">{(merge.error as Error).message}</p>
-                )}
-            </div>
+                    </Card>
+                </div>
+            ))}
+
+            {accounts.isSuccess && rows.length === 0 && (
+                <p className="text-sm text-slate-500">No accounts yet — create your first below.</p>
+            )}
+            <QueryError error={merge.error} />
 
             <CreateAccountForm />
-        </div>
+        </>
     );
 }
 
@@ -280,31 +296,29 @@ function EditAccountForm({
             }}
             className="grid gap-2 sm:grid-cols-2"
         >
-            <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} required />
-            <select className={inputCls} value={type} onChange={(e) => setType(e.target.value as AccountType)}>
+            <Input value={name} onChange={(e) => setName(e.target.value)} required />
+            <Select value={type} onChange={(e) => setType(e.target.value as AccountType)}>
                 {ACCOUNT_TYPES.map((t) => (
                     <option key={t.value} value={t.value}>
                         {t.label}
                     </option>
                 ))}
-            </select>
-            <input
-                className={inputCls}
+            </Select>
+            <Input
                 value={currency}
                 maxLength={3}
                 onChange={(e) => setCurrency(e.target.value)}
                 required
             />
-            <input
-                className={inputCls}
+            <Input
                 placeholder="Institution"
                 value={institution}
                 onChange={(e) => setInstitution(e.target.value)}
             />
             <label className="flex items-center gap-2 text-xs text-slate-500">
                 Opening balance
-                <input
-                    className={`${inputCls} flex-1`}
+                <Input
+                    className="flex-1"
                     type="number"
                     step="0.01"
                     value={openingBalance}
@@ -312,17 +326,10 @@ function EditAccountForm({
                 />
             </label>
             <div className="flex items-center gap-2">
-                <button
-                    className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
-                    disabled={save.isPending || !name.trim()}
-                >
+                <button className="sb-btn sb-btn-primary" disabled={save.isPending || !name.trim()}>
                     {save.isPending ? "Saving…" : "Save"}
                 </button>
-                <button
-                    type="button"
-                    className="rounded-lg bg-slate-800 px-3 py-2 text-sm text-slate-200 hover:bg-slate-700"
-                    onClick={onDone}
-                >
+                <button type="button" className="sb-btn sb-btn-ghost" onClick={onDone}>
                     Cancel
                 </button>
             </div>
@@ -332,9 +339,9 @@ function EditAccountForm({
                     Changing it here switches to your manual value permanently.
                 </p>
             )}
-            {save.isError && (
-                <p className="text-xs text-rose-400 sm:col-span-2">{(save.error as Error).message}</p>
-            )}
+            <div className="sm:col-span-2">
+                <QueryError error={save.error} />
+            </div>
         </form>
     );
 }
@@ -343,7 +350,7 @@ function CreateAccountForm() {
     const qc = useQueryClient();
     const [name, setName] = useState("");
     const [type, setType] = useState<AccountType>("checking");
-    const [currency, setCurrency] = useState("USD");
+    const [currency, setCurrency] = useState(DEFAULT_CURRENCY);
     const [institution, setInstitution] = useState("");
     const [openingBalance, setOpeningBalance] = useState("0");
 
@@ -366,8 +373,8 @@ function CreateAccountForm() {
             setName("");
             setInstitution("");
             setOpeningBalance("0");
-            qc.invalidateQueries({ queryKey: ["accounts"] });
-            qc.invalidateQueries({ queryKey: ["account-balances"] });
+            qc.invalidateQueries({ queryKey: QK.accounts });
+            qc.invalidateQueries({ queryKey: QK.accountBalances });
         },
     });
 
@@ -379,54 +386,43 @@ function CreateAccountForm() {
     return (
         <form
             onSubmit={submit}
-            className="rounded-xl border border-slate-800 bg-slate-900/60 p-4"
+            className="sb-card p-4"
         >
             <h2 className="mb-3 text-sm font-semibold text-slate-200">New account</h2>
             <div className="grid gap-2 sm:grid-cols-2">
-                <input
-                    className={inputCls}
+                <Input
                     placeholder="Name, e.g. GTBank Current"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     required
                 />
-                <select
-                    className={inputCls}
-                    value={type}
-                    onChange={(e) => setType(e.target.value as AccountType)}
-                >
+                <Select value={type} onChange={(e) => setType(e.target.value as AccountType)}>
                     {ACCOUNT_TYPES.map((t) => (
                         <option key={t.value} value={t.value}>
                             {t.label}
                         </option>
                     ))}
-                </select>
-                <input
-                    className={inputCls}
+                </Select>
+                <Input
                     placeholder="Currency (ISO), e.g. NGN"
                     value={currency}
                     onChange={(e) => setCurrency(e.target.value)}
                     maxLength={3}
                     required
                 />
-                <input
-                    className={inputCls}
+                <Input
                     placeholder="Institution (optional)"
                     value={institution}
                     onChange={(e) => setInstitution(e.target.value)}
                 />
-                <input
-                    className={inputCls}
+                <Input
                     type="number"
                     step="0.01"
                     placeholder="Opening balance"
                     value={openingBalance}
                     onChange={(e) => setOpeningBalance(e.target.value)}
                 />
-                <button
-                    className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
-                    disabled={create.isPending || !name.trim()}
-                >
+                <button className="sb-btn sb-btn-primary" disabled={create.isPending || !name.trim()}>
                     {create.isPending ? "Creating…" : "Create account"}
                 </button>
             </div>
@@ -434,12 +430,9 @@ function CreateAccountForm() {
                 Note: the currency must exist in the currencies table (majors plus NGN,
                 ZAR, KES, GHS, INR, AED and more are seeded by the migrations).
             </p>
-            {create.isError && (
-                <p className="mt-2 text-xs text-rose-400">{(create.error as Error).message}</p>
-            )}
+            <div className="mt-2">
+                <QueryError error={create.error} />
+            </div>
         </form>
     );
 }
-
-const inputCls =
-    "rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500";

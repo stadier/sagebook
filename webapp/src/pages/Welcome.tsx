@@ -1,4 +1,6 @@
 import { type FormEvent, useState } from "react";
+import { BrandMark } from "../components/nav";
+import { Input } from "../components/ui";
 import { getStoredConfig, getSupabase, storeConfig } from "../lib/supabase";
 
 export default function Welcome() {
@@ -28,15 +30,15 @@ function ConnectForm() {
                 stored only in this browser.
             </p>
             <form onSubmit={connect} className="flex flex-col gap-3">
-                <input
-                    className={inputCls}
+                <Input
+                    className="py-2.5"
                     placeholder="https://xxxx.supabase.co"
                     value={url}
                     onChange={(e) => setUrl(e.target.value)}
                     required
                 />
-                <input
-                    className={inputCls}
+                <Input
+                    className="py-2.5"
                     placeholder="anon key"
                     value={anonKey}
                     onChange={(e) => setAnonKey(e.target.value)}
@@ -82,16 +84,16 @@ function AuthForm() {
     return (
         <CenterCard title={mode === "signin" ? "Sign in" : "Create account"}>
             <form onSubmit={submit} className="flex flex-col gap-3">
-                <input
-                    className={inputCls}
+                <Input
+                    className="py-2.5"
                     type="email"
                     placeholder="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
                 />
-                <input
-                    className={inputCls}
+                <Input
+                    className="py-2.5"
                     type="password"
                     placeholder="password"
                     value={password}
@@ -116,36 +118,20 @@ function AuthForm() {
 function CenterCard({ title, children }: { title: string; children: React.ReactNode }) {
     return (
         <div className="grid min-h-screen place-items-center bg-paper p-4">
-            <div className="sb-card w-full max-w-sm p-6 sm:p-7">
+            <div className="sb-card-lg w-full max-w-sm p-6 sm:p-7">
                 <div className="mb-5 flex items-center gap-2.5">
-                    <span className="grid h-9 w-9 place-items-center rounded-xl bg-emerald-600 text-white">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-                            <path
-                                d="M4 5a2 2 0 0 1 2-2h11a1 1 0 0 1 1 1v13H6a2 2 0 0 0-2 2z"
-                                stroke="currentColor"
-                                strokeWidth="1.7"
-                                strokeLinejoin="round"
-                            />
-                            <path
-                                d="M4 19a2 2 0 0 0 2 2h12"
-                                stroke="currentColor"
-                                strokeWidth="1.7"
-                                strokeLinecap="round"
-                            />
-                        </svg>
+                    <span className="grid h-[30px] w-[30px] place-items-center rounded-[10px] bg-coral text-coral-fg">
+                        <BrandMark />
                     </span>
-                    <span className="text-lg font-semibold tracking-tight text-slate-100">
-                        <span className="text-emerald-600">Sage</span>book
+                    <span className="text-[1.0625rem] font-extrabold tracking-tight text-slate-100">
+                        Sagebook
                     </span>
                 </div>
-                <h1 className="mb-4 text-base font-semibold text-slate-200">{title}</h1>
+                <h1 className="mb-4 text-base font-bold text-slate-200">{title}</h1>
                 {children}
             </div>
         </div>
     );
 }
 
-const inputCls =
-    "rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-slate-200 outline-none transition-colors placeholder:text-slate-500 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20";
-const primaryBtnCls =
-    "rounded-lg bg-emerald-600 px-3 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-50";
+const primaryBtnCls = "sb-btn sb-btn-primary !py-2.5";

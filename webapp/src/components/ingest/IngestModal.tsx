@@ -64,11 +64,11 @@ export default function IngestModal({
                     {/* Header */}
                     <div className="flex items-center justify-between gap-3 border-b border-slate-800 px-5 py-4">
                         <div className="flex items-center gap-2.5">
-                            <span className="grid h-8 w-8 place-items-center rounded-xl bg-emerald-600 text-white">
+                            <span className="grid h-8 w-8 place-items-center rounded-xl bg-coral text-coral-fg">
                                 <PlusIcon />
                             </span>
                             <div>
-                                <h2 className="text-base font-semibold text-slate-100">Add to Sagebook</h2>
+                                <h2 className="text-base font-bold text-slate-100">Add to Sagebook</h2>
                                 <p className="text-xs text-slate-500">
                                     {structuredFile ? "Map your statement columns" : "Type, drop a file, or record a voice note"}
                                 </p>

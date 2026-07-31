@@ -1,17 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fragment, type FormEvent, type ReactNode, useState } from "react";
+import { Card, ColorPill, Input, PageHeader, QueryError, Select } from "../components/ui";
+import {
+    EXPORT_ROW_LIMIT,
+    TRANSACTION_KINDS,
+    TRANSACTION_PAGE_SIZE as PAGE_SIZE,
+} from "../lib/constants";
 import { fmtDate, fmtMoney } from "../lib/format";
+import { useAccounts, useTaxonomy } from "../lib/queries";
 import { signedUrlFor } from "../lib/storage";
 import { requireSupabase } from "../lib/supabase";
 import { regenerateSummaries, runSummaryBacklog, useSummaryJob } from "../lib/summaryJob";
-import { fetchAccounts, fetchTaxonomy } from "../lib/taxonomy";
 import type { Transaction } from "../lib/types";
 
 interface TxRow extends Transaction {
     categories: { name: string; icon: string | null; color: string | null } | null;
 }
-
-const PAGE_SIZE = 200;
 
 interface Filters {
     from: string;
@@ -29,8 +33,8 @@ export default function Transactions() {
     const [limit, setLimit] = useState(PAGE_SIZE);
     const [expandedId, setExpandedId] = useState<string | null>(null);
 
-    const accounts = useQuery({ queryKey: ["accounts"], queryFn: fetchAccounts });
-    const taxonomy = useQuery({ queryKey: ["taxonomy"], queryFn: fetchTaxonomy });
+    const accounts = useAccounts();
+    const taxonomy = useTaxonomy();
 
     const txs = useQuery({
         queryKey: ["transactions", filters, limit],
@@ -84,7 +88,7 @@ export default function Transactions() {
             if (filters.kind) q = q.eq("kind", filters.kind);
             const { data, error } = await q
                 .order("occurred_at", { ascending: false })
-                .limit(10000);
+                .limit(EXPORT_ROW_LIMIT);
             if (error) throw new Error(error.message);
 
             const accountName = new Map((accounts.data ?? []).map((a) => [a.id, a.name]));
@@ -123,38 +127,39 @@ export default function Transactions() {
     });
 
     return (
-        <div className="mx-auto max-w-4xl">
-            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-                <div>
-                    <h1 className="text-xl font-semibold">Transactions</h1>
-                    <p className="text-sm text-slate-400">Accepted ledger entries.</p>
-                </div>
-                <input
-                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none focus:border-emerald-500 sm:w-64"
+        <>
+            <PageHeader
+                title="Ledger"
+                subtitle={`${rows.length}${maybeMore ? "+" : ""} accepted entr${
+                    rows.length === 1 ? "y" : "ies"
+                } matching your view`}
+            >
+                <Input
+                    className="sm:w-72"
                     placeholder="Search summary, payee, memo, category…"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                 />
-            </div>
+            </PageHeader>
 
-            <div className="mb-4 flex flex-wrap items-center gap-2 text-sm">
-                <input
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+                <Input
+                    compact
                     type="date"
-                    className={filterCls}
                     title="From date"
                     value={filters.from}
                     onChange={(e) => setFilter("from", e.target.value)}
                 />
                 <span className="text-slate-600">–</span>
-                <input
+                <Input
+                    compact
                     type="date"
-                    className={filterCls}
                     title="To date"
                     value={filters.to}
                     onChange={(e) => setFilter("to", e.target.value)}
                 />
-                <select
-                    className={filterCls}
+                <Select
+                    compact
                     value={filters.accountId}
                     onChange={(e) => setFilter("accountId", e.target.value)}
                 >
@@ -166,9 +171,9 @@ export default function Transactions() {
                                 {a.name}
                             </option>
                         ))}
-                </select>
-                <select
-                    className={filterCls}
+                </Select>
+                <Select
+                    compact
                     value={filters.categoryId}
                     onChange={(e) => setFilter("categoryId", e.target.value)}
                 >
@@ -183,18 +188,15 @@ export default function Transactions() {
                             ))}
                         </optgroup>
                     ))}
-                </select>
-                <select
-                    className={filterCls}
-                    value={filters.kind}
-                    onChange={(e) => setFilter("kind", e.target.value)}
-                >
+                </Select>
+                <Select compact value={filters.kind} onChange={(e) => setFilter("kind", e.target.value)}>
                     <option value="">All kinds</option>
-                    <option value="expense">expense</option>
-                    <option value="income">income</option>
-                    <option value="transfer">transfer</option>
-                    <option value="adjustment">adjustment</option>
-                </select>
+                    {TRANSACTION_KINDS.map((k) => (
+                        <option key={k} value={k}>
+                            {k}
+                        </option>
+                    ))}
+                </Select>
                 {filtersActive && (
                     <button
                         className="text-xs text-slate-500 hover:text-slate-300"
@@ -224,14 +226,10 @@ export default function Transactions() {
                     </button>
                 </span>
             </div>
-            {exportData.isError && (
-                <p className="mb-3 text-xs text-rose-400">{(exportData.error as Error).message}</p>
-            )}
+            <QueryError error={exportData.error} />
 
             {txs.isLoading && <p className="text-sm text-slate-400">Loading…</p>}
-            {txs.isError && (
-                <p className="text-sm text-rose-400">{(txs.error as Error).message}</p>
-            )}
+            <QueryError error={txs.error} />
 
             {txs.isSuccess && rows.length === 0 && (
                 <p className="text-sm text-slate-500">
@@ -244,92 +242,97 @@ export default function Transactions() {
             {missingSummaries > 0 && <SummaryBacklogBanner missing={missingSummaries} />}
 
             {rows.length > 0 && (
-                <p className="mb-2 text-xs text-slate-600">
-                    Click a row for the full details — original narration, reference, and source capture.
-                </p>
-            )}
-            {rows.length > 0 && (
-                <div className="-mx-1 overflow-x-auto px-1">
-                <table className="w-full min-w-[32rem] text-sm">
-                    <thead>
-                        <tr className="border-b border-slate-800 text-left text-xs text-slate-500">
-                            <th className="py-2 pr-4 font-medium">Date</th>
-                            <th className="py-2 pr-4 font-medium">What happened</th>
-                            <th className="py-2 pr-4 font-medium">Category</th>
-                            <th className="py-2 text-right font-medium">Amount</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800/60">
-                        {rows.map((t) => (
-                            <Fragment key={t.id}>
-                            <tr
-                                className="cursor-pointer hover:bg-slate-900/40"
-                                onClick={() => setExpandedId(expandedId === t.id ? null : t.id)}
-                            >
-                                <td className="whitespace-nowrap py-2 pr-4 text-slate-400">
-                                    {fmtDate(t.occurred_at)}
-                                </td>
-                                <td className="py-2 pr-4">
-                                    {/* The summary is the readable line; the raw
-                                        narration stays underneath, truncated, so
-                                        the row is skimmable but nothing is hidden. */}
-                                    <div className="text-slate-200">
-                                        {t.summary ?? t.payee ?? "—"}
-                                    </div>
-                                    {(t.summary ? (t.payee ?? t.memo) : t.memo) && (
-                                        <div className="truncate text-xs text-slate-500">
-                                            {t.summary ? (t.payee ?? t.memo) : t.memo}
-                                        </div>
-                                    )}
-                                </td>
-                                <td className="py-2 pr-4">
-                                    {t.categories ? (
-                                        <span
-                                            className="rounded px-2 py-0.5 text-xs"
-                                            style={{
-                                                backgroundColor: `${t.categories.color ?? "#64748b"}26`,
-                                                color: t.categories.color ?? "#94a3b8",
-                                            }}
-                                        >
-                                            {t.categories.icon} {t.categories.name}
-                                        </span>
-                                    ) : (
-                                        <span className="text-xs text-slate-600">uncategorized</span>
-                                    )}
-                                </td>
-                                <td
-                                    className={`whitespace-nowrap py-2 text-right font-medium ${
-                                        t.kind === "income" ? "text-emerald-400" : "text-slate-200"
-                                    }`}
-                                >
-                                    {t.kind === "expense" ? "−" : t.kind === "income" ? "+" : ""}
-                                    {fmtMoney(t.amount, t.currency)}
-                                </td>
-                            </tr>
-                            {expandedId === t.id && (
-                                <tr>
-                                    <td colSpan={4} className="bg-slate-900/30 px-4 py-3">
-                                        <TxDetail tx={t} />
-                                    </td>
+                <Card padded={false}>
+                    <div className="overflow-x-auto">
+                        <table className="w-full min-w-[36rem] text-sm">
+                            <thead>
+                                <tr className="border-b border-slate-800 text-left text-[0.6875rem] font-bold uppercase tracking-[0.06em] text-slate-500">
+                                    <th className="px-5 py-3">Date</th>
+                                    <th className="px-5 py-3">What happened</th>
+                                    <th className="px-5 py-3">Category</th>
+                                    <th className="px-5 py-3 text-right">Amount</th>
                                 </tr>
-                            )}
-                            </Fragment>
-                        ))}
-                    </tbody>
-                </table>
-                </div>
+                            </thead>
+                            <tbody>
+                                {rows.map((t) => (
+                                    <Fragment key={t.id}>
+                                        <tr
+                                            className="cursor-pointer border-b border-slate-800 last:border-0 hover:bg-slate-950"
+                                            onClick={() =>
+                                                setExpandedId(expandedId === t.id ? null : t.id)
+                                            }
+                                        >
+                                            <td className="whitespace-nowrap px-5 py-3 text-[0.78125rem] text-slate-500">
+                                                {fmtDate(t.occurred_at)}
+                                            </td>
+                                            <td className="px-5 py-3">
+                                                {/* The summary is the readable line; the raw
+                                                    narration stays underneath, truncated, so
+                                                    the row is skimmable but nothing is hidden. */}
+                                                <div className="font-medium text-slate-200">
+                                                    {t.summary ?? t.payee ?? "—"}
+                                                </div>
+                                                {(t.summary ? (t.payee ?? t.memo) : t.memo) && (
+                                                    <div className="truncate text-xs text-slate-500">
+                                                        {t.summary ? (t.payee ?? t.memo) : t.memo}
+                                                    </div>
+                                                )}
+                                            </td>
+                                            <td className="px-5 py-3">
+                                                {t.categories ? (
+                                                    <ColorPill color={t.categories.color}>
+                                                        {t.categories.icon} {t.categories.name}
+                                                    </ColorPill>
+                                                ) : (
+                                                    <span className="text-xs text-slate-500">
+                                                        uncategorized
+                                                    </span>
+                                                )}
+                                            </td>
+                                            <td
+                                                className={`whitespace-nowrap px-5 py-3 text-right font-bold tnum ${
+                                                    t.kind === "income"
+                                                        ? "text-emerald-400"
+                                                        : "text-slate-200"
+                                                }`}
+                                            >
+                                                {t.kind === "expense"
+                                                    ? "−"
+                                                    : t.kind === "income"
+                                                      ? "+"
+                                                      : ""}
+                                                {fmtMoney(t.amount, t.currency)}
+                                            </td>
+                                        </tr>
+                                        {expandedId === t.id && (
+                                            <tr className="border-b border-slate-800 last:border-0">
+                                                <td colSpan={4} className="bg-slate-950 px-5 py-4">
+                                                    <TxDetail tx={t} />
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </Fragment>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 px-5 py-3.5">
+                        <span className="text-[0.78125rem] text-slate-500">
+                            Click a row for the original narration, reference, and source capture.
+                        </span>
+                        {maybeMore && (
+                            <button
+                                className="sb-btn sb-btn-ghost"
+                                disabled={txs.isFetching}
+                                onClick={() => setLimit((l) => l + PAGE_SIZE)}
+                            >
+                                {txs.isFetching ? "Loading…" : "Load more"}
+                            </button>
+                        )}
+                    </div>
+                </Card>
             )}
-
-            {maybeMore && (
-                <button
-                    className="mt-4 rounded-lg bg-slate-800 px-4 py-2 text-sm text-slate-200 hover:bg-slate-700 disabled:opacity-50"
-                    disabled={txs.isFetching}
-                    onClick={() => setLimit((l) => l + PAGE_SIZE)}
-                >
-                    {txs.isFetching ? "Loading…" : "Load more"}
-                </button>
-            )}
-        </div>
+        </>
     );
 }
 
@@ -472,7 +475,7 @@ function TxDetail({ tx }: { tx: TxRow }) {
  * actually wrote, the reference, the account, and the exact timestamp.
  */
 function TxFacts({ tx, onRegenerated }: { tx: TxRow; onRegenerated: () => void }) {
-    const accounts = useQuery({ queryKey: ["accounts"], queryFn: fetchAccounts });
+    const accounts = useAccounts();
     const account = (accounts.data ?? []).find((a) => a.id === tx.account_id);
     const reference = tx.metadata?.reference;
 
@@ -586,8 +589,8 @@ function TxEditForm({
     const [memo, setMemo] = useState(tx.memo ?? "");
     const [tags, setTags] = useState(tx.tags.join(", "));
 
-    const taxonomy = useQuery({ queryKey: ["taxonomy"], queryFn: fetchTaxonomy });
-    const accounts = useQuery({ queryKey: ["accounts"], queryFn: fetchAccounts });
+    const taxonomy = useTaxonomy();
+    const accounts = useAccounts();
 
     function submit(e: FormEvent) {
         e.preventDefault();
@@ -706,7 +709,7 @@ function TxEditForm({
 }
 
 const editInputCls =
-    "rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-emerald-500";
+    "sb-input !py-1.5 text-xs";
 
 function MediaPreview({ ingestionId }: { ingestionId: string }) {
     const media = useQuery({
@@ -791,6 +794,3 @@ function download(filename: string, mime: string, content: string) {
     a.click();
     URL.revokeObjectURL(url);
 }
-
-const filterCls =
-    "rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-300 outline-none focus:border-emerald-500";

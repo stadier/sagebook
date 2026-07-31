@@ -1,29 +1,28 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
+import { Input, PageHeader, QueryError } from "../components/ui";
+import { QK, useTaxonomy } from "../lib/queries";
 import { requireSupabase } from "../lib/supabase";
-import { fetchTaxonomy, type GroupWithCategories } from "../lib/taxonomy";
+import type { GroupWithCategories } from "../lib/taxonomy";
 
 export default function Categories() {
-    const taxonomy = useQuery({ queryKey: ["taxonomy"], queryFn: fetchTaxonomy });
+    const taxonomy = useTaxonomy();
 
     if (taxonomy.isLoading) return <p className="text-sm text-slate-400">Loading…</p>;
-    if (taxonomy.isError) {
-        return <p className="text-sm text-rose-400">{(taxonomy.error as Error).message}</p>;
-    }
+    if (taxonomy.isError) return <QueryError error={taxonomy.error} />;
 
     return (
-        <div className="mx-auto max-w-4xl">
-            <h1 className="mb-1 text-xl font-semibold">Categories</h1>
-            <p className="mb-6 text-sm text-slate-400">
-                Your custom taxonomy. AI extraction classifies into these groups and
-                categories — e.g. land receipts land under Real Estate Investment.
-            </p>
-            <div className="grid gap-4 md:grid-cols-2">
+        <>
+            <PageHeader
+                title="Categories"
+                subtitle="Your custom taxonomy. AI extraction classifies into these groups and categories — e.g. land receipts land under Real Estate Investment."
+            />
+            <div className="grid gap-3.5 md:grid-cols-2">
                 {(taxonomy.data ?? []).map((group) => (
                     <GroupCard key={group.id} group={group} />
                 ))}
             </div>
-        </div>
+        </>
     );
 }
 
@@ -67,8 +66,9 @@ function CategoryRow({ category }: { category: GroupWithCategories["categories"]
                         if (name.trim()) rename.mutate();
                     }}
                 >
-                    <input
-                        className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-sm outline-none focus:border-emerald-500"
+                    <Input
+                        compact
+                        className="min-w-0 flex-1 !py-1"
                         value={name}
                         onChange={(e) => setName(e.target.value)}
                         autoFocus
@@ -144,7 +144,7 @@ function GroupCard({ group }: { group: GroupWithCategories }) {
         },
         onSuccess: () => {
             setName("");
-            qc.invalidateQueries({ queryKey: ["taxonomy"] });
+            qc.invalidateQueries({ queryKey: QK.taxonomy });
         },
     });
 
@@ -154,7 +154,7 @@ function GroupCard({ group }: { group: GroupWithCategories }) {
     }
 
     return (
-        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+        <div className="sb-card p-4">
             <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-200">
                 <span aria-hidden>{group.icon}</span>
                 {group.name}
@@ -171,14 +171,15 @@ function GroupCard({ group }: { group: GroupWithCategories }) {
                 )}
             </ul>
             <form onSubmit={submit} className="flex gap-2">
-                <input
-                    className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-950 px-3 py-1.5 text-sm outline-none focus:border-emerald-500"
+                <Input
+                    compact
+                    className="min-w-0 flex-1"
                     placeholder="New category…"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                 />
                 <button
-                    className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm text-slate-200 hover:bg-slate-700 disabled:opacity-50"
+                    className="sb-btn sb-btn-ghost"
                     disabled={addCategory.isPending || !name.trim()}
                 >
                     Add

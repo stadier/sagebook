@@ -1,140 +1,270 @@
-import { useQuery } from "@tanstack/react-query";
-import { currentMonthStart, fmtMoney } from "../lib/format";
-import { requireSupabase } from "../lib/supabase";
-import type { CategorySummaryRow, MonthlySummaryRow } from "../lib/types";
+import NetWorthChart from "../components/NetWorthChart";
+import {
+    Card,
+    CardHeader,
+    Empty,
+    LegendDot,
+    Meter,
+    PageHeader,
+    QueryError,
+    StatCard,
+} from "../components/ui";
+import { DEFAULT_CURRENCY } from "../lib/constants";
+import { fmtMoney } from "../lib/format";
+import {
+    useCategorySummary,
+    useMonthlySummary,
+    useMonthlySummaryHistory,
+    useNetWorthSnapshots,
+} from "../lib/queries";
+import { CHART_COLORS, colorFor } from "../lib/theme";
+import type { MonthlySummaryRow } from "../lib/types";
+
+/** Months of history in the income-vs-expenses columns. */
+const HISTORY_MONTHS = 6;
+/** Slices before the donut and its legend stop being readable. */
+const DONUT_SLICES = 6;
 
 export default function Reports() {
-    const month = currentMonthStart();
-    const monthLabel = new Date().toLocaleDateString(undefined, {
-        month: "long",
-        year: "numeric",
-    });
+    const monthLabel = new Date().toLocaleDateString(undefined, { month: "long", year: "numeric" });
 
-    const monthly = useQuery({
-        queryKey: ["monthly-summary", month],
-        queryFn: async () => {
-            const { data, error } = await requireSupabase()
-                .from("v_monthly_summary")
-                .select("*")
-                .eq("month", month);
-            if (error) throw new Error(error.message);
-            return (data ?? []) as MonthlySummaryRow[];
-        },
-    });
-
-    const byCategory = useQuery({
-        queryKey: ["category-summary", month],
-        queryFn: async () => {
-            const { data, error } = await requireSupabase()
-                .from("v_category_summary")
-                .select("*")
-                .eq("month", month)
-                .order("total_amount", { ascending: false });
-            if (error) throw new Error(error.message);
-            return (data ?? []) as CategorySummaryRow[];
-        },
-    });
+    const monthly = useMonthlySummary();
+    const trailing = useMonthlySummaryHistory();
+    const byCategory = useCategorySummary();
+    const snapshots = useNetWorthSnapshots();
 
     if (monthly.isError || byCategory.isError) {
-        const err = (monthly.error ?? byCategory.error) as Error;
-        return <p className="text-sm text-rose-400">{err.message}</p>;
+        return <QueryError error={monthly.error ?? byCategory.error} />;
     }
 
-    const income = (monthly.data ?? []).filter((r) => r.kind === "income");
-    const expense = (monthly.data ?? []).filter((r) => r.kind === "expense");
-    const maxAmount = Math.max(1, ...(byCategory.data ?? []).map((r) => Number(r.total_amount)));
+    const income = sum((monthly.data ?? []).filter((r) => r.kind === "income"));
+    const expense = sum((monthly.data ?? []).filter((r) => r.kind === "expense"));
+    const currency = (monthly.data ?? [])[0]?.currency ?? DEFAULT_CURRENCY;
+    const netSaved = income - expense;
+
+    const rows = (byCategory.data ?? []).filter((r) => Number(r.total_amount) > 0);
+    const categoryTotal = rows.reduce((s, r) => s + Number(r.total_amount), 0);
+    const maxAmount = Math.max(1, ...rows.map((r) => Number(r.total_amount)));
+
+    const columns = monthColumns(trailing.data ?? []);
+    const snapshotRows = snapshots.data ?? [];
 
     return (
-        <div className="mx-auto max-w-3xl">
-            <h1 className="mb-1 text-xl font-semibold text-slate-100">Reports</h1>
-            <p className="mb-6 text-sm text-slate-400">{monthLabel} · accepted transactions only.</p>
+        <>
+            <PageHeader title="Reports" subtitle={`${monthLabel} · accepted transactions only`} />
 
-            <div className="mb-6 grid gap-4 sm:grid-cols-2">
-                <StatCard title="Income" rows={income} variant="income" />
-                <StatCard title="Expenses" rows={expense} variant="expense" />
+            <div className="grid gap-3.5 sm:grid-cols-3">
+                <StatCard label="Income" value={fmtMoney(income, currency)} tone="positive" />
+                <StatCard label="Expenses" value={fmtMoney(expense, currency)} tone="negative" />
+                <StatCard
+                    label="Net saved"
+                    value={`${netSaved >= 0 ? "+" : "−"}${fmtMoney(Math.abs(netSaved), currency)}`}
+                    tone="dark"
+                    hint={income > 0 ? `${Math.round((netSaved / income) * 100)}% of income kept` : undefined}
+                />
             </div>
 
-            <div className="sb-card p-4 sm:p-5">
-                <h2 className="mb-4 text-sm font-semibold text-slate-200">By category</h2>
-                {byCategory.isLoading && <p className="text-sm text-slate-400">Loading…</p>}
-                {(byCategory.data ?? []).length === 0 && !byCategory.isLoading && (
-                    <p className="text-sm text-slate-500">No accepted transactions this month yet.</p>
+            <Card feature>
+                <CardHeader title="Net worth trend" to="/net-worth" cta="Details" />
+                {snapshotRows.length >= 2 ? (
+                    <NetWorthChart
+                        points={snapshotRows.map((s) => ({ date: s.as_of, value: Number(s.net_worth) }))}
+                        currency={snapshotRows[snapshotRows.length - 1].base_currency}
+                    />
+                ) : (
+                    <Empty loading={snapshots.isLoading}>
+                        The trend appears once there are snapshots on two or more days.
+                    </Empty>
                 )}
-                <div className="flex flex-col gap-4">
-                    {(byCategory.data ?? []).map((row) => (
-                        <div key={`${row.category_group}-${row.category}-${row.currency}`}>
-                            <div className="mb-1.5 flex items-center justify-between gap-3 text-sm">
-                                <span className="min-w-0 truncate text-slate-200">
-                                    {row.icon} {row.category}
-                                    <span className="ml-2 text-xs text-slate-500">
-                                        {row.category_group}
-                                    </span>
+            </Card>
+
+            <div className="grid gap-[18px] lg:grid-cols-2">
+                <Card feature>
+                    <CardHeader title="Income vs expenses" />
+                    {columns.length > 0 ? (
+                        <>
+                            <div className="flex h-[140px] items-end gap-3 sm:gap-4">
+                                {columns.map((c) => {
+                                    const peak = Math.max(
+                                        1,
+                                        ...columns.flatMap((x) => [x.income, x.expense]),
+                                    );
+                                    return (
+                                        <div
+                                            key={c.month}
+                                            className="flex min-w-0 flex-1 flex-col items-center gap-1.5"
+                                        >
+                                            <div className="flex h-[112px] w-full items-end justify-center gap-1">
+                                                <span
+                                                    className="w-1/2 max-w-[22px] rounded-[4px]"
+                                                    style={{
+                                                        height: `${(c.income / peak) * 100}%`,
+                                                        background: CHART_COLORS.positive,
+                                                    }}
+                                                />
+                                                <span
+                                                    className="w-1/2 max-w-[22px] rounded-[4px]"
+                                                    style={{
+                                                        height: `${(c.expense / peak) * 100}%`,
+                                                        background: CHART_COLORS.negative,
+                                                    }}
+                                                />
+                                            </div>
+                                            <span className="truncate text-[0.6875rem] font-semibold text-slate-500">
+                                                {c.label}
+                                            </span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                            <div className="mt-4 flex gap-5 text-[0.78125rem] text-slate-400">
+                                <span className="flex items-center gap-2">
+                                    <LegendDot color={CHART_COLORS.positive} />
+                                    In
                                 </span>
-                                <span className="shrink-0 font-medium text-slate-100">
-                                    {fmtMoney(Number(row.total_amount), row.currency)}
-                                    <span className="ml-2 text-xs font-normal text-slate-500">
-                                        ×{row.tx_count}
-                                    </span>
+                                <span className="flex items-center gap-2">
+                                    <LegendDot color={CHART_COLORS.negative} />
+                                    Out
                                 </span>
                             </div>
-                            <div className="h-2 overflow-hidden rounded-full bg-slate-800">
-                                <div
-                                    className="h-full rounded-full"
-                                    style={{
-                                        width: `${(Number(row.total_amount) / maxAmount) * 100}%`,
-                                        backgroundColor: row.color ?? "#8a8574",
-                                    }}
-                                />
+                        </>
+                    ) : (
+                        <Empty loading={trailing.isLoading}>Not enough months to compare yet.</Empty>
+                    )}
+                </Card>
+
+                <Card feature>
+                    <CardHeader title="Spending by category" />
+                    {rows.length > 0 ? (
+                        <div className="flex flex-wrap items-center gap-6">
+                            <Donut
+                                slices={rows.slice(0, DONUT_SLICES).map((r, i) =>({
+                                    value: Number(r.total_amount),
+                                    color: colorFor(r.color, i),
+                                }))}
+                                total={categoryTotal}
+                            />
+                            <div className="flex min-w-0 flex-1 flex-col gap-2.5 text-[0.78125rem]">
+                                {rows.slice(0, DONUT_SLICES).map((r, i) =>(
+                                    <span
+                                        key={`${r.category_group}-${r.category}-${r.currency}`}
+                                        className="flex items-center gap-2 text-slate-300"
+                                    >
+                                        <LegendDot color={colorFor(r.color, i)} />
+                                        <span className="min-w-0 truncate">{r.category}</span>
+                                        <span className="ml-auto shrink-0 font-bold text-slate-200 tnum">
+                                            {Math.round((Number(r.total_amount) / categoryTotal) * 100)}%
+                                        </span>
+                                    </span>
+                                ))}
                             </div>
                         </div>
-                    ))}
-                </div>
+                    ) : (
+                        <Empty loading={byCategory.isLoading}>
+                            No accepted transactions this month yet.
+                        </Empty>
+                    )}
+                </Card>
             </div>
-        </div>
+
+            <Card feature>
+                <CardHeader title="Every category" />
+                {rows.length > 0 ? (
+                    <div className="flex flex-col gap-4">
+                        {rows.map((row, i) => (
+                            <div key={`${row.category_group}-${row.category}-${row.currency}`}>
+                                <div className="mb-1.5 flex items-center justify-between gap-3 text-sm">
+                                    <span className="min-w-0 truncate text-slate-200">
+                                        {row.icon} {row.category}
+                                        <span className="ml-2 text-xs text-slate-500">
+                                            {row.category_group}
+                                        </span>
+                                    </span>
+                                    <span className="shrink-0 font-bold text-slate-100 tnum">
+                                        {fmtMoney(Number(row.total_amount), row.currency)}
+                                        <span className="ml-2 text-xs font-medium text-slate-500">
+                                            ×{row.tx_count}
+                                        </span>
+                                    </span>
+                                </div>
+                                <Meter
+                                    pct={(Number(row.total_amount) / maxAmount) * 100}
+                                    color={colorFor(row.color, i)}
+                                    height={7}
+                                />
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <Empty loading={byCategory.isLoading}>No accepted transactions this month yet.</Empty>
+                )}
+            </Card>
+        </>
     );
 }
 
-function StatCard({
-    title,
-    rows,
-    variant,
+/* -------------------------------------------------------------------------- */
+
+/** SVG donut built from stroke-dasharray arcs, as in the design. */
+function Donut({
+    slices,
+    total,
 }: {
-    title: string;
-    rows: MonthlySummaryRow[];
-    variant: "income" | "expense";
+    slices: Array<{ value: number; color: string }>;
+    total: number;
 }) {
-    const isIncome = variant === "income";
-    const tone = isIncome ? "bg-sage text-sage-ink" : "bg-gold text-gold-ink";
+    const R = 46;
+    const C = 2 * Math.PI * R;
+    let offset = 0;
 
     return (
-        <div className={`sb-stat ${tone}`}>
-            <div className="mb-3 flex items-center justify-between">
-                <span className="text-sm font-medium opacity-80">{title}</span>
-                <span className="sb-pill bg-black/10">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden>
-                        <path
-                            d={isIncome ? "M7 17 17 7M9 7h8v8" : "M7 7l10 10M9 17h8V9"}
-                            stroke="currentColor"
-                            strokeWidth="2.2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                        />
-                    </svg>
-                    {isIncome ? "in" : "out"}
-                </span>
-            </div>
-            {rows.length === 0 ? (
-                <p className="text-2xl font-bold opacity-40">—</p>
-            ) : (
-                rows.map((r) => (
-                    <p key={r.currency} className="text-2xl font-bold leading-tight">
-                        {fmtMoney(Number(r.total_amount), r.currency)}
-                        <span className="ml-2 align-middle text-xs font-medium opacity-60">
-                            {r.tx_count} tx
-                        </span>
-                    </p>
-                ))
-            )}
-        </div>
+        <svg width="120" height="120" viewBox="0 0 120 120" className="shrink-0" aria-hidden>
+            <circle cx="60" cy="60" r={R} fill="none" stroke={CHART_COLORS.track} strokeWidth="20" />
+            {slices.map((s, i) => {
+                const len = total > 0 ? (s.value / total) * C : 0;
+                const dash = `${len} ${C - len}`;
+                const el = (
+                    <circle
+                        key={i}
+                        cx="60"
+                        cy="60"
+                        r={R}
+                        fill="none"
+                        stroke={s.color}
+                        strokeWidth="20"
+                        strokeDasharray={dash}
+                        strokeDashoffset={-offset}
+                        transform="rotate(-90 60 60)"
+                    />
+                );
+                offset += len;
+                return el;
+            })}
+        </svg>
     );
+}
+
+function sum(rows: MonthlySummaryRow[]): number {
+    return rows.reduce((s, r) => s + Number(r.total_amount), 0);
+}
+
+/** Collapse the monthly summary into the trailing {income, expense} pairs. */
+function monthColumns(
+    rows: MonthlySummaryRow[],
+): Array<{ month: string; label: string; income: number; expense: number }> {
+    const byMonth = new Map<string, { income: number; expense: number }>();
+    for (const r of rows) {
+        const entry = byMonth.get(r.month) ?? { income: 0, expense: 0 };
+        if (r.kind === "income") entry.income += Number(r.total_amount);
+        if (r.kind === "expense") entry.expense += Number(r.total_amount);
+        byMonth.set(r.month, entry);
+    }
+    return [...byMonth.entries()]
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .slice(-HISTORY_MONTHS)
+        .map(([month, v]) => ({
+            month,
+            label: new Date(`${month}T00:00:00`).toLocaleDateString(undefined, { month: "short" }),
+            ...v,
+        }));
 }

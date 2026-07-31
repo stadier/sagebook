@@ -22,7 +22,7 @@ export default function IngestionResult({
     const insertErrors = result.insertErrors ?? [];
 
     return (
-        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+        <div className="sb-card p-4">
             <div className="mb-2 flex items-center justify-between gap-3">
                 <h2 className="text-sm font-medium text-slate-200">Extraction result</h2>
                 <span className="shrink-0 text-xs text-slate-500">

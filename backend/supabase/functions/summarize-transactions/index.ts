@@ -10,24 +10,21 @@
 // leaves rows for the next call.
 // =============================================================================
 
-import { cors } from "https://deno.land/x/hono@v4.3.11/middleware.ts";
-import { Hono } from "https://deno.land/x/hono@v4.3.11/mod.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+import type { SupabaseClient } from "../_shared/deps.ts";
+import { createApp, errorMessage, readJson, requireUser, serve } from "../_shared/http.ts";
 import {
     SUMMARY_BATCH,
     type SummarizableTx,
     summarizeBatch,
 } from "../_shared/summarize.ts";
 
-const SUPABASE_URL         = Deno.env.get("SUPABASE_URL")         ?? "";
-const SUPABASE_ANON_KEY    = Deno.env.get("SUPABASE_ANON_KEY")    ?? "";
-const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_KEY")
-                          ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-
 /** Rows per request. The client loops until the backlog is empty, so this is a
  *  latency budget per call, not a ceiling on how much can be summarized. */
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT     = 300;
+
+/** Error messages returned to the caller before the list is truncated. */
+const MAX_REPORTED_ERRORS = 5;
 
 interface SummarizeRequest {
     /** Summarize these specific rows (used by "regenerate"). */
@@ -38,40 +35,17 @@ interface SummarizeRequest {
     force?: boolean;
 }
 
-const app = new Hono();
-
-app.use("*", cors({
-    origin: "*",
-    allowHeaders: ["authorization", "content-type", "x-client-info", "apikey"],
-    allowMethods: ["POST", "OPTIONS"],
-}));
+const app = createApp("summarize-transactions");
 
 app.post("/summarize-transactions", async (c) => {
-    const authHeader = c.req.header("authorization") ?? "";
-    if (!authHeader.toLowerCase().startsWith("bearer ")) {
-        return c.json({ error: "missing bearer token" }, 401);
-    }
+    const auth = await requireUser(c);
+    if (!auth.ok) return auth.response;
+    const { userId, admin } = auth;
 
-    const userClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-        global: { headers: { Authorization: authHeader } },
-        auth:   { persistSession: false, autoRefreshToken: false },
-    });
-    const { data: userData, error: userErr } = await userClient.auth.getUser();
-    if (userErr || !userData?.user) {
-        return c.json({ error: "invalid session" }, 401);
-    }
-    const userId = userData.user.id;
-
-    const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
-        auth: { persistSession: false, autoRefreshToken: false },
-    });
-
-    let body: SummarizeRequest = {};
-    try {
-        body = await c.req.json<SummarizeRequest>();
-    } catch {
-        // An empty body means "drain the default number of rows".
-    }
+    // An empty body means "drain the default number of rows".
+    const parsed = await readJson<SummarizeRequest>(c, {});
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.body;
 
     const limit = Math.min(Math.max(Number(body.limit) || DEFAULT_LIMIT, 1), MAX_LIMIT);
 
@@ -155,9 +129,8 @@ app.post("/summarize-transactions", async (c) => {
             failed += batch.length - results.length;
         } catch (err) {
             failed += batch.length;
-            const message = err instanceof Error ? err.message : String(err);
-            errors.push(message);
-            console.error("[summarize-transactions] batch failed", message);
+            errors.push(errorMessage(err));
+            console.error("[summarize-transactions] batch failed", errorMessage(err));
         }
     }
 
@@ -166,17 +139,12 @@ app.post("/summarize-transactions", async (c) => {
         failed,
         remaining: await backlog(admin, userId),
         model,
-        errors: errors.slice(0, 5),
+        errors: errors.slice(0, MAX_REPORTED_ERRORS),
     });
 });
 
-app.get("/summarize-transactions/health", (c) => c.json({ ok: true }));
-
 /** How many rows still have no summary. */
-async function backlog(
-    admin: ReturnType<typeof createClient>,
-    userId: string,
-): Promise<number> {
+async function backlog(admin: SupabaseClient, userId: string): Promise<number> {
     const { count } = await admin
         .from("transactions")
         .select("id", { count: "exact", head: true })
@@ -186,4 +154,4 @@ async function backlog(
     return count ?? 0;
 }
 
-Deno.serve((req) => app.fetch(req));
+serve(app);

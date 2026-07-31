@@ -1,5 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { DEFAULT_CURRENCY, IMPORT_MAX_ROWS } from "../../lib/constants";
 import { fmtDate, fmtMoney } from "../../lib/format";
 import {
     type CsvMapping,
@@ -20,13 +21,10 @@ import {
 import { importJobRunning, startImport } from "../../lib/importJob";
 import { logEvent } from "../../lib/logger";
 import { pdfGridFor } from "../../lib/pdfTable";
+import { QK, useAccounts } from "../../lib/queries";
 import { uploadToIngest } from "../../lib/storage";
 import { requireSupabase } from "../../lib/supabase";
-import { fetchAccounts } from "../../lib/taxonomy";
-
-// Batching lets the background job handle large statements; the per-request cap
-// lives in ingest-import. This is just a sanity ceiling on a single file.
-const MAX_ROWS = 10000;
+import { Input, Select } from "../ui";
 
 /**
  * Deterministic statement import (CSV / Excel / OFX) — column mapping, preview,
@@ -43,7 +41,7 @@ export default function ImportFlow({
     onClose: () => void;
 }) {
     const qc = useQueryClient();
-    const accounts = useQuery({ queryKey: ["accounts"], queryFn: fetchAccounts });
+    const accounts = useAccounts();
     const activeAccounts = (accounts.data ?? []).filter((a) => !a.is_archived);
 
     const [fileKind, setFileKind] = useState<"csv" | "ofx" | null>(null);
@@ -53,7 +51,7 @@ export default function ImportFlow({
     const [templateLoaded, setTemplateLoaded] = useState(false);
     const [meta, setMeta] = useState<StatementMeta | null>(null);
     const [accountId, setAccountId] = useState("");
-    const [currency, setCurrency] = useState("USD");
+    const [currency, setCurrency] = useState(DEFAULT_CURRENCY);
     const [parseError, setParseError] = useState("");
     const [parsing, setParsing] = useState(true);
 
@@ -215,8 +213,8 @@ export default function ImportFlow({
     const createAccount = useMutation({
         mutationFn: insertDetectedAccount,
         onSuccess: (created) => {
-            qc.invalidateQueries({ queryKey: ["accounts"] });
-            qc.invalidateQueries({ queryKey: ["account-balances"] });
+            qc.invalidateQueries({ queryKey: QK.accounts });
+            qc.invalidateQueries({ queryKey: QK.accountBalances });
             setAccountId(created.id);
             setCurrency(created.currency);
         },
@@ -236,8 +234,8 @@ export default function ImportFlow({
         mutationFn: async () => {
             if (!normalized) throw new Error("nothing to import");
             if (!normalized.txs.length) throw new Error("no valid rows to import");
-            if (normalized.txs.length > MAX_ROWS) {
-                throw new Error(`too many rows (max ${MAX_ROWS}); split the file`);
+            if (normalized.txs.length > IMPORT_MAX_ROWS) {
+                throw new Error(`too many rows (max ${IMPORT_MAX_ROWS}); split the file`);
             }
             if (importJobRunning()) {
                 throw new Error("an import is already running — let it finish first");
@@ -251,8 +249,8 @@ export default function ImportFlow({
             let acctId = accountId;
             if (!acctId && canCreateAccount) {
                 acctId = (await insertDetectedAccount()).id;
-                qc.invalidateQueries({ queryKey: ["accounts"] });
-                qc.invalidateQueries({ queryKey: ["account-balances"] });
+                qc.invalidateQueries({ queryKey: QK.accounts });
+                qc.invalidateQueries({ queryKey: QK.accountBalances });
             }
             const storagePath = await uploadToIngest(file); // archive; ok if null
             // Fire-and-forget: startImport runs the batched loop and reports
@@ -267,7 +265,7 @@ export default function ImportFlow({
         onSuccess: () => {
             // Refresh the inbox as batches land, then minimize to the bar.
             const iv = setInterval(
-                () => qc.invalidateQueries({ queryKey: ["pending-review"] }),
+                () => qc.invalidateQueries({ queryKey: QK.pendingReview }),
                 2000,
             );
             setTimeout(() => clearInterval(iv), 120000);
@@ -338,18 +336,18 @@ export default function ImportFlow({
             )}
 
             <div className="mb-4 flex flex-wrap items-center gap-3">
-                <select className={inputCls} value={accountId} onChange={(e) => onAccount(e.target.value)}>
+                <Select compact value={accountId} onChange={(e) => onAccount(e.target.value)}>
                     <option value="">File under account… (optional)</option>
                     {activeAccounts.map((a) => (
                         <option key={a.id} value={a.id}>
                             {a.name} ({a.currency})
                         </option>
                     ))}
-                </select>
+                </Select>
                 <label className="flex items-center gap-2 text-sm text-slate-400">
                     Currency
-                    <input
-                        className={`${inputCls} w-20`}
+                    <Input
+                        compact className="w-20"
                         value={currency}
                         maxLength={3}
                         onChange={(e) => setCurrency(e.target.value.toUpperCase())}
@@ -419,8 +417,8 @@ function MappingEditor({
     ) => (
         <label className="flex items-center gap-2 text-sm text-slate-400">
             {label}
-            <select
-                className={inputCls}
+            <Select
+                compact
                 value={mapping[key]}
                 onChange={(e) => set(key, Number(e.target.value))}
             >
@@ -430,12 +428,12 @@ function MappingEditor({
                         {h}
                     </option>
                 ))}
-            </select>
+            </Select>
         </label>
     );
 
     return (
-        <div className="mb-4 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+        <div className="mb-4 sb-card p-4">
             <div className="mb-3 flex items-center justify-between">
                 <h2 className="text-sm font-semibold text-slate-200">Column mapping</h2>
                 {templateLoaded && (
@@ -453,11 +451,12 @@ function MappingEditor({
                 </label>
                 <label className="flex items-center gap-2 text-sm text-slate-400" title="1-based row that holds the column names; data starts on the next row. Statements often have a title/summary preamble above it.">
                     Header row
-                    <input
+                    <Input
                         type="number"
                         min={1}
                         max={rows.length}
-                        className={`${inputCls} w-16`}
+                        compact
+                        className="w-16"
                         value={headerRow + 1}
                         onChange={(e) => set("headerRow", Math.max(0, Number(e.target.value) - 1))}
                     />
@@ -465,8 +464,8 @@ function MappingEditor({
                 {colSelect("Date", "dateCol")}
                 <label className="flex items-center gap-2 text-sm text-slate-400">
                     Date format
-                    <select
-                        className={inputCls}
+                    <Select
+                        compact
                         value={mapping.dateFormat}
                         onChange={(e) => set("dateFormat", e.target.value as CsvMapping["dateFormat"])}
                     >
@@ -474,26 +473,26 @@ function MappingEditor({
                         <option value="dmy">DD/MM/YYYY</option>
                         <option value="mdy">MM/DD/YYYY</option>
                         <option value="ymd">YYYY-MM-DD</option>
-                    </select>
+                    </Select>
                 </label>
                 <label className="flex items-center gap-2 text-sm text-slate-400">
                     Amounts
-                    <select
-                        className={inputCls}
+                    <Select
+                        compact
                         value={mapping.amountMode}
                         onChange={(e) => set("amountMode", e.target.value as CsvMapping["amountMode"])}
                     >
                         <option value="signed">one signed column</option>
                         <option value="debit_credit">debit + credit columns</option>
-                    </select>
+                    </Select>
                 </label>
                 {mapping.amountMode === "signed" ? (
                     <>
                         {colSelect("Amount", "amountCol")}
                         <label className="flex items-center gap-2 text-sm text-slate-400">
                             Sign
-                            <select
-                                className={inputCls}
+                            <Select
+                                compact
                                 value={mapping.signConvention}
                                 onChange={(e) =>
                                     set("signConvention", e.target.value as CsvMapping["signConvention"])
@@ -501,7 +500,7 @@ function MappingEditor({
                             >
                                 <option value="negative_expense">negative = money out</option>
                                 <option value="positive_expense">positive = money out</option>
-                            </select>
+                            </Select>
                         </label>
                     </>
                 ) : (
@@ -550,7 +549,7 @@ function PreviewPane({
     const currency = txs[0]?.currency ?? "USD";
 
     return (
-        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+        <div className="sb-card p-4">
             <div className="mb-2 flex flex-wrap items-center gap-4 text-sm">
                 <span className="font-semibold text-slate-200">
                     {txs.length} row{txs.length === 1 ? "" : "s"} ready
@@ -600,7 +599,7 @@ function PreviewPane({
             )}
 
             <button
-                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+                className="sb-btn sb-btn-primary"
                 disabled={busy || txs.length === 0}
                 onClick={onImport}
             >
@@ -609,8 +608,5 @@ function PreviewPane({
         </div>
     );
 }
-
-const inputCls =
-    "rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm text-slate-200 outline-none focus:border-emerald-500";
 const neutralCls =
     "rounded-lg bg-slate-800 px-3 py-2 text-sm text-slate-200 hover:bg-slate-700";

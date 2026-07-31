@@ -1,48 +1,19 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
-import { fmtDate, fmtMoney } from "../lib/format";
+import {
+    Input,
+    PageHeader,
+    Pill,
+    QueryError,
+    SectionLabel,
+    Select,
+    StatCard,
+} from "../components/ui";
+import { BUDGET_KIND_LABELS, BUDGET_PERIODS, DEFAULT_CURRENCY } from "../lib/constants";
+import { fmtMoney } from "../lib/format";
+import { QK, useBudgetProgress, useBudgets, useTaxonomy } from "../lib/queries";
 import { requireSupabase } from "../lib/supabase";
-import { fetchTaxonomy, fetchAccounts } from "../lib/taxonomy";
-import type {
-    Budget,
-    BudgetCategory,
-    BudgetLineKind,
-    BudgetPeriod,
-    BudgetProgress,
-} from "../lib/types";
-
-/* -------------------------------------------------------------------------- */
-/*  Data fetching                                                              */
-/* -------------------------------------------------------------------------- */
-
-async function fetchBudgets(): Promise<Budget[]> {
-    const { data, error } = await requireSupabase()
-        .from("budgets")
-        .select("*")
-        .order("starts_on", { ascending: false });
-    if (error) throw new Error(error.message);
-    return (data ?? []) as Budget[];
-}
-
-async function fetchBudgetCategories(budgetId: string): Promise<BudgetCategory[]> {
-    const { data, error } = await requireSupabase()
-        .from("budget_categories")
-        .select("*")
-        .eq("budget_id", budgetId)
-        .order("sort_order");
-    if (error) throw new Error(error.message);
-    return (data ?? []) as BudgetCategory[];
-}
-
-async function fetchBudgetProgress(budgetId: string): Promise<BudgetProgress[]> {
-    const { data, error } = await requireSupabase()
-        .from("v_budget_progress")
-        .select("*")
-        .eq("budget_id", budgetId)
-        .order("sort_order");
-    if (error) throw new Error(error.message);
-    return (data ?? []) as BudgetProgress[];
-}
+import type { Budget, BudgetLineKind, BudgetPeriod, BudgetProgress } from "../lib/types";
 
 /* -------------------------------------------------------------------------- */
 /*  Helpers                                                                    */
@@ -85,21 +56,11 @@ function periodLabel(b: Budget): string {
     return `${s.toLocaleDateString(undefined, { month: "short", day: "numeric" })} – ${e.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`;
 }
 
-const inputCls =
-    "rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-emerald-500";
-
 const kindColors: Record<BudgetLineKind, string> = {
     income: "text-emerald-400",
     expense: "text-slate-100",
     saving: "text-sky-400",
     transfer: "text-amber-400",
-};
-
-const kindLabels: Record<BudgetLineKind, string> = {
-    income: "Income",
-    expense: "Expense",
-    saving: "Saving",
-    transfer: "Transfer",
 };
 
 /* -------------------------------------------------------------------------- */
@@ -108,7 +69,7 @@ const kindLabels: Record<BudgetLineKind, string> = {
 
 export default function Budgets() {
     const [selected, setSelected] = useState<string | null>(null);
-    const budgets = useQuery({ queryKey: ["budgets"], queryFn: fetchBudgets });
+    const budgets = useBudgets();
 
     const active = (budgets.data ?? []).filter((b) => !b.is_template);
     const templates = (budgets.data ?? []).filter((b) => b.is_template);
@@ -119,20 +80,20 @@ export default function Budgets() {
     }
 
     return (
-        <div className="mx-auto max-w-3xl">
-            <h1 className="mb-1 text-xl font-semibold">Budgets</h1>
-            <p className="mb-6 text-sm text-slate-400">
-                Plan your spending and income, then reconcile against actual transactions.
-            </p>
+        <>
+            <PageHeader
+                title="Budgets"
+                subtitle="Plan your spending and income, then reconcile against actual transactions."
+            />
 
             <CreateBudgetForm />
 
-            {budgets.isLoading && <p className="mt-6 text-sm text-slate-400">Loading…</p>}
+            {budgets.isLoading && <p className="text-sm text-slate-400">Loading…</p>}
 
             {active.length > 0 && (
-                <div className="mt-6">
-                    <h2 className="mb-2 text-sm font-semibold text-slate-300">Active budgets</h2>
-                    <div className="flex flex-col gap-2">
+                <div>
+                    <SectionLabel>Active budgets</SectionLabel>
+                    <div className="flex flex-col gap-2.5">
                         {active.map((b) => (
                             <BudgetCard key={b.id} budget={b} onClick={() => setSelected(b.id)} />
                         ))}
@@ -141,9 +102,9 @@ export default function Budgets() {
             )}
 
             {templates.length > 0 && (
-                <div className="mt-6">
-                    <h2 className="mb-2 text-sm font-semibold text-slate-300">Templates</h2>
-                    <div className="flex flex-col gap-2">
+                <div>
+                    <SectionLabel>Templates</SectionLabel>
+                    <div className="flex flex-col gap-2.5">
                         {templates.map((b) => (
                             <BudgetCard key={b.id} budget={b} onClick={() => setSelected(b.id)} />
                         ))}
@@ -152,9 +113,9 @@ export default function Budgets() {
             )}
 
             {budgets.isSuccess && active.length === 0 && templates.length === 0 && (
-                <p className="mt-6 text-sm text-slate-500">No budgets yet. Create one above.</p>
+                <p className="text-sm text-slate-500">No budgets yet. Create one above.</p>
             )}
-        </div>
+        </>
     );
 }
 
@@ -163,11 +124,7 @@ export default function Budgets() {
 /* -------------------------------------------------------------------------- */
 
 function BudgetCard({ budget, onClick }: { budget: Budget; onClick: () => void }) {
-    const progress = useQuery({
-        queryKey: ["budget-progress", budget.id],
-        queryFn: () => fetchBudgetProgress(budget.id),
-        enabled: !budget.is_template,
-    });
+    const progress = useBudgetProgress(budget.id, !budget.is_template);
 
     const lines = progress.data ?? [];
     const totalPlanned = lines.reduce((s, l) => s + Number(l.planned_amount), 0);
@@ -177,16 +134,12 @@ function BudgetCard({ budget, onClick }: { budget: Budget; onClick: () => void }
     return (
         <button
             onClick={onClick}
-            className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3 text-left transition-colors hover:border-slate-700 hover:bg-slate-900"
+            className="sb-card flex flex-wrap items-center gap-3 px-5 py-3.5 text-left transition-shadow hover:shadow-float"
         >
             <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 text-sm font-medium text-slate-100">
                     {budget.name}
-                    {budget.is_template && (
-                        <span className="rounded bg-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
-                            template
-                        </span>
-                    )}
+                    {budget.is_template && <Pill>template</Pill>}
                 </div>
                 <div className="text-xs text-slate-500">
                     {budget.is_template
@@ -225,13 +178,13 @@ function BudgetCard({ budget, onClick }: { budget: Budget; onClick: () => void }
 
 function CreateBudgetForm() {
     const qc = useQueryClient();
-    const budgets = useQuery({ queryKey: ["budgets"], queryFn: fetchBudgets });
+    const budgets = useBudgets();
 
     const [name, setName] = useState("");
     const [periodKind, setPeriodKind] = useState<BudgetPeriod>("monthly");
     const [startsOn, setStartsOn] = useState(() => periodDates("monthly").starts);
     const [endsOn, setEndsOn] = useState(() => periodDates("monthly").ends);
-    const [currency, setCurrency] = useState("NGN");
+    const [currency, setCurrency] = useState(DEFAULT_CURRENCY);
     const [isTemplate, setIsTemplate] = useState(false);
     const [cloneFrom, setCloneFrom] = useState("");
 
@@ -274,7 +227,7 @@ function CreateBudgetForm() {
         onSuccess: () => {
             setName("");
             setCloneFrom("");
-            qc.invalidateQueries({ queryKey: ["budgets"] });
+            qc.invalidateQueries({ queryKey: QK.budgets });
         },
     });
 
@@ -286,42 +239,38 @@ function CreateBudgetForm() {
     const cloneable = (budgets.data ?? []).filter((b) => b.is_template || !b.is_template);
 
     return (
-        <form onSubmit={submit} className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+        <form onSubmit={submit} className="sb-card p-4">
             <h2 className="mb-3 text-sm font-semibold text-slate-200">New budget</h2>
             <div className="grid gap-2 sm:grid-cols-2">
-                <input
-                    className={inputCls}
+                <Input
                     placeholder="Name, e.g. July 2026"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     required
                 />
-                <select
-                    className={inputCls}
+                <Select
                     value={periodKind}
                     onChange={(e) => handlePeriodChange(e.target.value as BudgetPeriod)}
                 >
-                    <option value="monthly">Monthly</option>
-                    <option value="quarterly">Quarterly</option>
-                    <option value="yearly">Yearly</option>
-                    <option value="custom">Custom dates</option>
-                </select>
-                <input
-                    className={inputCls}
+                    {BUDGET_PERIODS.map((p) => (
+                        <option key={p.value} value={p.value}>
+                            {p.label}
+                        </option>
+                    ))}
+                </Select>
+                <Input
                     type="date"
                     value={startsOn}
                     onChange={(e) => setStartsOn(e.target.value)}
                     required
                 />
-                <input
-                    className={inputCls}
+                <Input
                     type="date"
                     value={endsOn}
                     onChange={(e) => setEndsOn(e.target.value)}
                     required
                 />
-                <input
-                    className={`${inputCls} w-full`}
+                <Input
                     placeholder="Currency"
                     value={currency}
                     maxLength={3}
@@ -329,11 +278,7 @@ function CreateBudgetForm() {
                     required
                 />
                 {cloneable.length > 0 && (
-                    <select
-                        className={inputCls}
-                        value={cloneFrom}
-                        onChange={(e) => setCloneFrom(e.target.value)}
-                    >
+                    <Select value={cloneFrom} onChange={(e) => setCloneFrom(e.target.value)}>
                         <option value="">Clone from… (optional)</option>
                         {cloneable.map((b) => (
                             <option key={b.id} value={b.id}>
@@ -341,7 +286,7 @@ function CreateBudgetForm() {
                                 {b.is_template ? " (template)" : ""}
                             </option>
                         ))}
-                    </select>
+                    </Select>
                 )}
             </div>
             <label className="mt-2 flex items-center gap-2 text-sm text-slate-400">
@@ -353,15 +298,12 @@ function CreateBudgetForm() {
                 />
                 Save as reusable template
             </label>
-            <button
-                className="mt-3 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
-                disabled={create.isPending || !name.trim()}
-            >
+            <button className="sb-btn sb-btn-primary mt-3" disabled={create.isPending || !name.trim()}>
                 {create.isPending ? "Creating…" : "Create budget"}
             </button>
-            {create.isError && (
-                <p className="mt-2 text-xs text-rose-400">{(create.error as Error).message}</p>
-            )}
+            <div className="mt-2">
+                <QueryError error={create.error} />
+            </div>
         </form>
     );
 }
@@ -372,10 +314,7 @@ function CreateBudgetForm() {
 
 function BudgetDetail({ budget, onBack }: { budget: Budget; onBack: () => void }) {
     const qc = useQueryClient();
-    const progress = useQuery({
-        queryKey: ["budget-progress", budget.id],
-        queryFn: () => fetchBudgetProgress(budget.id),
-    });
+    const progress = useBudgetProgress(budget.id);
 
     const lines = progress.data ?? [];
     const incomeLines = lines.filter((l) => l.kind === "income");
@@ -397,16 +336,16 @@ function BudgetDetail({ budget, onBack }: { budget: Budget; onBack: () => void }
             if (error) throw new Error(error.message);
         },
         onSuccess: () => {
-            qc.invalidateQueries({ queryKey: ["budgets"] });
+            qc.invalidateQueries({ queryKey: QK.budgets });
             onBack();
         },
     });
 
     return (
-        <div className="mx-auto max-w-3xl">
+        <div className="flex flex-col gap-5">
             <button
                 onClick={onBack}
-                className="mb-4 flex items-center gap-1 text-sm text-slate-400 hover:text-slate-200"
+                className="-mb-1 flex items-center gap-1 self-start text-sm text-slate-400 hover:text-slate-200"
             >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                     <path d="M15 18l-6-6 6-6" />
@@ -414,46 +353,46 @@ function BudgetDetail({ budget, onBack }: { budget: Budget; onBack: () => void }
                 All budgets
             </button>
 
-            <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-                <h1 className="text-xl font-semibold">
-                    {budget.name}
-                    {budget.is_template && (
-                        <span className="ml-2 rounded bg-slate-700 px-1.5 py-0.5 text-xs font-normal text-slate-400">
-                            template
-                        </span>
-                    )}
-                </h1>
+            <PageHeader
+                title={
+                    <>
+                        {budget.name}
+                        {budget.is_template && (
+                            <span className="sb-pill ml-2.5 align-middle bg-chip text-slate-400">
+                                template
+                            </span>
+                        )}
+                    </>
+                }
+                subtitle={`${periodLabel(budget)} · ${budget.currency}${
+                    budget.notes ? ` · ${budget.notes}` : ""
+                }`}
+            >
                 <button
-                    className="text-xs text-slate-600 hover:text-rose-400"
+                    className="sb-btn sb-btn-ghost !text-rose-400"
                     onClick={() => {
                         if (window.confirm(`Delete budget "${budget.name}"?`)) remove.mutate();
                     }}
                 >
                     Delete budget
                 </button>
-            </div>
-            <p className="mb-6 text-sm text-slate-400">
-                {periodLabel(budget)} · {budget.currency}
-                {budget.notes ? ` · ${budget.notes}` : ""}
-            </p>
+            </PageHeader>
 
             {/* Summary stats */}
             {!budget.is_template && (
-                <div className="mb-6 grid gap-4 sm:grid-cols-2">
-                    <div className="sb-stat bg-sage text-sage-ink">
-                        <div className="mb-2 text-sm font-medium opacity-80">Planned income</div>
-                        <p className="text-2xl font-bold">{fmtMoney(totalIncomePlanned, budget.currency)}</p>
-                        <p className="mt-1 text-sm opacity-70">
-                            Actual: {fmtMoney(totalIncomeActual, budget.currency)}
-                        </p>
-                    </div>
-                    <div className="sb-stat bg-gold text-gold-ink">
-                        <div className="mb-2 text-sm font-medium opacity-80">Planned expenses</div>
-                        <p className="text-2xl font-bold">{fmtMoney(totalPlanned, budget.currency)}</p>
-                        <p className="mt-1 text-sm opacity-70">
-                            Spent: {fmtMoney(totalActual, budget.currency)}
-                        </p>
-                    </div>
+                <div className="grid gap-3.5 sm:grid-cols-2">
+                    <StatCard
+                        label="Planned income"
+                        value={fmtMoney(totalIncomePlanned, budget.currency)}
+                        tone="positive"
+                        hint={`Actual: ${fmtMoney(totalIncomeActual, budget.currency)}`}
+                    />
+                    <StatCard
+                        label="Planned expenses"
+                        value={fmtMoney(totalPlanned, budget.currency)}
+                        tone="dark"
+                        hint={`Spent: ${fmtMoney(totalActual, budget.currency)}`}
+                    />
                 </div>
             )}
 
@@ -546,7 +485,7 @@ function LineSection({
                     return (
                         <div
                             key={line.budget_category_id}
-                            className="group rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3"
+                            className="group sb-card px-5 py-3.5"
                         >
                             <div className="flex flex-wrap items-center gap-3">
                                 <div className="min-w-0 flex-1">
@@ -578,8 +517,8 @@ function LineSection({
                                                 });
                                             }}
                                         >
-                                            <input
-                                                className={`${inputCls} w-28`}
+                                            <Input
+                                                className="w-28"
                                                 type="number"
                                                 step="0.01"
                                                 value={editAmount}
@@ -650,7 +589,7 @@ function LineSection({
 
 function AddLineForm({ budgetId }: { budgetId: string }) {
     const qc = useQueryClient();
-    const taxonomy = useQuery({ queryKey: ["taxonomy"], queryFn: fetchTaxonomy });
+    const taxonomy = useTaxonomy();
 
     const [kind, setKind] = useState<BudgetLineKind>("expense");
     const [categoryId, setCategoryId] = useState("");
@@ -693,22 +632,22 @@ function AddLineForm({ budgetId }: { budgetId: string }) {
     }
 
     return (
-        <form onSubmit={submit} className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+        <form onSubmit={submit} className="sb-card p-4">
             <h2 className="mb-3 text-sm font-semibold text-slate-200">Add budget line</h2>
             <div className="grid gap-2 sm:grid-cols-2">
-                <select className={inputCls} value={kind} onChange={(e) => setKind(e.target.value as BudgetLineKind)}>
-                    {(Object.keys(kindLabels) as BudgetLineKind[]).map((k) => (
-                        <option key={k} value={k}>{kindLabels[k]}</option>
+                <Select value={kind} onChange={(e) => setKind(e.target.value as BudgetLineKind)}>
+                    {(Object.keys(BUDGET_KIND_LABELS) as BudgetLineKind[]).map((k) => (
+                        <option key={k} value={k}>{BUDGET_KIND_LABELS[k]}</option>
                     ))}
-                </select>
-                <select className={inputCls} value={mode} onChange={(e) => setMode(e.target.value as "category" | "group" | "custom")}>
+                </Select>
+                <Select value={mode} onChange={(e) => setMode(e.target.value as "category" | "group" | "custom")}>
                     <option value="category">By category</option>
                     <option value="group">By group (all categories in group)</option>
                     <option value="custom">Custom label</option>
-                </select>
+                </Select>
 
                 {mode === "category" && (
-                    <select className={`${inputCls} sm:col-span-2`} value={categoryId} onChange={(e) => setCategoryId(e.target.value)} required>
+                    <Select className="sm:col-span-2" value={categoryId} onChange={(e) => setCategoryId(e.target.value)} required>
                         <option value="">Select category…</option>
                         {(taxonomy.data ?? []).map((g) => (
                             <optgroup key={g.id} label={g.name}>
@@ -719,19 +658,19 @@ function AddLineForm({ budgetId }: { budgetId: string }) {
                                 ))}
                             </optgroup>
                         ))}
-                    </select>
+                    </Select>
                 )}
                 {mode === "group" && (
-                    <select className={`${inputCls} sm:col-span-2`} value={groupId} onChange={(e) => setGroupId(e.target.value)} required>
+                    <Select className="sm:col-span-2" value={groupId} onChange={(e) => setGroupId(e.target.value)} required>
                         <option value="">Select group…</option>
                         {(taxonomy.data ?? []).map((g) => (
                             <option key={g.id} value={g.id}>{g.name}</option>
                         ))}
-                    </select>
+                    </Select>
                 )}
                 {mode === "custom" && (
-                    <input
-                        className={`${inputCls} sm:col-span-2`}
+                    <Input
+                        className="sm:col-span-2"
                         placeholder="Custom label, e.g. Emergency fund"
                         value={label}
                         onChange={(e) => setLabel(e.target.value)}
@@ -739,8 +678,7 @@ function AddLineForm({ budgetId }: { budgetId: string }) {
                     />
                 )}
 
-                <input
-                    className={inputCls}
+                <Input
                     type="number"
                     step="0.01"
                     min="0"
@@ -758,15 +696,12 @@ function AddLineForm({ budgetId }: { budgetId: string }) {
                     Rollover unspent
                 </label>
             </div>
-            <button
-                className="mt-3 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
-                disabled={add.isPending}
-            >
+            <button className="sb-btn sb-btn-primary mt-3" disabled={add.isPending}>
                 {add.isPending ? "Adding…" : "Add line"}
             </button>
-            {add.isError && (
-                <p className="mt-2 text-xs text-rose-400">{(add.error as Error).message}</p>
-            )}
+            <div className="mt-2">
+                <QueryError error={add.error} />
+            </div>
         </form>
     );
 }

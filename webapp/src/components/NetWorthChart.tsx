@@ -1,8 +1,8 @@
 import { useRef, useState } from "react";
 import { fmtDate, fmtMoney, fmtMoneyCompact } from "../lib/format";
 
-// Mark color validated against the dark surface (dataviz six checks).
-const MARK = "#059669";
+// The design's primary series colour — indigo, which reads on both canvases.
+const MARK = "var(--color-chart-indigo)";
 
 export interface Point {
     date: string;
@@ -92,7 +92,7 @@ export default function NetWorthChart({ points, currency }: { points: Point[]; c
                             y={y(v) + 3}
                             textAnchor="end"
                             fontSize={10}
-                            fill="#64748b"
+                            fill="var(--color-slate-500)"
                         >
                             {fmtMoneyCompact(v, currency)}
                         </text>
@@ -109,7 +109,7 @@ export default function NetWorthChart({ points, currency }: { points: Point[]; c
                             x2={hoverX}
                             y1={plotT}
                             y2={plotB}
-                            stroke="#475569"
+                            stroke="var(--color-slate-600)"
                             strokeWidth={1}
                             strokeDasharray="3 3"
                         />
@@ -119,10 +119,10 @@ export default function NetWorthChart({ points, currency }: { points: Point[]; c
                     </g>
                 )}
 
-                <text x={plotL} y={H - 6} fontSize={10} fill="#64748b">
+                <text x={plotL} y={H - 6} fontSize={10} fill="var(--color-slate-500)">
                     {fmtDate(points[0].date)}
                 </text>
-                <text x={plotR} y={H - 6} fontSize={10} fill="#64748b" textAnchor="end">
+                <text x={plotR} y={H - 6} fontSize={10} fill="var(--color-slate-500)" textAnchor="end">
                     {fmtDate(points[points.length - 1].date)}
                 </text>
             </svg>

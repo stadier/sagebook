@@ -6,36 +6,21 @@
 // transactions via the shared AI pipeline, and commits them to the inbox.
 // =============================================================================
 
-import { cors } from "https://deno.land/x/hono@v4.3.11/middleware.ts";
-import { Hono } from "https://deno.land/x/hono@v4.3.11/mod.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { b2Configured, b2Upload } from "../_shared/b2.ts";
 import { commitParsedTransactions } from "../_shared/commit.ts";
+import { loadUserContextHint } from "../_shared/context.ts";
+import { INGEST_WEBHOOK_SECRET } from "../_shared/env.ts";
+import { adminClient, createApp, errorMessage, readJson, serve } from "../_shared/http.ts";
 import {
     type ExtractionInput,
     type ParsedPayload,
-    base64FromArrayBuffer,
-    buildCategoryHint,
     detectMediaKind,
     estimateBase64Bytes,
     extractTransactions,
     safeParse,
 } from "../_shared/extract.ts";
 
-// -----------------------------------------------------------------------------
-// Environment
-// -----------------------------------------------------------------------------
-
-const SUPABASE_URL         = Deno.env.get("SUPABASE_URL")         ?? "";
-const SUPABASE_ANON_KEY    = Deno.env.get("SUPABASE_ANON_KEY")    ?? "";
-const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_KEY")
-                          ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const WEBHOOK_SECRET       = Deno.env.get("INGEST_WEBHOOK_SECRET") ?? "";
-
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !SUPABASE_SERVICE_KEY) {
-    console.warn("[ingest-email] Supabase env vars missing; runtime calls will fail.");
-}
-if (!WEBHOOK_SECRET) {
+if (!INGEST_WEBHOOK_SECRET) {
     console.warn("[ingest-email] INGEST_WEBHOOK_SECRET not set; all requests will be rejected.");
 }
 
@@ -64,33 +49,24 @@ interface InboundEmailPayload {
 // HTTP app
 // -----------------------------------------------------------------------------
 
-const app = new Hono();
-
-app.use("*", cors({
-    origin: "*",
-    allowHeaders: ["authorization", "content-type", "x-webhook-secret"],
-    allowMethods: ["POST", "OPTIONS"],
-}));
-
-app.get("/ingest-email/health", (c) => c.json({ ok: true, b2: b2Configured() }));
+const app = createApp("ingest-email", {
+    allowHeaders: ["x-webhook-secret"],
+    health: () => ({ b2: b2Configured() }),
+});
 
 app.post("/ingest-email", async (c) => {
-    // --- Webhook auth (not user JWT) ---
+    // Authenticated by a shared webhook secret, not a user JWT — the sender is
+    // a mail worker, and the user is identified from the "to" slug below.
     const secret = c.req.header("x-webhook-secret") ?? "";
-    if (!WEBHOOK_SECRET || secret !== WEBHOOK_SECRET) {
+    if (!INGEST_WEBHOOK_SECRET || secret !== INGEST_WEBHOOK_SECRET) {
         return c.json({ error: "unauthorized" }, 401);
     }
 
-    const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
-        auth: { persistSession: false, autoRefreshToken: false },
-    });
+    const admin = adminClient();
 
-    let body: InboundEmailPayload;
-    try {
-        body = await c.req.json<InboundEmailPayload>();
-    } catch {
-        return c.json({ error: "body must be JSON" }, 400);
-    }
+    const parsed = await readJson<InboundEmailPayload>(c);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.body;
 
     if (!body.to || !body.from) {
         return c.json({ error: "from and to are required" }, 400);
@@ -182,35 +158,7 @@ app.post("/ingest-email", async (c) => {
     ].filter(Boolean).join("\n\n");
 
     // --- Load user context (taxonomy + accounts) ---
-    let categoryHint: string | null = null;
-    try {
-        const [{ data: cats }, { data: groups }, { data: accounts }] = await Promise.all([
-            admin.from("categories")
-                .select("id, name, parent_id, group_id")
-                .eq("user_id", userId),
-            admin.from("category_groups")
-                .select("id, name")
-                .eq("user_id", userId),
-            admin.from("accounts")
-                .select("name, institution, type")
-                .eq("user_id", userId)
-                .eq("is_archived", false),
-        ]);
-        const catById   = new Map((cats ?? []).map((c: { id: string }) => [c.id, c]));
-        const groupById = new Map((groups ?? []).map((g: { id: string }) => [g.id, g]));
-        categoryHint = buildCategoryHint((cats ?? []).map((c: { name: string; parent_id: string | null; group_id: string | null }) => ({
-            name:   c.name,
-            parent: c.parent_id ? catById.get(c.parent_id) ?? null : null,
-            group:  c.group_id  ? groupById.get(c.group_id) ?? null : null,
-        })));
-        if (accounts?.length) {
-            const lines = accounts.map((a: { name: string; institution: string | null; type: string }) =>
-                `- ${a.name}${a.institution ? ` (${a.institution})` : ""} [${a.type}]`);
-            categoryHint = `${categoryHint ?? ""}\n\nUser's accounts:\n${lines.join("\n")}`;
-        }
-    } catch (err) {
-        console.warn("[ingest-email] context hint fetch failed", err);
-    }
+    const categoryHint = await loadUserContextHint(admin, userId, "ingest-email");
 
     // Load user's base currency
     let baseCurrency: string | undefined;
@@ -330,7 +278,7 @@ app.post("/ingest-email", async (c) => {
             rulesApplied: commitResult.rulesApplied,
         });
     } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = errorMessage(err);
         console.error("[ingest-email] extraction failed", message);
         await admin.from("media_ingestions").update({
             status: "failed",
@@ -361,8 +309,4 @@ function extractSlug(toAddress: string): string | null {
     return match?.[1]?.toLowerCase() ?? null;
 }
 
-// -----------------------------------------------------------------------------
-// Deno serve hook
-// -----------------------------------------------------------------------------
-
-Deno.serve((req) => app.fetch(req));
+serve(app);

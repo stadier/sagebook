@@ -7,18 +7,9 @@
 // inbox. Unlike AI captures, imports may pre-assign the target account.
 // =============================================================================
 
-import { cors } from "https://deno.land/x/hono@v4.3.11/middleware.ts";
-import { Hono } from "https://deno.land/x/hono@v4.3.11/mod.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { commitParsedTransactions, type ParsedTx } from "../_shared/commit.ts";
-
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
-const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
-const SUPABASE_SERVICE_KEY =
-  Deno.env.get("SUPABASE_SERVICE_KEY") ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-
-const MAX_ROWS = 1000;
-const KINDS = new Set(["income", "expense", "transfer", "adjustment"]);
+import { IMPORT_MAX_ROWS, isTransactionKind } from "../_shared/constants.ts";
+import { createApp, ownsStoragePath, readJson, requireUser, serve } from "../_shared/http.ts";
 
 interface ImportRequest {
   transactions: ParsedTx[];
@@ -33,6 +24,9 @@ interface ImportRequest {
   totalRows?: number;
 }
 
+/** How many problems to report before giving up — enough to fix in one pass. */
+const MAX_REPORTED_PROBLEMS = 10;
+
 function validateTx(tx: ParsedTx, i: number): string | null {
   if (!tx || typeof tx !== "object") return `row ${i}: not an object`;
   if (Number.isNaN(Date.parse(tx.occurred_at))) return `row ${i}: bad occurred_at`;
@@ -40,60 +34,32 @@ function validateTx(tx: ParsedTx, i: number): string | null {
   if (typeof tx.currency !== "string" || tx.currency.trim().length !== 3) {
     return `row ${i}: currency must be a 3-letter code`;
   }
-  if (!KINDS.has(tx.kind)) return `row ${i}: bad kind '${tx.kind}'`;
+  if (!isTransactionKind(tx.kind)) return `row ${i}: bad kind '${tx.kind}'`;
   return null;
 }
 
-const app = new Hono();
-
-app.use(
-  "*",
-  cors({
-    origin: "*",
-    allowHeaders: ["authorization", "content-type", "x-client-info", "apikey"],
-    allowMethods: ["POST", "OPTIONS"],
-  }),
-);
+const app = createApp("ingest-import");
 
 app.post("/ingest-import", async (c) => {
-  const authHeader = c.req.header("authorization") ?? "";
-  if (!authHeader.toLowerCase().startsWith("bearer ")) {
-    return c.json({ error: "missing bearer token" }, 401);
-  }
+  const auth = await requireUser(c);
+  if (!auth.ok) return auth.response;
 
-  const userClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    global: { headers: { Authorization: authHeader } },
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  const { data: userData, error: userErr } = await userClient.auth.getUser();
-  if (userErr || !userData?.user) {
-    return c.json({ error: "invalid session" }, 401);
-  }
-  const userId = userData.user.id;
-
-  const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-
-  let body: ImportRequest;
-  try {
-    body = await c.req.json<ImportRequest>();
-  } catch {
-    return c.json({ error: "body must be JSON" }, 400);
-  }
+  const parsed = await readJson<ImportRequest>(c);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body;
 
   if (!Array.isArray(body?.transactions) || !body.transactions.length) {
     return c.json({ error: "transactions must be a non-empty array" }, 400);
   }
-  if (body.transactions.length > MAX_ROWS) {
-    return c.json({ error: `too many rows (max ${MAX_ROWS} per import)` }, 400);
+  if (body.transactions.length > IMPORT_MAX_ROWS) {
+    return c.json({ error: `too many rows (max ${IMPORT_MAX_ROWS} per import)` }, 400);
   }
 
   const problems: string[] = [];
   for (let i = 0; i < body.transactions.length; i++) {
     const problem = validateTx(body.transactions[i], i + 1);
     if (problem) problems.push(problem);
-    if (problems.length >= 10) break;
+    if (problems.length >= MAX_REPORTED_PROBLEMS) break;
   }
   if (problems.length) {
     return c.json({ error: "invalid rows", problems }, 400);
@@ -101,45 +67,41 @@ app.post("/ingest-import", async (c) => {
 
   // Verify the target account belongs to the caller.
   if (body.accountId) {
-    const { data: account } = await admin
+    const { data: account } = await auth.admin
       .from("accounts")
       .select("id")
       .eq("id", body.accountId)
-      .eq("user_id", userId)
+      .eq("user_id", auth.userId)
       .maybeSingle();
     if (!account) {
       return c.json({ error: "account not found" }, 404);
     }
   }
 
-  // The archive path may be a Supabase-bucket path ("{userId}/...") or a
-  // B2-proxy path ("b2:{userId}/..."); either way it must be under the caller.
-  if (body.storagePath) {
-    const bareStoragePath = body.storagePath.replace(/^b2:/, "");
-    if (!bareStoragePath.startsWith(`${userId}/`)) {
-      return c.json({ error: "storagePath must be under your own folder" }, 403);
-    }
+  if (body.storagePath && !ownsStoragePath(auth.userId, body.storagePath)) {
+    return c.json({ error: "storagePath must be under your own folder" }, 403);
   }
 
   // Batched imports share a single ingestion record: batch 1 creates it and
   // returns its id; later batches pass ingestionId to reuse it.
-  let ingestionId = body.ingestionId ?? null;
-  if (ingestionId) {
-    const { data: existing } = await admin
+  let ingestionId: string;
+  if (body.ingestionId) {
+    const { data: existing } = await auth.admin
       .from("media_ingestions")
       .select("id")
-      .eq("id", ingestionId)
-      .eq("user_id", userId)
+      .eq("id", body.ingestionId)
+      .eq("user_id", auth.userId)
       .maybeSingle();
     if (!existing) {
       return c.json({ error: "ingestion not found" }, 404);
     }
+    ingestionId = body.ingestionId;
   } else {
     const total = body.totalRows ?? body.transactions.length;
-    const { data: ingestion, error: ingErr } = await admin
+    const { data: ingestion, error: ingErr } = await auth.admin
       .from("media_ingestions")
       .insert({
-        user_id:      userId,
+        user_id:      auth.userId,
         storage_path: body.storagePath ?? null,
         media_kind:   "text",
         mime_type:    "text/csv",
@@ -161,11 +123,11 @@ app.post("/ingest-import", async (c) => {
   }
 
   const result = await commitParsedTransactions(
-    admin, userId, ingestionId, body.transactions,
+    auth.admin, auth.userId, ingestionId, body.transactions,
     { accountId: body.accountId ?? null, markApplied: true },
   );
 
   return c.json({ ingestionId, ...result });
 });
 
-Deno.serve((req) => app.fetch(req));
+serve(app);

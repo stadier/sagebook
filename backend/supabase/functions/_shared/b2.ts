@@ -55,14 +55,16 @@ function encodePath(path: string): string {
   return path.split("/").map(encodeURIComponent).join("/");
 }
 
-async function sha1Hex(bytes: ArrayBuffer): Promise<string> {
+async function sha1Hex(bytes: BufferSource): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-1", bytes);
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/** Callers hand us either a raw ArrayBuffer (proxy upload) or a decoded
+ *  Uint8Array (email attachment), so accept both. */
 export async function b2Upload(
   path: string,
-  bytes: ArrayBuffer,
+  bytes: BufferSource,
   contentType: string,
 ): Promise<void> {
   const auth = await authorize();

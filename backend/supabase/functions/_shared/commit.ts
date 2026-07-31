@@ -7,7 +7,7 @@
 // as functions.)
 // =============================================================================
 
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+import type { SupabaseClient } from "./deps.ts";
 
 export interface Rule {
   id: string;

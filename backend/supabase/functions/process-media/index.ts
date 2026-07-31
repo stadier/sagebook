@@ -6,17 +6,22 @@
 // ledger payload, and persists both the raw and parsed artefacts.
 // =============================================================================
 
-import { cors } from "https://deno.land/x/hono@v4.3.11/middleware.ts";
-import { Hono } from "https://deno.land/x/hono@v4.3.11/mod.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { b2Configured, b2Download } from "../_shared/b2.ts";
 import { commitParsedTransactions } from "../_shared/commit.ts";
+import { MAX_INLINE_BYTES } from "../_shared/constants.ts";
+import { loadUserContextHint } from "../_shared/context.ts";
+import {
+    createApp,
+    errorMessage,
+    ownsStoragePath,
+    readJson,
+    requireUser,
+    serve,
+} from "../_shared/http.ts";
 import {
     type ExtractionInput,
-    type MediaKind,
     type ParsedPayload,
     base64FromArrayBuffer,
-    buildCategoryHint,
     detectMediaKind,
     estimateBase64Bytes,
     extractTransactions,
@@ -26,19 +31,6 @@ import {
     safeParse,
     selectedModelForProvider,
 } from "../_shared/extract.ts";
-
-// -----------------------------------------------------------------------------
-// Environment
-// -----------------------------------------------------------------------------
-
-const SUPABASE_URL         = Deno.env.get("SUPABASE_URL")         ?? "";
-const SUPABASE_ANON_KEY    = Deno.env.get("SUPABASE_ANON_KEY")    ?? "";
-const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_KEY")
-                          ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !SUPABASE_SERVICE_KEY) {
-    console.warn("[process-media] Supabase env vars missing; runtime calls will fail.");
-}
 
 // -----------------------------------------------------------------------------
 // Types
@@ -52,53 +44,22 @@ interface ProcessMediaRequest {
     baseCurrency?: string;
 }
 
-/** Cap for inlining storage objects into a model request (base64 overhead ~33%). */
-const MAX_STORAGE_BYTES = 15 * 1024 * 1024;
-
 // -----------------------------------------------------------------------------
 // HTTP app
 // -----------------------------------------------------------------------------
 
-const app = new Hono();
-
-app.use("*", cors({
-    origin: "*",
-    allowHeaders: ["authorization", "content-type", "x-client-info", "apikey"],
-    allowMethods: ["POST", "OPTIONS"],
-}));
-
-app.get("/process-media/health", (c) => c.json({
-    ok: true,
-    b2: b2Configured(),
-    ...providerHealthInfo(),
-}));
+const app = createApp("process-media", {
+    health: () => ({ b2: b2Configured(), ...providerHealthInfo() }),
+});
 
 app.post("/process-media", async (c) => {
-    const authHeader = c.req.header("authorization") ?? "";
-    if (!authHeader.toLowerCase().startsWith("bearer ")) {
-        return c.json({ error: "missing bearer token" }, 401);
-    }
+    const auth = await requireUser(c);
+    if (!auth.ok) return auth.response;
+    const { userId, admin } = auth;
 
-    const userClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-        global: { headers: { Authorization: authHeader } },
-        auth:   { persistSession: false, autoRefreshToken: false },
-    });
-    const { data: userData, error: userErr } = await userClient.auth.getUser();
-    if (userErr || !userData?.user) {
-        return c.json({ error: "invalid session" }, 401);
-    }
-    const userId = userData.user.id;
-
-    const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
-        auth: { persistSession: false, autoRefreshToken: false },
-    });
-
-    let body: ProcessMediaRequest;
-    try {
-        body = await c.req.json<ProcessMediaRequest>();
-    } catch {
-        return c.json({ error: "body must be JSON" }, 400);
-    }
+    const parsed = await readJson<ProcessMediaRequest>(c);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.body;
 
     if (!body.inlineMedia && !body.text && !body.storagePath) {
         return c.json({ error: "inlineMedia, storagePath, or text required" }, 400);
@@ -106,11 +67,11 @@ app.post("/process-media", async (c) => {
 
     // Resolve storage-uploaded media into inline data for the model call.
     if (body.storagePath && !body.inlineMedia) {
-        const isB2 = body.storagePath.startsWith("b2:");
-        const path = isB2 ? body.storagePath.slice(3) : body.storagePath;
-        if (!path.startsWith(`${userId}/`)) {
+        if (!ownsStoragePath(userId, body.storagePath)) {
             return c.json({ error: "storagePath must be under your own folder" }, 403);
         }
+        const isB2 = body.storagePath.startsWith("b2:");
+        const path = isB2 ? body.storagePath.slice(3) : body.storagePath;
 
         let bytesBuf: ArrayBuffer;
         let mime: string;
@@ -127,7 +88,7 @@ app.post("/process-media", async (c) => {
             } catch (err) {
                 return c.json({
                     error: "could not download storage object",
-                    detail: err instanceof Error ? err.message : String(err),
+                    detail: errorMessage(err),
                 }, 400);
             }
         } else {
@@ -146,10 +107,10 @@ app.post("/process-media", async (c) => {
                 : inferMimeFromPath(path);
         }
 
-        if (bytesBuf.byteLength > MAX_STORAGE_BYTES) {
+        if (bytesBuf.byteLength > MAX_INLINE_BYTES) {
             return c.json({
                 error: "object too large",
-                detail: `max ${MAX_STORAGE_BYTES} bytes for inline model input; got ${bytesBuf.byteLength}`,
+                detail: `max ${MAX_INLINE_BYTES} bytes for inline model input; got ${bytesBuf.byteLength}`,
             }, 413);
         }
         body.inlineMedia = {
@@ -162,36 +123,8 @@ app.post("/process-media", async (c) => {
     const mediaKind = detectMediaKind(mimeType);
     const bytes     = body.inlineMedia ? estimateBase64Bytes(body.inlineMedia.data) : (body.text?.length ?? 0);
 
-    // Load the user's taxonomy and accounts for the extraction prompt.
-    let categoryHint: string | null = null;
-    try {
-        const [{ data: cats }, { data: groups }, { data: accounts }] = await Promise.all([
-            admin.from("categories")
-                .select("id, name, parent_id, group_id")
-                .eq("user_id", userId),
-            admin.from("category_groups")
-                .select("id, name")
-                .eq("user_id", userId),
-            admin.from("accounts")
-                .select("name, institution, type")
-                .eq("user_id", userId)
-                .eq("is_archived", false),
-        ]);
-        const catById   = new Map((cats ?? []).map((c: { id: string }) => [c.id, c]));
-        const groupById = new Map((groups ?? []).map((g: { id: string }) => [g.id, g]));
-        categoryHint = buildCategoryHint((cats ?? []).map((c: { name: string; parent_id: string | null; group_id: string | null }) => ({
-            name:   c.name,
-            parent: c.parent_id ? catById.get(c.parent_id) ?? null : null,
-            group:  c.group_id  ? groupById.get(c.group_id) ?? null : null,
-        })));
-        if (accounts?.length) {
-            const lines = accounts.map((a: { name: string; institution: string | null; type: string }) =>
-                `- ${a.name}${a.institution ? ` (${a.institution})` : ""} [${a.type}]`);
-            categoryHint = `${categoryHint ?? ""}\n\nUser's accounts:\n${lines.join("\n")}`;
-        }
-    } catch (err) {
-        console.warn("[process-media] context hint fetch failed", err);
-    }
+    // Prime the model with this user's taxonomy and account names.
+    const categoryHint = await loadUserContextHint(admin, userId, "process-media");
 
     // Record the ingestion as pending.
     const resolvedProvider = pickProvider(mediaKind);
@@ -269,7 +202,7 @@ app.post("/process-media", async (c) => {
             insertErrors: commitResult.insertErrors,
         });
     } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = errorMessage(err);
         const status = inferUpstreamStatus(message);
         console.error("[process-media] model invocation failed", message);
         await admin.from("media_ingestions").update({
@@ -289,14 +222,12 @@ app.post("/process-media", async (c) => {
 // Helpers
 // -----------------------------------------------------------------------------
 
+/** Map a provider failure onto a status the client can act on: 429 means "back
+ *  off and retry", 502 means "the model is wrong/unavailable", 500 is ours. */
 function inferUpstreamStatus(message: string): 429 | 502 | 500 {
     if (/\b429\b|RESOURCE_EXHAUSTED|Too Many Requests/i.test(message)) return 429;
     if (/\b404\b|NOT_FOUND/i.test(message)) return 502;
     return 500;
 }
 
-// -----------------------------------------------------------------------------
-// Deno serve hook
-// -----------------------------------------------------------------------------
-
-Deno.serve((req) => app.fetch(req));
+serve(app);

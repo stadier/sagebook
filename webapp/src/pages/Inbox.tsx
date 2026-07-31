@@ -1,15 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { PageHeader, QueryError } from "../components/ui";
+import { STORAGE_KEYS } from "../lib/constants";
 import { fmtDateTime, fmtMoney } from "../lib/format";
 import { logEvent } from "../lib/logger";
+import { QK, useAccounts, usePendingReview, useTaxonomy } from "../lib/queries";
 import { invokeFn, requireSupabase } from "../lib/supabase";
-import { fetchAccounts, fetchTaxonomy } from "../lib/taxonomy";
 import type { Account, ParsedTransaction, PendingTransaction } from "../lib/types";
 
 type ReviewAction = "accept" | "reject" | "edit" | "merge" | "unlink";
 
-const LAST_ACCOUNT_KEY = "sagebook.webapp.lastAccount";
+const LAST_ACCOUNT_KEY = STORAGE_KEYS.lastAccount;
 
 export default function Inbox() {
     const qc = useQueryClient();
@@ -17,23 +19,12 @@ export default function Inbox() {
     const [focusedIdx, setFocusedIdx] = useState(0);
     const [editingId, setEditingId] = useState<string | null>(null);
 
-    const pending = useQuery({
-        queryKey: ["pending-review"],
-        queryFn: async () => {
-            const { data, error } = await requireSupabase()
-                .from("v_pending_review")
-                .select("*")
-                .order("occurred_at", { ascending: false });
-            if (error) throw new Error(error.message);
-            return (data ?? []) as PendingTransaction[];
-        },
-    });
-
-    const accounts = useQuery({ queryKey: ["accounts"], queryFn: fetchAccounts });
+    const pending = usePendingReview();
+    const accounts = useAccounts();
     const activeAccounts = (accounts.data ?? []).filter((a) => !a.is_archived);
 
     function invalidate() {
-        qc.invalidateQueries({ queryKey: ["pending-review"] });
+        qc.invalidateQueries({ queryKey: QK.pendingReview });
         qc.invalidateQueries({ queryKey: ["transactions"] });
     }
 
@@ -136,27 +127,28 @@ export default function Inbox() {
     }, [rows.length]);
 
     if (pending.isLoading) return <p className="text-sm text-slate-400">Loading inbox…</p>;
-    if (pending.isError) {
-        return <p className="text-sm text-rose-400">{(pending.error as Error).message}</p>;
-    }
+    if (pending.isError) return <QueryError error={pending.error} />;
 
     return (
-        <div className="mx-auto max-w-3xl">
-            <h1 className="mb-1 text-xl font-semibold">Inbox</h1>
-            <p className="mb-1 text-sm text-slate-400">
-                {rows.length === 0
-                    ? "Nothing waiting for review."
-                    : `${rows.length} transaction${rows.length === 1 ? "" : "s"} awaiting review.`}
-            </p>
-            {rows.length > 0 && (
-                <p className="mb-4 text-xs text-slate-600">
-                    Keyboard: <kbd>J</kbd>/<kbd>K</kbd> navigate · <kbd>A</kbd> accept ·{" "}
-                    <kbd>R</kbd> reject · <kbd>E</kbd> edit · <kbd>X</kbd> select
-                </p>
-            )}
+        <>
+            <PageHeader
+                title="Inbox"
+                subtitle={
+                    rows.length === 0
+                        ? "Nothing waiting for review."
+                        : `${rows.length} transaction${rows.length === 1 ? "" : "s"} awaiting review.`
+                }
+            >
+                {rows.length > 0 && (
+                    <span className="text-xs text-slate-500">
+                        <kbd>J</kbd>/<kbd>K</kbd> navigate · <kbd>A</kbd> accept · <kbd>R</kbd> reject ·{" "}
+                        <kbd>E</kbd> edit · <kbd>X</kbd> select
+                    </span>
+                )}
+            </PageHeader>
 
             {rows.length > 0 && (
-                <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2 text-sm sm:gap-3">
+                <div className="sb-card flex flex-wrap items-center gap-2 px-4 py-2.5 text-sm sm:gap-3">
                     <label className="flex items-center gap-2 text-slate-400">
                         <input
                             type="checkbox"
@@ -192,7 +184,7 @@ export default function Inbox() {
             )}
 
             {(review.isError || bulk.isError) && (
-                <p className="mb-4 text-sm text-rose-400">
+                <p className="text-sm text-rose-400">
                     {((review.error ?? bulk.error) as Error).message}
                 </p>
             )}
@@ -214,7 +206,7 @@ export default function Inbox() {
                     />
                 ))}
             </div>
-        </div>
+        </>
     );
 }
 
@@ -272,9 +264,7 @@ function InboxCard({
         <div
             ref={cardRef}
             onClick={onFocus}
-            className={`rounded-xl border bg-slate-900/60 p-4 ${
-                focused ? "border-emerald-700/70 ring-1 ring-emerald-700/40" : "border-slate-800"
-            }`}
+            className={`sb-card p-4 ${focused ? "ring-2 ring-coral/50" : ""}`}
         >
             <div className="flex items-start gap-3">
                 <input type="checkbox" className="mt-1" checked={checked} onChange={onToggle} />
@@ -342,7 +332,7 @@ function InboxCard({
             ) : (
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                     <select
-                        className={`${inputCls} py-1.5`}
+                        className="sb-input py-1.5"
                         value={accountId}
                         onChange={(e) => setAccountId(e.target.value)}
                         title="Account to file this under on accept"
@@ -388,7 +378,7 @@ function InferencePanel({ tx }: { tx: PendingTransaction }) {
     const [categoryGroupId, setCategoryGroupId] = useState("");
 
     const ai = tx.original_ai_data;
-    const taxonomy = useQuery({ queryKey: ["taxonomy"], queryFn: fetchTaxonomy });
+    const taxonomy = useTaxonomy();
 
     // A source account was detected but the model couldn't name it — synthesize
     // a placeholder from whatever it did read, so it can still be captured and
@@ -433,8 +423,8 @@ function InferencePanel({ tx }: { tx: PendingTransaction }) {
             if (upd.error) throw new Error(upd.error.message);
         },
         onSuccess: () => {
-            qc.invalidateQueries({ queryKey: ["pending-review"] });
-            qc.invalidateQueries({ queryKey: ["accounts"] });
+            qc.invalidateQueries({ queryKey: QK.pendingReview });
+            qc.invalidateQueries({ queryKey: QK.accounts });
         },
         onError: (error) =>
             logEvent("error", "inbox", `Create inferred account failed: ${(error as Error).message}`, {
@@ -464,8 +454,8 @@ function InferencePanel({ tx }: { tx: PendingTransaction }) {
             if (upd.error) throw new Error(upd.error.message);
         },
         onSuccess: () => {
-            qc.invalidateQueries({ queryKey: ["pending-review"] });
-            qc.invalidateQueries({ queryKey: ["taxonomy"] });
+            qc.invalidateQueries({ queryKey: QK.pendingReview });
+            qc.invalidateQueries({ queryKey: QK.taxonomy });
         },
         onError: (error) =>
             logEvent("error", "inbox", `Create inferred category failed: ${(error as Error).message}`, {
@@ -660,12 +650,12 @@ function DuplicateCompare({
                     <div key={s.id} className="py-1">
                         <div className="flex items-center gap-2 text-slate-400">
                             <span
-                                className={`rounded px-1.5 py-0.5 ${
+                                className={`sb-pill ${
                                     s.review_status === "accepted"
-                                        ? "bg-emerald-500/15 text-emerald-300"
+                                        ? "bg-tint-green text-emerald-400"
                                         : s.review_status === "rejected"
-                                          ? "bg-rose-500/15 text-rose-300"
-                                          : "bg-slate-700/50 text-slate-300"
+                                          ? "bg-tint-coral text-rose-400"
+                                          : "bg-chip text-slate-400"
                                 }`}
                             >
                                 {s.review_status.replace("_", " ")}
@@ -749,7 +739,7 @@ function EditForm({
     );
     const [memo, setMemo] = useState(tx.memo ?? "");
 
-    const taxonomy = useQuery({ queryKey: ["taxonomy"], queryFn: fetchTaxonomy });
+    const taxonomy = useTaxonomy();
 
     function submit(e: FormEvent) {
         e.preventDefault();
@@ -766,10 +756,10 @@ function EditForm({
 
     return (
         <form onSubmit={submit} className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
-            <input className={inputCls} value={payee} onChange={(e) => setPayee(e.target.value)} placeholder="payee" />
+            <input className="sb-input" value={payee} onChange={(e) => setPayee(e.target.value)} placeholder="payee" />
             <div className="flex gap-2">
                 <input
-                    className={`${inputCls} flex-1`}
+                    className="sb-input flex-1"
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
                     type="number"
@@ -778,14 +768,14 @@ function EditForm({
                     required
                 />
                 <input
-                    className={`${inputCls} w-20`}
+                    className="sb-input w-20"
                     value={currency}
                     onChange={(e) => setCurrency(e.target.value)}
                     maxLength={3}
                     required
                 />
             </div>
-            <select className={inputCls} value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+            <select className="sb-input" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
                 <option value="">— no category —</option>
                 {(taxonomy.data ?? []).map((group) => (
                     <optgroup key={group.id} label={group.name}>
@@ -798,7 +788,7 @@ function EditForm({
                     </optgroup>
                 ))}
             </select>
-            <select className={inputCls} value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+            <select className="sb-input" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
                 <option value="">— no account —</option>
                 {accounts.map((a) => (
                     <option key={a.id} value={a.id}>
@@ -807,7 +797,7 @@ function EditForm({
                 ))}
             </select>
             <input
-                className={`${inputCls} sm:col-span-2`}
+                className="sb-input sm:col-span-2"
                 value={memo}
                 onChange={(e) => setMemo(e.target.value)}
                 placeholder="memo"
@@ -824,11 +814,8 @@ function EditForm({
     );
 }
 
-const inputCls =
-    "rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 outline-none focus:border-emerald-500";
-const acceptCls =
-    "rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50";
-const rejectCls =
-    "rounded-lg bg-rose-900/60 px-3 py-1.5 text-sm text-rose-200 hover:bg-rose-900 disabled:opacity-50";
-const neutralCls =
-    "rounded-lg bg-slate-800 px-3 py-1.5 text-sm text-slate-200 hover:bg-slate-700 disabled:opacity-50";
+/* Review verbs, styled by consequence: accepting is the primary action, the
+   other two stay quiet so the card doesn't read as three equal choices. */
+const acceptCls = "sb-btn sb-btn-primary !py-1.5";
+const rejectCls = "sb-btn sb-btn-ghost !py-1.5 !text-rose-400";
+const neutralCls = "sb-btn sb-btn-ghost !py-1.5";

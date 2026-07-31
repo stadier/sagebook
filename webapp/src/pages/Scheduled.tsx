@@ -1,18 +1,11 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
+import { Input, PageHeader, Pill, QueryError, Select } from "../components/ui";
+import { DEFAULT_CURRENCY } from "../lib/constants";
 import { fmtDate, fmtMoney } from "../lib/format";
+import { QK, useAccounts, useScheduled, useTaxonomy } from "../lib/queries";
 import { requireSupabase } from "../lib/supabase";
-import { fetchAccounts, fetchTaxonomy } from "../lib/taxonomy";
 import type { Recurrence, ScheduledTransaction } from "../lib/types";
-
-async function fetchScheduled(): Promise<ScheduledTransaction[]> {
-    const { data, error } = await requireSupabase()
-        .from("scheduled_transactions")
-        .select("*")
-        .order("next_due");
-    if (error) throw new Error(error.message);
-    return (data ?? []) as ScheduledTransaction[];
-}
 
 /** Human label for a scheduled item's flavour. */
 function flavour(s: ScheduledTransaction): string {
@@ -24,14 +17,14 @@ function flavour(s: ScheduledTransaction): string {
 
 export default function Scheduled() {
     const qc = useQueryClient();
-    const scheduled = useQuery({ queryKey: ["scheduled"], queryFn: fetchScheduled });
-    const accounts = useQuery({ queryKey: ["accounts"], queryFn: fetchAccounts });
+    const scheduled = useScheduled();
+    const accounts = useAccounts();
 
     const accountName = new Map((accounts.data ?? []).map((a) => [a.id, a.name]));
 
     function invalidate() {
-        qc.invalidateQueries({ queryKey: ["scheduled"] });
-        qc.invalidateQueries({ queryKey: ["pending-review"] });
+        qc.invalidateQueries({ queryKey: QK.scheduled });
+        qc.invalidateQueries({ queryKey: QK.pendingReview });
     }
 
     // "Check now" — posts anything already due into the inbox.
@@ -60,7 +53,7 @@ export default function Scheduled() {
                 .eq("id", args.id);
             if (error) throw new Error(error.message);
         },
-        onSuccess: () => qc.invalidateQueries({ queryKey: ["scheduled"] }),
+        onSuccess: () => qc.invalidateQueries({ queryKey: QK.scheduled }),
     });
 
     const remove = useMutation({
@@ -71,7 +64,7 @@ export default function Scheduled() {
                 .eq("id", id);
             if (error) throw new Error(error.message);
         },
-        onSuccess: () => qc.invalidateQueries({ queryKey: ["scheduled"] }),
+        onSuccess: () => qc.invalidateQueries({ queryKey: QK.scheduled }),
     });
 
     const rows = scheduled.data ?? [];
@@ -91,18 +84,14 @@ export default function Scheduled() {
                         return (
                             <div
                                 key={s.id}
-                                className={`flex flex-wrap items-center gap-3 rounded-xl border px-4 py-3 ${
-                                    s.active ? "border-slate-800 bg-slate-900/60" : "border-slate-800 bg-slate-900/30 opacity-60"
+                                className={`sb-card flex flex-wrap items-center gap-3 px-5 py-3.5 ${
+                                    s.active ? "" : "opacity-60"
                                 }`}
                             >
                                 <div className="min-w-0 flex-1">
                                     <div className="flex items-center gap-2 text-sm font-medium text-slate-100">
                                         {s.name}
-                                        {due && (
-                                            <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-normal text-amber-300">
-                                                due
-                                            </span>
-                                        )}
+                                        {due && <Pill tint="amber">due</Pill>}
                                     </div>
                                     <div className="text-xs text-slate-500">
                                         {flavour(s)} · next {fmtDate(s.next_due)}
@@ -122,7 +111,7 @@ export default function Scheduled() {
                                 </div>
                                 <div className="flex items-center gap-2 text-xs">
                                     <button
-                                        className="rounded bg-emerald-600/80 px-2 py-1 text-white hover:bg-emerald-500 disabled:opacity-50"
+                                        className="sb-btn sb-btn-ghost !px-2 !py-1 !text-xs"
                                         disabled={postNow.isPending || !s.active}
                                         title="Post this into the inbox right now"
                                         onClick={() => postNow.mutate(s.id)}
@@ -153,63 +142,64 @@ export default function Scheduled() {
     }
 
     return (
-        <div className="mx-auto max-w-3xl">
-            <div className="mb-1 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <h1 className="text-xl font-semibold">Scheduled</h1>
+        <>
+            <PageHeader
+                title="Scheduled"
+                subtitle={
+                    <>
+                        Money you expect to move — salary and bills that repeat, or one-off amounts
+                        you're owed or owe. On its date each one drops into your inbox to confirm.
+                        {dueCount > 0 && (
+                            <span className="ml-1 font-semibold text-amber-400">
+                                {dueCount} due now.
+                            </span>
+                        )}
+                    </>
+                }
+            >
                 <button
-                    className="self-start rounded-lg bg-slate-800 px-3 py-1.5 text-sm text-slate-200 hover:bg-slate-700 disabled:opacity-50"
+                    className="sb-btn sb-btn-primary"
                     disabled={runNow.isPending}
                     onClick={() => runNow.mutate()}
                 >
                     {runNow.isPending ? "Checking…" : "Check for due items"}
                 </button>
-            </div>
-            <p className="mb-6 text-sm text-slate-400">
-                Money you expect to move — salary and bills that repeat, or one-off amounts
-                you're owed or owe. On its date each one drops into your inbox to confirm.
-                {dueCount > 0 && (
-                    <span className="ml-1 text-amber-400">{dueCount} due now.</span>
-                )}
-            </p>
+            </PageHeader>
 
             {runNow.isSuccess && (
-                <p className="mb-4 text-sm text-emerald-400">
+                <p className="text-sm text-emerald-400">
                     Posted {runNow.data} item{runNow.data === 1 ? "" : "s"} to your inbox.
                 </p>
             )}
-            {(runNow.isError || postNow.isError) && (
-                <p className="mb-4 text-sm text-rose-400">
-                    {((runNow.error ?? postNow.error) as Error).message}
-                </p>
-            )}
+            <QueryError error={runNow.error ?? postNow.error} />
 
             <CreateScheduledForm />
 
-            {scheduled.isLoading && <p className="mt-6 text-sm text-slate-400">Loading…</p>}
+            {scheduled.isLoading && <p className="text-sm text-slate-400">Loading…</p>}
             {scheduled.isSuccess && rows.length === 0 && (
-                <p className="mt-6 text-sm text-slate-500">Nothing scheduled yet.</p>
+                <p className="text-sm text-slate-500">Nothing scheduled yet.</p>
             )}
 
-            <div className="mt-6">
+            <div>
                 <Section title="Recurring" items={recurring} />
                 <Section title="Owed to me" items={receivables} />
                 <Section title="I owe" items={payables} />
             </div>
-        </div>
+        </>
     );
 }
 
 function CreateScheduledForm() {
     const qc = useQueryClient();
-    const accounts = useQuery({ queryKey: ["accounts"], queryFn: fetchAccounts });
-    const taxonomy = useQuery({ queryKey: ["taxonomy"], queryFn: fetchTaxonomy });
+    const accounts = useAccounts();
+    const taxonomy = useTaxonomy();
 
     const [name, setName] = useState("");
     const [kind, setKind] = useState<"income" | "expense">("income");
     const [scheduleKind, setScheduleKind] = useState<"recurring" | "one_off">("recurring");
     const [recurrence, setRecurrence] = useState<Recurrence>("monthly");
     const [amount, setAmount] = useState("");
-    const [currency, setCurrency] = useState("NGN");
+    const [currency, setCurrency] = useState(DEFAULT_CURRENCY);
     const [accountId, setAccountId] = useState("");
     const [categoryId, setCategoryId] = useState("");
     const [payee, setPayee] = useState("");
@@ -239,7 +229,7 @@ function CreateScheduledForm() {
             setName("");
             setAmount("");
             setPayee("");
-            qc.invalidateQueries({ queryKey: ["scheduled"] });
+            qc.invalidateQueries({ queryKey: QK.scheduled });
         },
     });
 
@@ -251,42 +241,40 @@ function CreateScheduledForm() {
     const oneOffLabel = kind === "income" ? "someone will pay me" : "I owe someone";
 
     return (
-        <form onSubmit={submit} className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+        <form onSubmit={submit} className="sb-card p-4">
             <h2 className="mb-3 text-sm font-semibold text-slate-200">New scheduled item</h2>
             <div className="grid gap-2 sm:grid-cols-2">
-                <input
-                    className={inputCls}
+                <Input
                     placeholder="Name, e.g. Monthly salary"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     required
                 />
-                <select className={inputCls} value={kind} onChange={(e) => setKind(e.target.value as "income" | "expense")}>
+                <Select value={kind} onChange={(e) => setKind(e.target.value as "income" | "expense")}>
                     <option value="income">Money in (income)</option>
                     <option value="expense">Money out (expense)</option>
-                </select>
-                <select
-                    className={inputCls}
+                </Select>
+                <Select
                     value={scheduleKind}
                     onChange={(e) => setScheduleKind(e.target.value as "recurring" | "one_off")}
                 >
                     <option value="recurring">Repeats</option>
                     <option value="one_off">One-off ({oneOffLabel})</option>
-                </select>
+                </Select>
                 {scheduleKind === "recurring" ? (
-                    <select className={inputCls} value={recurrence} onChange={(e) => setRecurrence(e.target.value as Recurrence)}>
+                    <Select value={recurrence} onChange={(e) => setRecurrence(e.target.value as Recurrence)}>
                         <option value="weekly">Weekly</option>
                         <option value="biweekly">Every 2 weeks</option>
                         <option value="monthly">Monthly</option>
                         <option value="quarterly">Quarterly</option>
                         <option value="yearly">Yearly</option>
-                    </select>
+                    </Select>
                 ) : (
                     <div />
                 )}
                 <div className="flex gap-2">
-                    <input
-                        className={`${inputCls} min-w-0 flex-1`}
+                    <Input
+                        className="min-w-0 flex-1"
                         type="number"
                         step="0.01"
                         min="0"
@@ -295,8 +283,8 @@ function CreateScheduledForm() {
                         onChange={(e) => setAmount(e.target.value)}
                         required
                     />
-                    <input
-                        className={`${inputCls} w-20`}
+                    <Input
+                        className="w-20"
                         value={currency}
                         maxLength={3}
                         onChange={(e) => setCurrency(e.target.value.toUpperCase())}
@@ -305,15 +293,15 @@ function CreateScheduledForm() {
                 </div>
                 <label className="flex items-center gap-2 text-xs text-slate-500">
                     {scheduleKind === "recurring" ? "First/next date" : "Due date"}
-                    <input
-                        className={`${inputCls} flex-1`}
+                    <Input
+                        className="flex-1"
                         type="date"
                         value={nextDue}
                         onChange={(e) => setNextDue(e.target.value)}
                         required
                     />
                 </label>
-                <select className={inputCls} value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+                <Select value={accountId} onChange={(e) => setAccountId(e.target.value)}>
                     <option value="">Account… (optional)</option>
                     {(accounts.data ?? [])
                         .filter((a) => !a.is_archived)
@@ -322,8 +310,8 @@ function CreateScheduledForm() {
                                 {a.name} ({a.currency})
                             </option>
                         ))}
-                </select>
-                <select className={inputCls} value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+                </Select>
+                <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
                     <option value="">Category… (optional)</option>
                     {(taxonomy.data ?? []).map((g) => (
                         <optgroup key={g.id} label={g.name}>
@@ -335,26 +323,24 @@ function CreateScheduledForm() {
                             ))}
                         </optgroup>
                     ))}
-                </select>
-                <input
-                    className={`${inputCls} sm:col-span-2`}
+                </Select>
+                <Input
+                    className="sm:col-span-2"
                     placeholder="Payee / counterparty (optional), e.g. Acme Ltd"
                     value={payee}
                     onChange={(e) => setPayee(e.target.value)}
                 />
             </div>
             <button
-                className="mt-3 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+                className="sb-btn sb-btn-primary mt-3"
                 disabled={create.isPending || !name.trim() || !(Number(amount) > 0)}
             >
                 {create.isPending ? "Saving…" : "Add scheduled item"}
             </button>
-            {create.isError && (
-                <p className="mt-2 text-xs text-rose-400">{(create.error as Error).message}</p>
-            )}
+            <div className="mt-2">
+                <QueryError error={create.error} />
+            </div>
         </form>
     );
 }
 
-const inputCls =
-    "rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-emerald-500";

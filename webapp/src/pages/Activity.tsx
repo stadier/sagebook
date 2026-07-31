@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { PageHeader } from "../components/ui";
 import { fmtDateTime } from "../lib/format";
 import { requireSupabase } from "../lib/supabase";
 
@@ -154,23 +155,17 @@ export default function Activity() {
     const failureCount = all.filter(isFailure).length;
 
     return (
-        <div className="mx-auto max-w-3xl">
-            <div className="mb-1 flex items-center justify-between">
-                <h1 className="text-xl font-semibold">Activity</h1>
-                <button
-                    className="text-xs text-slate-500 hover:text-slate-300"
-                    onClick={() => entries.refetch()}
-                >
+        <>
+            <PageHeader
+                title="Activity"
+                subtitle="Every capture, import, and error — expand an entry and Copy report to reference it when asking for a fix."
+            >
+                <button className="sb-btn sb-btn-ghost" onClick={() => entries.refetch()}>
                     ↻ Refresh
                 </button>
-            </div>
-            <p className="mb-4 text-sm text-slate-400">
-                Every capture, import, and error — expand an entry and{" "}
-                <span className="text-slate-300">Copy report</span> to reference it when
-                asking for a fix.
-            </p>
+            </PageHeader>
 
-            <div className="mb-4 flex flex-wrap items-center gap-2 text-sm">
+            <div className="flex flex-wrap items-center gap-2 text-sm">
                 {(
                     [
                         ["all", "All"],
@@ -182,10 +177,10 @@ export default function Activity() {
                     <button
                         key={value}
                         onClick={() => setFilter(value)}
-                        className={`rounded-lg px-3 py-1.5 ${
+                        className={`rounded-full px-3.5 py-[0.4375rem] text-[0.78125rem] transition-colors ${
                             filter === value
-                                ? "bg-emerald-500/15 text-emerald-300"
-                                : "bg-slate-800/60 text-slate-400 hover:bg-slate-800"
+                                ? "bg-slate-200 font-bold text-slate-900"
+                                : "border border-slate-700 font-semibold text-slate-300 hover:border-slate-600"
                         }`}
                     >
                         {label}
@@ -220,7 +215,7 @@ export default function Activity() {
                     <EntryCard key={`${e.type}-${e.type === "ingestion" ? e.ingestion.id : e.log.id}`} entry={e} />
                 ))}
             </div>
-        </div>
+        </>
     );
 }
 
@@ -229,14 +224,14 @@ export default function Activity() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const STATUS_TONE: Record<string, string> = {
-    parsed: "bg-emerald-500/15 text-emerald-300",
-    applied: "bg-emerald-500/15 text-emerald-300",
-    failed: "bg-rose-500/15 text-rose-300",
-    pending: "bg-slate-700/50 text-slate-300",
-    processing: "bg-slate-700/50 text-slate-300",
-    info: "bg-slate-700/50 text-slate-300",
-    warn: "bg-amber-500/15 text-amber-300",
-    error: "bg-rose-500/15 text-rose-300",
+    parsed: "bg-tint-green text-emerald-400",
+    applied: "bg-tint-green text-emerald-400",
+    failed: "bg-tint-coral text-rose-400",
+    pending: "bg-chip text-slate-400",
+    processing: "bg-chip text-slate-400",
+    info: "bg-chip text-slate-400",
+    warn: "bg-tint-amber text-amber-400",
+    error: "bg-tint-coral text-rose-400",
 };
 
 function EntryCard({ entry }: { entry: Entry }) {
@@ -271,12 +266,10 @@ function EntryCard({ entry }: { entry: Entry }) {
 
     return (
         <div
-            className={`rounded-xl border p-3 ${
-                failed ? "border-rose-900/60 bg-rose-950/10" : "border-slate-800 bg-slate-900/60"
-            }`}
+            className={`sb-card p-3.5 ${failed ? "ring-1 ring-rose-400/40" : ""}`}
         >
             <button className="flex w-full items-center gap-3 text-left" onClick={() => setOpen(!open)}>
-                <span className={`shrink-0 rounded px-2 py-0.5 text-xs ${STATUS_TONE[badge] ?? STATUS_TONE.info}`}>
+                <span className={`sb-pill shrink-0 ${STATUS_TONE[badge] ?? STATUS_TONE.info}`}>
                     {badge}
                 </span>
                 <span className="min-w-0 flex-1">

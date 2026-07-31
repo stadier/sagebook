@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Card, CardHeader, PageHeader } from "../components/ui";
 import { requireSupabase } from "../lib/supabase";
 import type { IngestAddress } from "../lib/types";
 
@@ -44,42 +45,35 @@ export default function Settings() {
     }
 
     return (
-        <div className="mx-auto max-w-2xl space-y-8">
-            <h1 className="text-2xl font-bold">Settings</h1>
+        <>
+            <PageHeader title="Settings" subtitle="How captures reach Sagebook." />
 
-            {/* Email forwarding section */}
-            <section className="rounded-2xl border border-border bg-card p-6 space-y-4">
-                <div>
-                    <h2 className="text-lg font-semibold">Email forwarding</h2>
-                    <p className="mt-1 text-sm text-muted">
-                        Forward receipts, invoices, and bank notifications to your
-                        personal Sagebook address. They'll be extracted automatically
-                        and appear in your inbox for review.
-                    </p>
-                </div>
+            <Card feature>
+                <CardHeader title="Email forwarding" />
+                <p className="mb-4 text-sm text-slate-400">
+                    Forward receipts, invoices, and bank notifications to your personal Sagebook
+                    address. They'll be extracted automatically and appear in your inbox for review.
+                </p>
 
                 {loading ? (
-                    <div className="h-12 animate-pulse rounded-xl bg-muted/20" />
+                    <div className="h-12 animate-pulse rounded-xl bg-slate-950" />
                 ) : addr ? (
-                    <>
+                    <div className="flex flex-col gap-3.5">
                         <div className="flex items-center gap-2">
-                            <code className="flex-1 rounded-xl border border-border bg-paper px-4 py-3 text-sm font-mono select-all">
+                            <code className="sb-nested min-w-0 flex-1 select-all px-4 py-3 font-mono text-sm">
                                 {fullAddress}
                             </code>
-                            <button
-                                onClick={copyAddress}
-                                className="shrink-0 rounded-xl border border-border bg-paper px-4 py-3 text-sm font-medium transition-colors hover:bg-muted/20"
-                            >
+                            <button onClick={copyAddress} className="sb-btn sb-btn-ghost shrink-0 !py-3">
                                 {copied ? "Copied!" : "Copy"}
                             </button>
                         </div>
 
-                        <div className="flex items-center justify-between rounded-xl border border-border bg-paper px-4 py-3">
+                        <div className="sb-nested flex items-center justify-between gap-4 px-4 py-3">
                             <div>
-                                <p className="text-sm font-medium">
+                                <p className="text-sm font-semibold">
                                     {addr.is_active ? "Active" : "Paused"}
                                 </p>
-                                <p className="text-xs text-muted">
+                                <p className="text-xs text-slate-500">
                                     {addr.is_active
                                         ? "Incoming emails are being processed"
                                         : "Incoming emails will be rejected"}
@@ -88,8 +82,11 @@ export default function Settings() {
                             <button
                                 onClick={toggleActive}
                                 disabled={toggling}
+                                aria-label={
+                                    addr.is_active ? "Pause email forwarding" : "Resume email forwarding"
+                                }
                                 className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${
-                                    addr.is_active ? "bg-emerald-500" : "bg-slate-600"
+                                    addr.is_active ? "bg-emerald-400" : "bg-slate-700"
                                 }`}
                             >
                                 <span
@@ -100,23 +97,23 @@ export default function Settings() {
                             </button>
                         </div>
 
-                        <div className="rounded-xl border border-border bg-paper px-4 py-3 text-sm text-muted space-y-2">
-                            <p className="font-medium text-foreground">How it works</p>
-                            <ol className="list-decimal list-inside space-y-1">
+                        <div className="sb-nested px-4 py-3 text-sm text-slate-400">
+                            <p className="mb-2 font-semibold text-slate-200">How it works</p>
+                            <ol className="list-inside list-decimal space-y-1">
                                 <li>Save this address as a contact on your phone</li>
                                 <li>When you get a receipt or invoice, forward it to this address</li>
                                 <li>Sagebook extracts the transaction and adds it to your inbox</li>
                                 <li>Review, categorize, and accept — just like any other capture</li>
                             </ol>
                         </div>
-                    </>
+                    </div>
                 ) : (
-                    <p className="text-sm text-muted">
-                        No forwarding address found. It should be created automatically
-                        — try signing out and back in.
+                    <p className="text-sm text-slate-500">
+                        No forwarding address found. It should be created automatically — try signing
+                        out and back in.
                     </p>
                 )}
-            </section>
-        </div>
+            </Card>
+        </>
     );
 }

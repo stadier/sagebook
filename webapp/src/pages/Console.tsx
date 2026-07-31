@@ -8,6 +8,7 @@ import { type FormEvent, forwardRef, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import GeneratedView from "../components/console/ConsolePanels";
 import IngestModal from "../components/ingest/IngestModal";
+import { BrandMark } from "../components/nav";
 import { classifyPrompt, type Intent, SUGGESTIONS } from "../lib/console/intents";
 import { requireSupabase } from "../lib/supabase";
 import { useTheme } from "../lib/useTheme";
@@ -71,11 +72,11 @@ export default function Console() {
             {/* ---- Left rail — quiet, vertical, gets out of the way ---------- */}
             <aside className="hidden w-64 shrink-0 flex-col bg-sidebar px-3 py-4 text-white md:flex">
                 <Link to="/console" className="mb-5 flex items-center gap-2.5 px-2">
-                    <span className="grid h-9 w-9 place-items-center rounded-xl bg-coral text-white shadow-sm">
-                        <BookIcon />
+                    <span className="grid h-[30px] w-[30px] place-items-center rounded-[10px] bg-coral text-coral-fg">
+                        <BrandMark />
                     </span>
-                    <span className="text-lg font-semibold tracking-tight text-white">
-                        Sage<span className="text-coral-400">book</span>
+                    <span className="text-[1.0625rem] font-extrabold tracking-tight text-white">
+                        Sagebook
                     </span>
                 </Link>
 
@@ -126,7 +127,7 @@ export default function Console() {
                 </Link>
 
                 <div className="mt-1 flex items-center gap-2 border-t border-white/10 pt-3">
-                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-gradient-to-br from-coral-400 to-coral-600 text-sm font-semibold text-white">
+                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#ffb443] text-[0.8125rem] font-bold text-[#191d24]">
                         {initial}
                     </span>
                     <span className="min-w-0 flex-1 truncate text-sm font-medium capitalize text-white/80">
@@ -147,11 +148,11 @@ export default function Console() {
                 {/* Mobile brand + new (no rail below md) */}
                 <div className="flex items-center justify-between gap-3 px-4 pt-4 md:hidden">
                     <Link to="/console" className="flex items-center gap-2">
-                        <span className="grid h-8 w-8 place-items-center rounded-lg bg-coral text-white">
-                            <BookIcon />
+                        <span className="grid h-[26px] w-[26px] place-items-center rounded-lg bg-coral text-coral-fg">
+                            <BrandMark size={14} />
                         </span>
-                        <span className="font-semibold tracking-tight text-slate-100">
-                            Sage<span className="text-coral">book</span>
+                        <span className="text-[0.9375rem] font-extrabold tracking-tight text-slate-100">
+                            Sagebook
                         </span>
                     </Link>
                     <div className="flex items-center gap-2">
@@ -295,7 +296,7 @@ const PromptBar = forwardRef<
                     type="submit"
                     aria-label="Send"
                     disabled={!value.trim()}
-                    className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-coral text-white transition-colors hover:bg-coral-600 disabled:opacity-40"
+                    className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-coral text-coral-fg transition-colors hover:bg-coral-600 disabled:opacity-40"
                 >
                     <SendIcon />
                 </button>
@@ -305,15 +306,6 @@ const PromptBar = forwardRef<
 });
 
 /* --- icons ---------------------------------------------------------------- */
-
-function BookIcon() {
-    return (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-            <path d="M4 5a2 2 0 0 1 2-2h11a1 1 0 0 1 1 1v13H6a2 2 0 0 0-2 2z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
-            <path d="M4 19a2 2 0 0 0 2 2h12" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-        </svg>
-    );
-}
 
 function SparkIcon({ large }: { large?: boolean }) {
     const s = large ? 24 : 18;

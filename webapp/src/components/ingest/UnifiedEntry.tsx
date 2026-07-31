@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type DragEvent, type FormEvent, useRef, useState } from "react";
 import { classifyFile, classifyFileAsync, runProcessMedia } from "../../lib/ingest";
 import { logEvent } from "../../lib/logger";
+import { QK } from "../../lib/queries";
 import { runSummaryBacklog } from "../../lib/summaryJob";
 import type { ProcessMediaResult } from "../../lib/types";
 import IngestionResult from "./IngestionResult";
@@ -67,11 +68,11 @@ export default function UnifiedEntry({
             return { results, errors };
         },
         onSuccess: (data, input) => {
-            qc.invalidateQueries({ queryKey: ["pending-review"] });
+            qc.invalidateQueries({ queryKey: QK.pendingReview });
             // Captured rows arrive without a summary; fill them in the
             // background and refresh the inbox once they land.
             void runSummaryBacklog().then(() =>
-                qc.invalidateQueries({ queryKey: ["pending-review"] }),
+                qc.invalidateQueries({ queryKey: QK.pendingReview }),
             );
             for (const result of data.results) {
                 const failures = result.insertErrors ?? [];
@@ -180,8 +181,8 @@ export default function UnifiedEntry({
                 }}
                 onDragLeave={() => setDragOver(false)}
                 onDrop={onDrop}
-                className={`rounded-xl border-2 border-dashed transition-colors ${
-                    dragOver ? "border-emerald-500 bg-emerald-500/5" : "border-slate-700"
+                className={`rounded-2xl border-2 border-dashed transition-colors ${
+                    dragOver ? "border-coral bg-coral-soft" : "border-slate-700"
                 }`}
             >
                 <textarea
@@ -233,7 +234,7 @@ export default function UnifiedEntry({
             )}
 
             <input
-                className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+                className="sb-input"
                 placeholder="Optional hint, e.g. 'amounts are in NGN'"
                 value={hint}
                 onChange={(e) => setHint(e.target.value)}
@@ -250,7 +251,7 @@ export default function UnifiedEntry({
             )}
 
             <button
-                className="self-start rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+                className="sb-btn sb-btn-primary self-start"
                 disabled={capture.isPending || (!text.trim() && files.length === 0)}
             >
                 {capture.isPending

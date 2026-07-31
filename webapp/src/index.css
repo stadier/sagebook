@@ -1,102 +1,130 @@
 @import "tailwindcss";
 
 /* ============================================================================
-   Sagebook design system
-   Inspired by the "Twisty" finance SaaS dashboard: a cool blue-grey canvas,
-   crisp white cards with soft diffuse shadows, a top horizontal nav bar, and a
-   single warm coral brand accent alongside a deep navy ink. The app was built
-   dark-first, so instead of rewriting every page we remap the Tailwind color
-   tokens: the neutral (slate) scale becomes a cool light scale, and the accent
-   scales are retuned to read on a light surface. Because the pages used the
-   scales *semantically* (high numbers = surfaces, low numbers = text), the
-   remap flips them into a coherent light theme. Green stays reserved for
-   income / positive amounts and rose for expense / negative — the coral accent
-   drives brand + interactive chrome (logo, active nav, the floating +, focus).
+   Sagebook design system — "SageBook App"
+
+   A calm blue-grey canvas, borderless white cards floating on a two-tier soft
+   shadow, generous 18–22px corners, Plus Jakarta Sans, and a permanent dark
+   navy sidebar that stays dark in both themes. Coral (#ff6a55) is the brand +
+   primary action; indigo (#6c63ff) carries links and the main chart series;
+   blue / amber / violet round out the categorical set; green (#2fa86a) is
+   reserved for income and positive movement.
+
+   The app was built dark-first against Tailwind's *semantic* use of the slate
+   scale (high numbers = surfaces, low numbers = text), so rather than rewriting
+   every page we remap the scale itself. That keeps `bg-slate-900` meaning
+   "card surface" and `text-slate-400` meaning "muted label" on both themes,
+   and lets the whole app pick up the new palette from this one file.
    ========================================================================== */
 
 @theme {
     /* Typography ----------------------------------------------------------- */
-    --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
-        Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system,
+        "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 
-    /* Corner radii — sharper/tighter than the reference for a crisper look --- */
-    --radius-md: 0.375rem;
-    --radius-lg: 0.5rem;
-    --radius-xl: 0.625rem;
-    --radius-2xl: 0.875rem;
-    --radius-3xl: 1.25rem;
+    /* Corner radii — the design's soft, generous corners ------------------- */
+    --radius-sm: 0.375rem; /*  6px — tiny chips */
+    --radius-md: 0.5rem; /*  8px — inputs, small controls */
+    --radius-lg: 0.5625rem; /*  9px — icon buttons */
+    --radius-xl: 0.6875rem; /* 11px — buttons, avatars, nav rows */
+    --radius-2xl: 1.125rem; /* 18px — standard card */
+    --radius-3xl: 1.375rem; /* 22px — hero / feature card */
 
-    /* Neutral scale — remapped to cool blue-grey light. In the old dark theme
-       high numbers were dark surfaces and low numbers were light text; on light
-       we invert that: surfaces are white, text is deep navy ink. ----------- */
-    --color-slate-50: #0f1420; /* darkest ink (rare) */
-    --color-slate-100: #151a28;
-    --color-slate-200: #1b2130; /* primary text (navy ink) */
-    --color-slate-300: #333a4b; /* strong secondary text */
-    --color-slate-400: #626a7d; /* muted labels */
-    --color-slate-500: #838b9d; /* dim text */
-    --color-slate-600: #a6adbe; /* faint text / icons */
-    --color-slate-700: #d8dde8; /* strong hairline */
-    --color-slate-800: #e6eaf2; /* hairline / hover surface */
+    /* Neutral scale — remapped to the design's light surfaces + navy ink.
+       Surfaces live at the top of the scale, text at the bottom. --------- */
+    --color-slate-50: #0f1115; /* darkest ink (rare) */
+    --color-slate-100: #191d24; /* headings */
+    --color-slate-200: #191d24; /* primary text */
+    --color-slate-300: #444a58; /* secondary text */
+    --color-slate-400: #6b7180; /* muted labels */
+    --color-slate-500: #8b91a0; /* faint text */
+    --color-slate-600: #a8aeba; /* icons / placeholders */
+    --color-slate-700: #dfe3ea; /* border (strong hairline) */
+    --color-slate-800: #f2f3f5; /* divider (hairline) / hover surface */
     --color-slate-900: #ffffff; /* card surface */
-    --color-slate-950: #f2f5fb; /* recessed / input surface */
+    --color-slate-950: #f7f8fa; /* nested / recessed surface */
 
-    /* Brand green (emerald) — sage-leaning, readable on cream -------------- */
-    --color-emerald-300: #57a97d;
-    --color-emerald-400: #429268; /* brand text / accents */
-    --color-emerald-500: #3f925f; /* focus ring / active tint base */
-    --color-emerald-600: #327c55; /* primary button (white text) */
-    --color-emerald-700: #2a6a48;
+    /* Income + positive movement (emerald) -------------------------------- */
+    --color-emerald-300: #4fbe85;
+    --color-emerald-400: #2fa86a; /* the design's green */
+    --color-emerald-500: #2b9a61;
+    --color-emerald-600: #278c58; /* solid button */
+    --color-emerald-700: #1f7448;
 
-    /* Error / destructive (rose) — tuned for light ------------------------ */
-    --color-rose-200: #a12c24; /* dark text on light-red badge */
-    --color-rose-300: #c34a40;
-    --color-rose-400: #cb5449; /* error text */
-    --color-rose-500: #c0433a;
-    --color-rose-600: #b23a31; /* destructive button */
-    --color-rose-900: #db5a50; /* tint/border base (used with opacity) */
-    --color-rose-950: #e2685e;
+    /* Expense, over-budget + destructive (rose, pulled toward the coral) --- */
+    --color-rose-200: #b23a2a; /* text on a light red tint */
+    --color-rose-300: #e0503a;
+    --color-rose-400: #ef5a45; /* error text */
+    --color-rose-500: #e64f39;
+    --color-rose-600: #d6432e; /* destructive button */
+    --color-rose-900: #ff6a55; /* tint/border base (used with opacity) */
+    --color-rose-950: #ff8171;
 
-    /* Warning / gold (amber) ---------------------------------------------- */
-    --color-amber-300: #b57d1c;
-    --color-amber-400: #a76c14; /* warning text */
-    --color-amber-500: #9a6210;
-    --color-amber-900: #d9a441; /* tint/border base (used with opacity) */
-    --color-amber-950: #e0ae4f;
+    /* Warning / amber ------------------------------------------------------ */
+    --color-amber-300: #d59524;
+    --color-amber-400: #c2801a; /* warning text (readable on light) */
+    --color-amber-500: #a96e12;
+    --color-amber-900: #ffb443; /* tint/border base (used with opacity) */
+    --color-amber-950: #ffc267;
 
-    /* Info / violet (sky remapped to periwinkle) -------------------------- */
-    --color-sky-200: #5449bd; /* dark text on violet badge */
-    --color-sky-300: #6a5ad2; /* info text */
-    --color-sky-700: #8577de; /* tint base (used with opacity) */
-    --color-sky-800: #7a6bd9;
-    --color-sky-900: #6d5dd3;
-    --color-sky-950: #8577de;
+    /* Info / indigo — links, primary chart series (sky is remapped) -------- */
+    --color-sky-200: #4a41c9; /* text on an indigo tint */
+    --color-sky-300: #6c63ff; /* info text / links */
+    --color-sky-700: #6c63ff; /* tint base (used with opacity) */
+    --color-sky-800: #625ae8;
+    --color-sky-900: #5a52d6;
+    --color-sky-950: #8b84ff;
 
-    /* Coral — the brand + interactive accent (logo, active nav, +, focus) - */
-    --color-coral: #ef4b2c;
-    --color-coral-600: #e23e20; /* hover / pressed */
-    --color-coral-500: #ef4b2c;
-    --color-coral-400: #f26445;
-    --color-coral-soft: #fdeae4; /* pale tint surface */
-    --color-coral-ink: #7c2413; /* text on a coral tint */
+    /* Coral — brand + primary action -------------------------------------- */
+    --color-coral: #ff6a55;
+    --color-coral-600: #f2543d; /* hover / pressed */
+    --color-coral-500: #ff6a55;
+    --color-coral-400: #ff8a78;
+    --color-coral-soft: #ffece6; /* pale tint surface */
+    --color-coral-ink: #d9452c; /* readable text on a coral tint */
+    /* Coral buttons carry dark ink, not white — a signature of the design. */
+    --color-coral-fg: #191d24;
 
-    /* Signature palette — usable as bg-sage / text-sage-ink etc. ---------- */
-    --color-paper: #e9ecf3; /* cool blue-grey canvas */
-    --color-ink: #1b2130; /* deep navy ink */
-    --color-navy: #191c27; /* dark chrome (mobile drawer, dark pills) */
-    --color-navy-ink: #eef1f8;
-    --color-sage: #c8dccb;
-    --color-sage-ink: #2f4d38;
-    --color-gold: #f0cf6a;
-    --color-gold-ink: #4c3a0e;
-    --color-violet: #b3aaf0;
-    --color-violet-ink: #2b2560;
-    --color-sidebar: #191c27;
+    /* Categorical chart palette — use these for series, never the text
+       scales, so charts read the same in light and dark. ---------------- */
+    --color-chart-indigo: #6c63ff;
+    --color-chart-blue: #5ea8ff;
+    --color-chart-coral: #ff6a55;
+    --color-chart-amber: #ffb443;
+    --color-chart-green: #2fa86a;
+    --color-chart-violet: #8b6cff;
 
-    /* Soft, diffuse elevation for cards over the cool canvas -------------- */
-    --shadow-card: 0 1px 2px rgba(24, 33, 66, 0.04),
-        0 20px 45px -28px rgba(24, 33, 66, 0.28);
-    --shadow-pop: 0 16px 40px -14px rgba(24, 33, 66, 0.32);
+    /* Soft tint surfaces behind avatars, category pills and badges -------- */
+    --color-tint-coral: #ffece6;
+    --color-tint-indigo: #ecebff;
+    --color-tint-green: #e6f7ee;
+    --color-tint-blue: #e8f2ff;
+    --color-tint-amber: #fff3e0;
+    --color-tint-violet: #f3ecff;
+
+    /* Signature surfaces --------------------------------------------------- */
+    --color-paper: #f7f8fa; /* page canvas */
+    --color-ink: #191d24; /* primary text */
+    --color-navy: #1b1f28; /* dark inset panel ("Sage noticed") */
+    --color-navy-ink: #eef0f4;
+    --color-sidebar: #1b1f28; /* stays dark in both themes */
+    --color-track: #eef0f4; /* progress / meter track */
+    --color-chip: #f1f2f5; /* segmented control + icon button bg */
+    --color-dashed: #eef1f5; /* dashed "add something" card fill */
+
+    /* Legacy pastel aliases still referenced by a few tinted tiles -------- */
+    --color-sage: #e6f7ee;
+    --color-sage-ink: #23784c;
+    --color-gold: #fff3e0;
+    --color-gold-ink: #8a5b0c;
+    --color-violet: #f3ecff;
+    --color-violet-ink: #5a44c4;
+
+    /* Two-tier elevation — a tight contact shadow plus a wide soft one ---- */
+    --shadow-card: 0 2px 4px rgba(25, 29, 36, 0.04);
+    --shadow-float: 0 2px 4px rgba(25, 29, 36, 0.04),
+        0 14px 34px -18px rgba(25, 29, 36, 0.14);
+    --shadow-pop: 0 12px 34px -10px rgba(25, 29, 36, 0.22);
 }
 
 @layer base {
@@ -106,68 +134,80 @@
     :root.dark {
         color-scheme: dark;
 
-        --color-slate-50: #f7f9fd;
-        --color-slate-100: #e6eaf3;
-        --color-slate-200: #d9deea;
-        --color-slate-300: #b6bccb;
-        --color-slate-400: #8b93a5;
-        --color-slate-500: #656d80;
-        --color-slate-600: #454c5c;
-        --color-slate-700: #2f3543;
-        --color-slate-800: #242936;
-        --color-slate-900: #191d29;
-        --color-slate-950: #12151f;
+        --color-slate-50: #ffffff;
+        --color-slate-100: #eef0f4;
+        --color-slate-200: #eef0f4;
+        --color-slate-300: #c7cbd4;
+        --color-slate-400: #9aa0ad;
+        --color-slate-500: #767d8c;
+        --color-slate-600: #5c6371;
+        --color-slate-700: #363b46;
+        --color-slate-800: #2a2e38;
+        --color-slate-900: #1c1f27;
+        --color-slate-950: #262a33;
 
-        --color-paper: #0f1119;
-        --color-ink: #d9deea;
-        --color-navy: #12151f;
-        --color-navy-ink: #d9deea;
-        --color-sidebar: #0c0e15;
+        --color-emerald-300: #6ed3a0;
+        --color-emerald-400: #46c98a;
+        --color-emerald-500: #35b878;
+        --color-emerald-600: #2fa86a;
+        --color-emerald-700: #268a58;
 
-        --color-coral: #f2593b;
-        --color-coral-600: #e8492c;
-        --color-coral-500: #f2593b;
-        --color-coral-400: #f4715a;
-        --color-coral-soft: #3a1c14;
-        --color-coral-ink: #f6a08d;
+        --color-rose-200: #ff9a8b;
+        --color-rose-300: #ff8171;
+        --color-rose-400: #ff6a55;
+        --color-rose-500: #f2543d;
+        --color-rose-600: #e04a34;
+        --color-rose-900: #3a231f;
+        --color-rose-950: #2e1b18;
 
-        --color-emerald-300: #6bc492;
-        --color-emerald-400: #52b07a;
-        --color-emerald-500: #46a36c;
-        --color-emerald-600: #3a9260;
-        --color-emerald-700: #2f7a4f;
+        --color-amber-300: #ffc267;
+        --color-amber-400: #ffb443;
+        --color-amber-500: #eda32f;
+        --color-amber-900: #3a2c14;
+        --color-amber-950: #2e230f;
 
-        --color-rose-200: #f0807a;
-        --color-rose-300: #e2635d;
-        --color-rose-400: #d94f48;
-        --color-rose-500: #c73e37;
-        --color-rose-600: #b53530;
-        --color-rose-900: #4a201e;
-        --color-rose-950: #3b1917;
+        --color-sky-200: #a49dff;
+        --color-sky-300: #8b84ff;
+        --color-sky-700: #3a3676;
+        --color-sky-800: #322e66;
+        --color-sky-900: #2a2758;
+        --color-sky-950: #262a42;
 
-        --color-amber-300: #d4a32e;
-        --color-amber-400: #c79422;
-        --color-amber-500: #b58518;
-        --color-amber-900: #3e2e0e;
-        --color-amber-950: #332508;
+        --color-coral: #ff6a55;
+        --color-coral-600: #f2543d;
+        --color-coral-500: #ff6a55;
+        --color-coral-400: #ff8a78;
+        --color-coral-soft: #3a231f;
+        --color-coral-ink: #ff9484;
+        --color-coral-fg: #191d24;
 
-        --color-sky-200: #9489e0;
-        --color-sky-300: #8577de;
-        --color-sky-700: #3a3170;
-        --color-sky-800: #322a62;
-        --color-sky-900: #2b2456;
-        --color-sky-950: #231e48;
+        --color-tint-coral: #3a231f;
+        --color-tint-indigo: #262a42;
+        --color-tint-green: #173a29;
+        --color-tint-blue: #1c2e42;
+        --color-tint-amber: #3a2c14;
+        --color-tint-violet: #2a2242;
 
-        --color-sage: #2e3e32;
-        --color-sage-ink: #a3c4a8;
-        --color-gold: #4c3a0e;
-        --color-gold-ink: #ecc65e;
-        --color-violet: #2b2560;
-        --color-violet-ink: #9b8fe0;
+        --color-paper: #12141a;
+        --color-ink: #eef0f4;
+        --color-navy: #232733;
+        --color-navy-ink: #eef0f4;
+        --color-sidebar: #171a21;
+        --color-track: #2a2e38;
+        --color-chip: #262a33;
+        --color-dashed: #1a1d24;
 
-        --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.25),
-            0 8px 24px -12px rgba(0, 0, 0, 0.5);
-        --shadow-pop: 0 10px 30px -8px rgba(0, 0, 0, 0.6);
+        --color-sage: #173a29;
+        --color-sage-ink: #6ed3a0;
+        --color-gold: #3a2c14;
+        --color-gold-ink: #ffc267;
+        --color-violet: #2a2242;
+        --color-violet-ink: #a49dff;
+
+        --shadow-card: 0 2px 4px rgba(0, 0, 0, 0.35);
+        --shadow-float: 0 2px 4px rgba(0, 0, 0, 0.35),
+            0 14px 34px -18px rgba(0, 0, 0, 0.55);
+        --shadow-pop: 0 14px 38px -12px rgba(0, 0, 0, 0.6);
     }
 
     html,
@@ -182,16 +222,23 @@
         text-rendering: optimizeLegibility;
     }
 
-    /* Warm, unobtrusive scrollbars to match the light canvas */
+    /* The design leans hard on tight display type for headings. */
+    h1,
+    h2,
+    h3 {
+        letter-spacing: -0.025em;
+    }
+
+    /* Unobtrusive scrollbars that read on either canvas. */
     * {
-        scrollbar-color: var(--color-slate-600) transparent;
+        scrollbar-color: var(--color-slate-700) transparent;
     }
     *::-webkit-scrollbar {
         width: 10px;
         height: 10px;
     }
     *::-webkit-scrollbar-thumb {
-        background-color: color-mix(in oklab, var(--color-slate-600) 70%, transparent);
+        background-color: var(--color-slate-700);
         border-radius: 9999px;
         border: 2px solid transparent;
         background-clip: content-box;
@@ -199,32 +246,156 @@
 }
 
 @layer components {
-    /* White elevated card — the default content surface */
+    /* Borderless white card on a soft shadow — the default surface. --------- */
     .sb-card {
         background-color: var(--color-slate-900);
-        border: 1px solid var(--color-slate-800);
         border-radius: var(--radius-2xl);
         box-shadow: var(--shadow-card);
         overflow: hidden;
         min-width: 0;
     }
 
-    /* Pastel statistic tile (sage / gold / violet variants set inline) */
-    .sb-stat {
-        border-radius: var(--radius-2xl);
-        padding: 1.25rem 1.375rem;
-        box-shadow: var(--shadow-card);
+    /* Hero / feature card: bigger corners, the wide floating shadow. -------- */
+    .sb-card-lg {
+        background-color: var(--color-slate-900);
+        border-radius: var(--radius-3xl);
+        box-shadow: var(--shadow-float);
+        min-width: 0;
     }
 
-    /* Rounded pill badge */
+    /* Dark inset panel — "Sage noticed", the net-worth stat, callouts.
+       Stays dark on both themes, so it always reads as a spotlight. ------- */
+    .sb-panel {
+        background-color: var(--color-navy);
+        color: var(--color-navy-ink);
+        border-radius: var(--radius-3xl);
+        min-width: 0;
+    }
+
+    /* Dashed "there could be something here" card. -------------------------- */
+    .sb-dashed {
+        background-color: var(--color-dashed);
+        border: 1px dashed var(--color-slate-700);
+        border-radius: var(--radius-3xl);
+        min-width: 0;
+    }
+
+    /* Recessed tile nested inside a card (account tiles, mini stats). ------- */
+    .sb-nested {
+        background-color: var(--color-slate-950);
+        border-radius: var(--radius-2xl);
+        min-width: 0;
+    }
+
+    /* Rounded pill badge. --------------------------------------------------- */
     .sb-pill {
         display: inline-flex;
         align-items: center;
         gap: 0.25rem;
         border-radius: 9999px;
-        padding: 0.125rem 0.625rem;
+        padding: 0.1875rem 0.625rem;
         font-size: 0.75rem;
         font-weight: 600;
+        line-height: 1.45;
+        white-space: nowrap;
+    }
+
+    /* Buttons -------------------------------------------------------------- */
+    .sb-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.4375rem;
+        border-radius: var(--radius-xl);
+        padding: 0.5625rem 1rem;
+        font-size: 0.8125rem;
+        font-weight: 600;
+        line-height: 1.25;
+        white-space: nowrap;
+        cursor: pointer;
+        transition: background-color 0.15s ease, color 0.15s ease,
+            border-color 0.15s ease;
+    }
+    .sb-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    /* Primary: coral fill with dark ink, per the design. */
+    .sb-btn-primary {
+        background-color: var(--color-coral);
+        color: var(--color-coral-fg);
+        font-weight: 700;
+    }
+    .sb-btn-primary:hover:not(:disabled) {
+        background-color: var(--color-coral-600);
+    }
+
+    /* Secondary: the card surface on a hairline. */
+    .sb-btn-soft {
+        background-color: var(--color-slate-900);
+        color: var(--color-slate-300);
+        box-shadow: var(--shadow-card);
+    }
+    .sb-btn-soft:hover:not(:disabled) {
+        color: var(--color-slate-200);
+    }
+
+    .sb-btn-ghost {
+        background-color: transparent;
+        color: var(--color-slate-300);
+        border: 1px solid var(--color-slate-700);
+    }
+    .sb-btn-ghost:hover:not(:disabled) {
+        background-color: var(--color-slate-800);
+        color: var(--color-slate-200);
+    }
+
+    /* Form controls -------------------------------------------------------- */
+    .sb-input {
+        width: 100%;
+        background-color: var(--color-slate-950);
+        color: var(--color-slate-200);
+        border: 1px solid var(--color-slate-700);
+        border-radius: var(--radius-md);
+        padding: 0.5rem 0.75rem;
+        font-size: 0.875rem;
         line-height: 1.4;
     }
+    .sb-input::placeholder {
+        color: var(--color-slate-600);
+    }
+    .sb-input:focus {
+        outline: none;
+        border-color: var(--color-coral);
+        box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-coral) 20%, transparent);
+    }
+
+    /* Meter track + fill --------------------------------------------------- */
+    .sb-track {
+        background-color: var(--color-track);
+        border-radius: 9999px;
+        overflow: hidden;
+    }
+
+    /* Uppercase section eyebrow above a group of rows. ---------------------- */
+    .sb-eyebrow {
+        font-size: 0.71875rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--color-slate-500);
+    }
+
+    /* Legacy alias kept so untouched pages keep their padded stat tiles. ---- */
+    .sb-stat {
+        border-radius: var(--radius-2xl);
+        padding: 1.125rem 1.25rem;
+        box-shadow: var(--shadow-card);
+    }
+}
+
+/* Money and any other figure that should not jitter as it updates. */
+@utility tnum {
+    font-variant-numeric: tabular-nums;
 }
