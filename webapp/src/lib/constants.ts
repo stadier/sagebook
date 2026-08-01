@@ -17,6 +17,8 @@ export const STORAGE_KEYS = {
     lastAccount: "sagebook.webapp.lastAccount",
     /** Saved column mappings, keyed by statement header signature. */
     importTemplates: "sagebook.webapp.importTemplates",
+    /** "1" while the desktop sidebar is collapsed to its icon rail. */
+    sidebarCollapsed: "sagebook.webapp.sidebarCollapsed",
 } as const;
 
 /* --- Money -----------------------------------------------------------------

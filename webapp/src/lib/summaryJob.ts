@@ -54,6 +54,11 @@ interface SummarizeResponse {
     errors?: string[];
 }
 
+/** Progress made so far, so a partial run can report what it did achieve. */
+function partial(summarized: number): string {
+    return summarized ? ` (${summarized} summarized before this)` : "";
+}
+
 /** Rows per request — matches the function's default page size. */
 const PAGE = 100;
 /** Stop after this many round trips so a runaway backlog cannot loop forever. */
@@ -76,9 +81,24 @@ export async function runSummaryBacklog(): Promise<void> {
             summarized += r.summarized ?? 0;
             set({ summarized, remaining: r.remaining ?? 0 });
 
-            // Nothing left, or this call moved nothing — stop rather than spin
-            // on rows the model keeps declining to answer for.
-            if (!r.remaining || !r.summarized) break;
+            // Backlog empty: the only genuinely successful exit.
+            if (!r.remaining) break;
+
+            // Nothing moved. Two very different reasons, and reporting them the
+            // same way is how a provider outage masqueraded as a finished run:
+            //   - rows failed  → the provider is down or refusing; that is an
+            //                    error and the user needs to see it.
+            //   - nothing failed → the model declined to answer for rows it
+            //                    keeps skipping; stop rather than spin.
+            if (!r.summarized) {
+                if (r.failed) {
+                    throw new Error(
+                        `${r.failed} transactions could not be summarized${partial(summarized)}. ` +
+                        (r.errors?.[0] ?? "The AI provider returned no usable response."),
+                    );
+                }
+                break;
+            }
         }
         set({ status: "done" });
         if (summarized) {

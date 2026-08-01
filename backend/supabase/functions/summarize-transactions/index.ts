@@ -77,13 +77,11 @@ app.post("/summarize-transactions", async (c) => {
         return c.json({ summarized: 0, failed: 0, remaining: await backlog(admin, userId), model: null });
     }
 
-    // Resolve the human-readable names the prompt reads better with.
-    const [{ data: cats }, { data: accounts }] = await Promise.all([
-        admin.from("categories").select("id, name").eq("user_id", userId),
-        admin.from("accounts").select("id, name").eq("user_id", userId),
-    ]);
-    const catName  = new Map((cats ?? []).map((x: { id: string; name: string }) => [x.id, x.name]));
-    const acctName = new Map((accounts ?? []).map((x: { id: string; name: string }) => [x.id, x.name]));
+    // Category names read better in the prompt than raw ids. The owning account
+    // is deliberately not resolved — see promptLine() in _shared/summarize.ts.
+    const { data: cats } = await admin
+        .from("categories").select("id, name").eq("user_id", userId);
+    const catName = new Map((cats ?? []).map((x: { id: string; name: string }) => [x.id, x.name]));
 
     const batches: SummarizableTx[][] = [];
     for (let i = 0; i < targets.length; i += SUMMARY_BATCH) {
@@ -97,7 +95,6 @@ app.post("/summarize-transactions", async (c) => {
             memo:        r.memo,
             reference:   (r.metadata as { reference?: string } | null)?.reference ?? null,
             category:    r.category_id ? catName.get(r.category_id) ?? null : null,
-            account:     r.account_id  ? acctName.get(r.account_id) ?? null : null,
         })));
     }
 

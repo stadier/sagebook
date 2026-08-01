@@ -351,6 +351,18 @@
         color: var(--color-slate-200);
     }
 
+    /* Destructive: outlined rather than filled, so it never reads as the
+       default answer in a dialog that also offers a reversible one. */
+    .sb-btn-danger {
+        background-color: transparent;
+        color: var(--color-rose-400);
+        border: 1px solid color-mix(in oklab, var(--color-rose-400) 45%, transparent);
+    }
+    .sb-btn-danger:hover:not(:disabled) {
+        background-color: color-mix(in oklab, var(--color-rose-400) 14%, transparent);
+        color: var(--color-rose-300);
+    }
+
     /* Form controls -------------------------------------------------------- */
     .sb-input {
         width: 100%;
@@ -369,6 +381,359 @@
         outline: none;
         border-color: var(--color-coral);
         box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-coral) 20%, transparent);
+    }
+
+    /* Checkbox --------------------------------------------------------------
+       The native control can't be tinted to the palette, so it is redrawn: a
+       hairline square that fills coral and reveals a mask-drawn tick when
+       checked. `:indeterminate` gets the dash for a partial header selection. */
+    .sb-check {
+        appearance: none;
+        -webkit-appearance: none;
+        flex: none;
+        width: 1.0625rem;
+        height: 1.0625rem;
+        border: 1.5px solid var(--color-slate-600);
+        border-radius: 0.3125rem;
+        background-color: var(--color-slate-900);
+        cursor: pointer;
+        transition: background-color 0.12s ease, border-color 0.12s ease;
+    }
+    .sb-check:hover:not(:disabled) {
+        border-color: var(--color-coral);
+    }
+    /* Each state carries its own complete `background`: the compiler collapses
+       these longhands into the shorthand, and a shorthand in one rule would
+       otherwise reset the colour set by another. */
+    .sb-check:checked {
+        background-color: var(--color-coral);
+        border-color: var(--color-coral);
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23191d24' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12.5 4.5 4.5L19 7'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: center;
+        background-size: 0.75rem;
+    }
+    .sb-check:indeterminate {
+        background-color: var(--color-coral);
+        border-color: var(--color-coral);
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23191d24' stroke-width='3.4' stroke-linecap='round'%3E%3Cpath d='M6 12h12'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: center;
+        background-size: 0.75rem;
+    }
+    .sb-check:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-coral) 25%, transparent);
+    }
+    .sb-check:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+    }
+
+    /* Table toolbar controls -------------------------------------------------
+       A quiet hairline chip. `is-on` is the state a filter/sort button takes
+       while it is holding a value, so an active view is visible at a glance. */
+    .sb-tbtn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.375rem;
+        border: 1px solid var(--color-slate-700);
+        border-radius: var(--radius-md);
+        background-color: var(--color-slate-900);
+        color: var(--color-slate-300);
+        padding: 0.4375rem 0.6875rem;
+        font-size: 0.8125rem;
+        font-weight: 600;
+        line-height: 1.25;
+        white-space: nowrap;
+        cursor: pointer;
+        transition: background-color 0.12s ease, border-color 0.12s ease,
+            color 0.12s ease;
+    }
+    .sb-tbtn:hover:not(:disabled) {
+        background-color: var(--color-slate-800);
+        color: var(--color-slate-200);
+    }
+    .sb-tbtn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+    .sb-tbtn.is-on {
+        border-color: color-mix(in oklab, var(--color-coral) 55%, transparent);
+        background-color: var(--color-coral-soft);
+        color: var(--color-coral-ink);
+    }
+    /* Count bubble riding on a toolbar button. */
+    .sb-tbtn-count {
+        display: inline-grid;
+        place-items: center;
+        min-width: 1.125rem;
+        height: 1.125rem;
+        padding: 0 0.3125rem;
+        border-radius: 9999px;
+        background-color: var(--color-coral);
+        color: var(--color-coral-fg);
+        font-size: 0.6875rem;
+        font-weight: 800;
+    }
+
+    /* Popover panel (column menu, sort menu). ------------------------------- */
+    .sb-menu {
+        position: absolute;
+        z-index: 30;
+        min-width: 13rem;
+        border-radius: var(--radius-xl);
+        background-color: var(--color-slate-900);
+        border: 1px solid var(--color-slate-700);
+        box-shadow: var(--shadow-pop);
+        padding: 0.375rem;
+    }
+    .sb-menu-item {
+        display: flex;
+        width: 100%;
+        align-items: center;
+        gap: 0.5rem;
+        border-radius: var(--radius-md);
+        padding: 0.4375rem 0.5rem;
+        font-size: 0.8125rem;
+        color: var(--color-slate-300);
+        text-align: left;
+        cursor: pointer;
+    }
+    .sb-menu-item:hover {
+        background-color: var(--color-slate-800);
+        color: var(--color-slate-200);
+    }
+    .sb-menu-item:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+    }
+    .sb-menu-item:disabled:hover {
+        background-color: transparent;
+    }
+    /* A menu entry that destroys something. Coloured from rest, not on hover —
+       the point is to be recognisable before the pointer arrives. */
+    .sb-menu-item.is-danger {
+        color: var(--color-rose-400);
+    }
+    .sb-menu-item.is-danger:hover {
+        background-color: color-mix(in oklab, var(--color-rose-400) 13%, transparent);
+        color: var(--color-rose-300);
+    }
+    /* Hairline above the destructive tail of a menu, so a stray click that
+       overshoots the list lands on nothing rather than on Delete. */
+    .sb-menu-sep {
+        margin: 0.25rem 0.25rem 0.1875rem;
+        border-top: 1px solid var(--color-slate-800);
+    }
+
+    /* Picker trigger ---------------------------------------------------------
+       Wears `.sb-input` so a row of a text field and a picker line up exactly,
+       and adds what a button needs: left-aligned text, a chevron pinned right,
+       and the focus ring on `:focus-visible` only (a mouse click opens the
+       palette, which takes focus anyway — a ring on the trigger would flash). */
+    .sb-picker {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        text-align: left;
+        cursor: pointer;
+        transition: border-color 0.12s ease;
+    }
+    .sb-picker:hover:not(:disabled) {
+        border-color: var(--color-slate-600);
+    }
+    .sb-picker:focus-visible {
+        outline: none;
+        border-color: var(--color-coral);
+        box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-coral) 20%, transparent);
+    }
+    .sb-picker:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+    /* Nothing chosen yet — the label is standing in for a value. */
+    .sb-picker.is-empty {
+        color: var(--color-slate-600);
+    }
+
+    /* Command palette --------------------------------------------------------
+       The single surface every picker opens into. It floats above everything
+       (including the ingest modal), so it carries the strongest elevation in
+       the system. */
+    .sb-cmd {
+        background-color: var(--color-slate-900);
+        border: 1px solid var(--color-slate-700);
+        border-radius: var(--radius-3xl);
+        box-shadow: var(--shadow-pop);
+        overflow: hidden;
+    }
+    /* Group heading, pinned while its section scrolls under it. */
+    .sb-cmd-heading {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background-color: var(--color-slate-900);
+        padding: 0.5rem 0.625rem 0.25rem;
+        font-size: 0.6875rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--color-slate-500);
+    }
+    /* One choice. Keyboard and pointer share a single highlight — the arrow
+       keys drive `data-active`, and hovering sets it too, so there is never a
+       second competing "selected" row. */
+    .sb-cmd-item {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        border-radius: var(--radius-md);
+        padding: 0.5rem 0.625rem;
+        font-size: 0.875rem;
+        line-height: 1.35;
+        color: var(--color-slate-300);
+        cursor: pointer;
+        scroll-margin: 0.375rem;
+    }
+    .sb-cmd-item[data-active="true"] {
+        background-color: var(--color-slate-800);
+        color: var(--color-slate-200);
+    }
+    .sb-cmd-item[aria-selected="true"] {
+        font-weight: 600;
+        color: var(--color-slate-200);
+    }
+    .sb-cmd-item[aria-disabled="true"] {
+        opacity: 0.45;
+        cursor: not-allowed;
+    }
+
+    /* Table ------------------------------------------------------------------
+       Header is the recessed surface so the first data row reads as content,
+       not as another band of chrome. Rows are separated by hairlines only. */
+    .sb-thead {
+        background-color: var(--color-slate-950);
+    }
+    .sb-th {
+        padding: 0.625rem 1.125rem;
+        font-size: 0.6875rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--color-slate-500);
+        white-space: nowrap;
+        user-select: none;
+    }
+    .sb-th-sortable {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.375rem;
+        cursor: pointer;
+        color: inherit;
+        border-radius: var(--radius-sm);
+        transition: color 0.12s ease;
+    }
+    .sb-th-sortable:hover {
+        color: var(--color-slate-300);
+    }
+    .sb-td {
+        padding: 0.6875rem 1.125rem;
+        vertical-align: middle;
+    }
+    /* The row owns its own background rather than carrying a `bg-*` utility:
+       utilities sit in a later cascade layer, so a utility background would
+       win over the hover and selected states below. */
+    .sb-row {
+        border-top: 1px solid var(--color-slate-800);
+        background-color: var(--color-slate-900);
+        transition: background-color 0.12s ease;
+    }
+    .sb-row:hover {
+        background-color: var(--color-slate-950);
+    }
+    .sb-row.is-selected {
+        background-color: color-mix(in oklab, var(--color-coral) 8%, var(--color-slate-900));
+    }
+    .sb-row.is-selected:hover {
+        background-color: color-mix(in oklab, var(--color-coral) 13%, var(--color-slate-900));
+    }
+    /* A row that failed — tinted, but still visibly hoverable. */
+    .sb-row.is-danger {
+        background-color: color-mix(in oklab, var(--color-rose-400) 9%, var(--color-slate-900));
+    }
+    .sb-row.is-danger:hover {
+        background-color: color-mix(in oklab, var(--color-rose-400) 14%, var(--color-slate-900));
+    }
+    /* The checkbox gutter stays put while the table scrolls sideways. */
+    .sb-col-pin {
+        position: sticky;
+        left: 0;
+        z-index: 1;
+        background-color: inherit;
+    }
+    /* The row's actions handle. It was hidden at opacity 0 until hover, which
+       made every row end in an invisible hit target — you found the buttons by
+       pressing one. It is always drawn now, just quiet until the row is under
+       the pointer. Touch has no hover at all, so this is the only thing that
+       makes row verbs reachable on a phone. */
+    .sb-row-actions {
+        opacity: 0.55;
+        transition: opacity 0.12s ease;
+    }
+    .sb-row:hover .sb-row-actions,
+    .sb-row:focus-within .sb-row-actions,
+    .sb-row-actions:has([aria-expanded="true"]) {
+        opacity: 1;
+    }
+    @media (hover: none) {
+        .sb-row-actions {
+            opacity: 1;
+        }
+    }
+
+    /* Pagination ------------------------------------------------------------- */
+    .sb-page {
+        display: inline-grid;
+        place-items: center;
+        min-width: 1.9375rem;
+        height: 1.9375rem;
+        padding: 0 0.4375rem;
+        border-radius: var(--radius-md);
+        font-size: 0.8125rem;
+        font-weight: 600;
+        color: var(--color-slate-400);
+        cursor: pointer;
+        transition: background-color 0.12s ease, color 0.12s ease;
+    }
+    .sb-page:hover:not(:disabled):not(.is-current) {
+        background-color: var(--color-slate-800);
+        color: var(--color-slate-200);
+    }
+    .sb-page.is-current {
+        background-color: var(--color-ink);
+        color: var(--color-slate-900);
+        font-weight: 700;
+    }
+    .sb-page:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+    }
+
+    /* Loading placeholder bar. ----------------------------------------------- */
+    .sb-skeleton {
+        border-radius: 9999px;
+        background-color: var(--color-slate-800);
+        animation: sb-pulse 1.4s ease-in-out infinite;
+    }
+    @keyframes sb-pulse {
+        0%,
+        100% {
+            opacity: 1;
+        }
+        50% {
+            opacity: 0.45;
+        }
     }
 
     /* Meter track + fill --------------------------------------------------- */
@@ -398,4 +763,40 @@
 /* Money and any other figure that should not jitter as it updates. */
 @utility tnum {
     font-variant-numeric: tabular-nums;
+}
+
+/* The collapsed sidebar rail — desktop only; the mobile drawer stays full
+   width and fully labelled.
+
+   These sit in the *utilities* layer on purpose. Each rule has to beat a
+   Tailwind utility already on the same element (`w-[248px]`, `px-3.5`), and a
+   component-layer rule always loses to a utility regardless of specificity.
+   Pairing `lg:w-[74px]` with `w-[248px]` doesn't work either: two arbitrary
+   values of one property resolve by Tailwind's own sort order rather than by
+   the breakpoint, so the collapsed width silently never applied. */
+@layer utilities {
+    @media (min-width: 64rem) {
+        .sb-rail[data-rail="collapsed"] {
+            width: 74px;
+            padding-left: 0.5rem;
+            padding-right: 0.5rem;
+        }
+        [data-rail="collapsed"] .sb-rail-label {
+            display: none;
+        }
+        [data-rail="collapsed"] .sb-rail-brand {
+            flex-direction: column;
+            gap: 0.75rem;
+            padding-left: 0;
+            padding-right: 0;
+        }
+        [data-rail="collapsed"] .sb-rail-toggle {
+            margin-left: 0;
+        }
+        [data-rail="collapsed"] .sb-rail-item {
+            justify-content: center;
+            padding-left: 0;
+            padding-right: 0;
+        }
+    }
 }

@@ -10,6 +10,7 @@ import GeneratedView from "../components/console/ConsolePanels";
 import IngestModal from "../components/ingest/IngestModal";
 import { BrandMark } from "../components/nav";
 import { classifyPrompt, type Intent, SUGGESTIONS } from "../lib/console/intents";
+import { askSage, type SageAnswer } from "../lib/sage";
 import { requireSupabase } from "../lib/supabase";
 import { useTheme } from "../lib/useTheme";
 
@@ -17,6 +18,10 @@ interface GenView {
     id: string;
     prompt: string;
     intent: Intent;
+    /** Sage's answer, once the query has come back. */
+    answer?: SageAnswer;
+    error?: string;
+    pending?: boolean;
 }
 
 export default function Console() {
@@ -27,7 +32,11 @@ export default function Console() {
     const [input, setInput] = useState("");
     const [ingestOpen, setIngestOpen] = useState(false);
     const [ingestText, setIngestText] = useState("");
-    const inputRef = useRef<HTMLInputElement>(null);
+    const inputRef = useRef<HTMLTextAreaElement>(null);
+
+    function patchView(id: string, patch: Partial<GenView>) {
+        setViews((prev) => prev.map((v) => (v.id === id ? { ...v, ...patch } : v)));
+    }
 
     useEffect(() => {
         requireSupabase()
@@ -51,9 +60,15 @@ export default function Console() {
             setIngestOpen(true);
             return;
         }
-        const view: GenView = { id: makeId(), prompt: text, intent: result.intent };
+        // The panels render immediately from cached data; the answer arrives
+        // when the ledger query comes back, so the canvas is never blank.
+        const view: GenView = { id: makeId(), prompt: text, intent: result.intent, pending: true };
         setViews((prev) => [view, ...prev]);
         setActiveId(view.id);
+
+        askSage(text)
+            .then((answer) => patchView(view.id, { answer, pending: false }))
+            .catch((err: Error) => patchView(view.id, { error: err.message, pending: false }));
     }
 
     function onSubmit(e: FormEvent) {
@@ -177,6 +192,7 @@ export default function Console() {
                                 setIngestOpen(true);
                             }}
                             compact
+                            busy={active.pending}
                         />
                         <div className="mt-8">
                             <div className="mb-5">
@@ -188,6 +204,14 @@ export default function Console() {
                                 </h1>
                                 <p className="mt-1 text-sm text-slate-400">{active.intent.caption}</p>
                             </div>
+
+                            <SageAnswerCard
+                                pending={active.pending}
+                                answer={active.answer}
+                                error={active.error}
+                                onAsk={run}
+                            />
+
                             <GeneratedView panels={active.intent.panels} />
                         </div>
                     </div>
@@ -250,34 +274,177 @@ const DOT_BG: React.CSSProperties = {
     backgroundSize: "26px 26px",
 };
 
+/* --- Sage's answer ---------------------------------------------------------
+   The prose the model wrote from real query results, the figures behind it,
+   and the questions it suggests next. The panels below stay as context; this
+   is the part that actually answers what was asked. */
+
+function SageAnswerCard({
+    pending,
+    answer,
+    error,
+    onAsk,
+}: {
+    pending?: boolean;
+    answer?: SageAnswer;
+    error?: string;
+    onAsk: (prompt: string) => void;
+}) {
+    if (pending) {
+        return (
+            <div className="mb-5 rounded-2xl border border-slate-800 bg-slate-900 p-5">
+                <div className="flex items-center gap-2.5 text-sm text-slate-500">
+                    <span className="text-coral">
+                        <SparkIcon />
+                    </span>
+                    Reading your ledger…
+                </div>
+                <div className="mt-3 flex flex-col gap-2">
+                    <div className="sb-skeleton h-3 w-3/4" />
+                    <div className="sb-skeleton h-3 w-1/2" />
+                </div>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="mb-5 rounded-2xl border border-rose-900/50 bg-rose-950/20 p-4 text-sm">
+                <p className="font-medium text-rose-300">Sage couldn't answer that.</p>
+                <p className="mt-1 text-slate-400">{error}</p>
+            </div>
+        );
+    }
+
+    if (!answer) return null;
+
+    return (
+        <div className="mb-5 rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-card">
+            <div className="flex gap-3">
+                <span className="mt-0.5 shrink-0 text-coral">
+                    <SparkIcon />
+                </span>
+                <p className="min-w-0 text-[0.9375rem] leading-relaxed text-slate-200">
+                    {answer.answer}
+                </p>
+            </div>
+
+            {answer.highlights && answer.highlights.length > 0 && (
+                <div className="mt-4 grid gap-2.5 sm:grid-cols-3">
+                    {answer.highlights.slice(0, 3).map((h) => (
+                        <div key={h.label} className="rounded-xl bg-slate-950 px-4 py-3">
+                            <div className="text-xs text-slate-500">{h.label}</div>
+                            <div className="mt-1 text-lg font-extrabold tnum text-slate-100 [overflow-wrap:anywhere]">
+                                {h.value}
+                            </div>
+                            {h.hint && <div className="mt-0.5 text-xs text-slate-500">{h.hint}</div>}
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {answer.followups && answer.followups.length > 0 && (
+                <div className="mt-4 flex flex-wrap gap-2">
+                    {answer.followups.slice(0, 3).map((f) => (
+                        <button
+                            key={f}
+                            onClick={() => onAsk(f)}
+                            className="rounded-full border border-slate-800 px-3 py-1.5 text-xs text-slate-400 transition-colors hover:border-coral/40 hover:text-slate-200"
+                        >
+                            {f}
+                        </button>
+                    ))}
+                </div>
+            )}
+
+            {/* What it actually looked up — an answer about money should be
+                auditable, not taken on trust. */}
+            {answer.queries.length > 0 && (
+                <details className="mt-4 border-t border-slate-800 pt-3">
+                    <summary className="cursor-pointer text-xs text-slate-500 hover:text-slate-300">
+                        Show the {answer.queries.length} quer
+                        {answer.queries.length === 1 ? "y" : "ies"} behind this
+                    </summary>
+                    <div className="mt-2 flex flex-col gap-2">
+                        {answer.queries.map((q) => (
+                            <div key={q.id} className="rounded-lg bg-slate-950 p-2.5 text-xs">
+                                <div className="text-slate-400">
+                                    {q.purpose ?? q.select} · {q.matched} row
+                                    {q.matched === 1 ? "" : "s"}
+                                    {q.truncated && " (capped)"}
+                                </div>
+                                <pre className="mt-1 max-h-40 overflow-auto text-[0.6875rem] text-slate-500">
+                                    {JSON.stringify(q.data, null, 1)}
+                                </pre>
+                            </div>
+                        ))}
+                    </div>
+                </details>
+            )}
+        </div>
+    );
+}
+
 /* --- Prompt bar ----------------------------------------------------------- */
 
+/** Rows the prompt grows to before it starts scrolling instead. */
+const MAX_PROMPT_ROWS = 10;
+
 const PromptBar = forwardRef<
-    HTMLInputElement,
+    HTMLTextAreaElement,
     {
         value: string;
         onChange: (v: string) => void;
         onSubmit: (e: FormEvent) => void;
         onMic: () => void;
         compact?: boolean;
+        busy?: boolean;
     }
->(function PromptBar({ value, onChange, onSubmit, onMic, compact }, ref) {
+>(function PromptBar({ value, onChange, onSubmit, onMic, compact, busy }, ref) {
+    const innerRef = useRef<HTMLTextAreaElement | null>(null);
+
+    /* Grow to fit. The height is reset to `auto` first so the box can shrink
+       again when text is deleted — `scrollHeight` never reports less than the
+       element's current height. */
+    useEffect(() => {
+        const el = innerRef.current;
+        if (!el) return;
+        el.style.height = "auto";
+        const lineHeight = parseFloat(getComputedStyle(el).lineHeight) || 22;
+        const max = lineHeight * MAX_PROMPT_ROWS;
+        el.style.height = `${Math.min(el.scrollHeight, max)}px`;
+        el.style.overflowY = el.scrollHeight > max ? "auto" : "hidden";
+    }, [value, compact]);
+
     return (
         <form onSubmit={onSubmit}>
             <div
-                className={`flex items-center gap-2 rounded-2xl border border-slate-800 bg-slate-900 shadow-card transition-colors focus-within:border-coral/60 focus-within:ring-2 focus-within:ring-coral/15 ${
+                className={`flex items-end gap-2 rounded-2xl border border-slate-800 bg-slate-900 shadow-card transition-colors focus-within:border-coral/60 focus-within:ring-2 focus-within:ring-coral/15 ${
                     compact ? "px-3 py-2" : "px-4 py-3"
                 }`}
             >
-                <span className="text-coral">
+                <span className="pb-1.5 text-coral">
                     <SparkIcon />
                 </span>
-                <input
-                    ref={ref}
+                <textarea
+                    ref={(node) => {
+                        innerRef.current = node;
+                        if (typeof ref === "function") ref(node);
+                        else if (ref) ref.current = node;
+                    }}
+                    rows={1}
                     value={value}
                     onChange={(e) => onChange(e.target.value)}
+                    // Enter sends, because this is a prompt, not a document.
+                    // Shift+Enter is the escape hatch for a deliberate newline.
+                    onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            onSubmit(e);
+                        }
+                    }}
                     placeholder="Tell Sage what happened, or ask about your money…"
-                    className={`min-w-0 flex-1 bg-transparent text-slate-100 placeholder:text-slate-500 focus:outline-none ${
+                    className={`min-w-0 flex-1 resize-none bg-transparent py-1 leading-[1.45] text-slate-100 placeholder:text-slate-500 focus:outline-none ${
                         compact ? "text-sm" : "text-base"
                     }`}
                     autoComplete="off"
@@ -295,7 +462,7 @@ const PromptBar = forwardRef<
                 <button
                     type="submit"
                     aria-label="Send"
-                    disabled={!value.trim()}
+                    disabled={!value.trim() || busy}
                     className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-coral text-coral-fg transition-colors hover:bg-coral-600 disabled:opacity-40"
                 >
                     <SendIcon />

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { MicIcon, PlusIcon, SearchIcon } from "../components/icons";
+import { useGlobalSearch } from "../components/GlobalSearch";
+import { MicIcon, SearchIcon } from "../components/icons";
 import NetWorthChart from "../components/NetWorthChart";
 import {
     Avatar,
@@ -52,6 +53,7 @@ const SPEND_CATEGORIES = 5;
 export default function Overview() {
     const monthLabel = new Date().toLocaleDateString(undefined, { month: "long" });
     const [range, setRange] = useState<Range>("1y");
+    const search = useGlobalSearch();
 
     const snapshots = useNetWorthSnapshots();
     const monthly = useMonthlySummary();
@@ -110,14 +112,22 @@ export default function Overview() {
                         : "Everything is filed. Nothing needs a look."
                 }
             >
-                <Link to="/transactions" className="sb-btn sb-btn-soft">
+                {/* Capture lives on the floating "+" in the shell — a second
+                    Add button here would be a duplicate entry point. This reads
+                    as a search field rather than a button, because that is what
+                    it opens. */}
+                <button
+                    onClick={search.open}
+                    className="flex w-full items-center gap-2.5 rounded-xl border border-slate-700 bg-slate-900 px-3.5 py-2.5 text-left text-[0.8125rem] text-slate-500 shadow-card transition-colors hover:border-slate-600 hover:text-slate-400 sm:w-[22rem]"
+                >
                     <SearchIcon size={15} />
-                    Search
-                </Link>
-                <Link to="/capture" className="sb-btn sb-btn-primary">
-                    <PlusIcon size={15} />
-                    Add
-                </Link>
+                    <span className="min-w-0 flex-1 truncate">
+                        Search transactions, accounts, categories…
+                    </span>
+                    <kbd className="hidden shrink-0 rounded border border-slate-700 px-1.5 py-0.5 text-[0.6875rem] text-slate-500 sm:inline">
+                        ⌘K
+                    </kbd>
+                </button>
             </PageHeader>
 
             {/* --- Hero: net worth + Sage's read of the month ----------------- */}

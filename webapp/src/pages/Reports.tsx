@@ -1,3 +1,4 @@
+import DataTable, { type Column } from "../components/DataTable";
 import NetWorthChart from "../components/NetWorthChart";
 import {
     Card,
@@ -7,6 +8,7 @@ import {
     Meter,
     PageHeader,
     QueryError,
+    SectionLabel,
     StatCard,
 } from "../components/ui";
 import { DEFAULT_CURRENCY } from "../lib/constants";
@@ -18,7 +20,7 @@ import {
     useNetWorthSnapshots,
 } from "../lib/queries";
 import { CHART_COLORS, colorFor } from "../lib/theme";
-import type { MonthlySummaryRow } from "../lib/types";
+import type { CategorySummaryRow, MonthlySummaryRow } from "../lib/types";
 
 /** Months of history in the income-vs-expenses columns. */
 const HISTORY_MONTHS = 6;
@@ -167,40 +169,106 @@ export default function Reports() {
                 </Card>
             </div>
 
-            <Card feature>
-                <CardHeader title="Every category" />
-                {rows.length > 0 ? (
-                    <div className="flex flex-col gap-4">
-                        {rows.map((row, i) => (
-                            <div key={`${row.category_group}-${row.category}-${row.currency}`}>
-                                <div className="mb-1.5 flex items-center justify-between gap-3 text-sm">
-                                    <span className="min-w-0 truncate text-slate-200">
-                                        {row.icon} {row.category}
-                                        <span className="ml-2 text-xs text-slate-500">
-                                            {row.category_group}
-                                        </span>
-                                    </span>
-                                    <span className="shrink-0 font-bold text-slate-100 tnum">
-                                        {fmtMoney(Number(row.total_amount), row.currency)}
-                                        <span className="ml-2 text-xs font-medium text-slate-500">
-                                            ×{row.tx_count}
-                                        </span>
-                                    </span>
-                                </div>
-                                <Meter
-                                    pct={(Number(row.total_amount) / maxAmount) * 100}
-                                    color={colorFor(row.color, i)}
-                                    height={7}
-                                />
-                            </div>
-                        ))}
-                    </div>
-                ) : (
-                    <Empty loading={byCategory.isLoading}>No accepted transactions this month yet.</Empty>
-                )}
-            </Card>
+            <div>
+                <SectionLabel>Every category</SectionLabel>
+                <DataTable
+                    storageKey="reports-categories"
+                    data={rows}
+                    columns={categoryColumns(categoryTotal, maxAmount)}
+                    rowId={(r) => `${r.category_group}-${r.category}-${r.currency}`}
+                    loading={byCategory.isLoading}
+                    rowNoun="category"
+                    rowNounPlural="categories"
+                    searchPlaceholder="Search categories…"
+                    exportFilename={`sagebook-categories-${new Date().toISOString().slice(0, 7)}`}
+                    initialSort={{ columnId: "total", direction: "desc" }}
+                    emptyTitle="No accepted transactions this month yet"
+                    emptyBody="Accept a few captures from your inbox and the breakdown fills in."
+                />
+            </div>
         </>
     );
+}
+
+/* -------------------------------------------------------------------------- */
+
+/** The month's spend by category — the share meter is the point of the table. */
+function categoryColumns(
+    total: number,
+    maxAmount: number,
+): Array<Column<CategorySummaryRow>> {
+    return [
+        {
+            id: "category",
+            label: "Category",
+            hideable: false,
+            mobile: "title",
+            sortValue: (r) => r.category,
+            searchValue: (r) => `${r.category} ${r.category_group}`,
+            cell: (r) => (
+                <span className="flex min-w-0 items-center gap-2">
+                    <span aria-hidden>{r.icon}</span>
+                    <span className="truncate font-medium text-slate-200">{r.category}</span>
+                </span>
+            ),
+        },
+        {
+            id: "group",
+            label: "Group",
+            width: "12rem",
+            sortValue: (r) => r.category_group,
+            cell: (r) => (
+                <span className="text-[0.8125rem] text-slate-500">{r.category_group}</span>
+            ),
+        },
+        {
+            id: "share",
+            label: "Share",
+            width: "14rem",
+            sortValue: (r) => Number(r.total_amount) / (total || 1),
+            exportValue: (r) =>
+                `${Math.round((Number(r.total_amount) / (total || 1)) * 100)}%`,
+            cell: (r) => {
+                const index = Math.max(0, r.category.length % 6);
+                return (
+                    <span className="flex items-center gap-2.5">
+                        <span className="min-w-0 flex-1">
+                            <Meter
+                                pct={(Number(r.total_amount) / maxAmount) * 100}
+                                color={colorFor(r.color, index)}
+                                height={7}
+                            />
+                        </span>
+                        <span className="w-9 shrink-0 text-right text-xs text-slate-500 tnum">
+                            {Math.round((Number(r.total_amount) / (total || 1)) * 100)}%
+                        </span>
+                    </span>
+                );
+            },
+        },
+        {
+            id: "count",
+            label: "Entries",
+            align: "right",
+            width: "7rem",
+            sortValue: (r) => r.tx_count,
+            cell: (r) => <span className="text-[0.8125rem] text-slate-500 tnum">{r.tx_count}</span>,
+        },
+        {
+            id: "total",
+            label: "Total",
+            align: "right",
+            width: "11rem",
+            hideable: false,
+            mobile: "trailing",
+            sortValue: (r) => Number(r.total_amount),
+            cell: (r) => (
+                <span className="whitespace-nowrap font-bold text-slate-100 tnum">
+                    {fmtMoney(Number(r.total_amount), r.currency)}
+                </span>
+            ),
+        },
+    ];
 }
 
 /* -------------------------------------------------------------------------- */

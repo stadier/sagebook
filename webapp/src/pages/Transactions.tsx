@@ -1,13 +1,26 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Fragment, type FormEvent, type ReactNode, useState } from "react";
-import { Card, ColorPill, Input, PageHeader, QueryError, Select } from "../components/ui";
+import { Fragment, type FormEvent, type ReactNode, useMemo, useState } from "react";
+import { useConfirm } from "../components/Confirm";
+import DataTable, { type Column } from "../components/DataTable";
 import {
+    ColorPill,
+    Field,
+    Input,
+    PageHeader,
+    Picker,
+    Pill,
+    QueryError,
+    StatCard,
+} from "../components/ui";
+import {
+    DEFAULT_CURRENCY,
     EXPORT_ROW_LIMIT,
     TRANSACTION_KINDS,
     TRANSACTION_PAGE_SIZE as PAGE_SIZE,
 } from "../lib/constants";
 import { fmtDate, fmtMoney } from "../lib/format";
-import { useAccounts, useTaxonomy } from "../lib/queries";
+import { enumOptions } from "../lib/options";
+import { useAccountOptions, useAccounts, useCategoryOptions } from "../lib/queries";
 import { signedUrlFor } from "../lib/storage";
 import { requireSupabase } from "../lib/supabase";
 import { regenerateSummaries, runSummaryBacklog, useSummaryJob } from "../lib/summaryJob";
@@ -27,27 +40,128 @@ interface Filters {
 
 const EMPTY_FILTERS: Filters = { from: "", to: "", accountId: "", categoryId: "", kind: "" };
 
+/** The four kinds, as picker rows. Fixed, so it never needs re-deriving. */
+const KIND_OPTIONS = enumOptions(TRANSACTION_KINDS);
+
+/** The sign a kind puts in front of its amount, and which way it moves money. */
+function signOf(kind: TxRow["kind"]): number {
+    return kind === "income" ? 1 : kind === "expense" ? -1 : 0;
+}
+
+/* --- The filtered set ------------------------------------------------------
+   Three queries read the same slice of the ledger — the visible page, the
+   totals above it, and the export. They share this clause so a new filter
+   can't reach one of them and not the others. */
+
+type Clause = ["eq" | "gte" | "lte", string, string];
+
+/** The PostgREST clauses the current filter state implies. */
+function filterClauses(filters: Filters): Clause[] {
+    const clauses: Clause[] = [["eq", "review_status", "accepted"]];
+    if (filters.from) clauses.push(["gte", "occurred_at", filters.from]);
+    // The `to` date covers the whole day, not midnight on it.
+    if (filters.to) clauses.push(["lte", "occurred_at", `${filters.to}T23:59:59`]);
+    if (filters.accountId) clauses.push(["eq", "account_id", filters.accountId]);
+    if (filters.categoryId) clauses.push(["eq", "category_id", filters.categoryId]);
+    if (filters.kind) clauses.push(["eq", "kind", filters.kind]);
+    return clauses;
+}
+
+/**
+ * Apply those clauses to a PostgREST builder, in and out as the same type.
+ * The cast is confined to this one function: the builder's fluent `this` types
+ * are too deep for the compiler to re-check at every call site.
+ */
+function applyFilters<Q>(query: Q, filters: Filters): Q {
+    type Chainable = Record<Clause[0], (column: string, value: string) => Chainable>;
+    let q = query as Chainable;
+    for (const [op, column, value] of filterClauses(filters)) {
+        q = q[op](column, value);
+    }
+    return q as Q;
+}
+
+/* --- Credits and debits ----------------------------------------------------
+   Money in and money out across everything the filters match, not just the
+   pages loaded into the table — so narrowing the date range answers "what did
+   this month actually cost?" rather than "what cost that of the last 200 rows?".
+
+   Kept per-currency: Sagebook is multi-currency and adding ₦ to $ would be a
+   lie. Transfers and adjustments are neither a credit nor a debit — they move
+   money between your own accounts — so they are counted separately. */
+
+interface CurrencyTotals {
+    currency: string;
+    credits: number;
+    debits: number;
+    creditCount: number;
+    debitCount: number;
+}
+
+interface LedgerTotals {
+    byCurrency: CurrencyTotals[];
+    /** Entries matched that are neither a credit nor a debit. */
+    neutralCount: number;
+    /** The row cap was hit, so the figures are a floor rather than a total. */
+    truncated: boolean;
+}
+
+function summarize(
+    records: Array<Pick<Transaction, "kind" | "amount" | "currency">>,
+    truncated: boolean,
+): LedgerTotals {
+    const byCurrency = new Map<string, CurrencyTotals>();
+    let neutralCount = 0;
+
+    for (const r of records) {
+        if (r.kind !== "income" && r.kind !== "expense") {
+            neutralCount++;
+            continue;
+        }
+        const t = byCurrency.get(r.currency) ?? {
+            currency: r.currency,
+            credits: 0,
+            debits: 0,
+            creditCount: 0,
+            debitCount: 0,
+        };
+        if (r.kind === "income") {
+            t.credits += Number(r.amount);
+            t.creditCount++;
+        } else {
+            t.debits += Number(r.amount);
+            t.debitCount++;
+        }
+        byCurrency.set(r.currency, t);
+    }
+
+    return {
+        byCurrency: [...byCurrency.values()].sort(
+            (a, b) => b.credits + b.debits - (a.credits + a.debits),
+        ),
+        neutralCount,
+        truncated,
+    };
+}
+
 export default function Transactions() {
-    const [search, setSearch] = useState("");
+    const qc = useQueryClient();
     const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
     const [limit, setLimit] = useState(PAGE_SIZE);
-    const [expandedId, setExpandedId] = useState<string | null>(null);
 
     const accounts = useAccounts();
-    const taxonomy = useTaxonomy();
+    const accountOpts = useAccountOptions();
+    const categoryOpts = useCategoryOptions();
 
     const txs = useQuery({
         queryKey: ["transactions", filters, limit],
         queryFn: async () => {
-            let q = requireSupabase()
-                .from("transactions")
-                .select("*, categories(name, icon, color)")
-                .eq("review_status", "accepted");
-            if (filters.from) q = q.gte("occurred_at", filters.from);
-            if (filters.to) q = q.lte("occurred_at", `${filters.to}T23:59:59`);
-            if (filters.accountId) q = q.eq("account_id", filters.accountId);
-            if (filters.categoryId) q = q.eq("category_id", filters.categoryId);
-            if (filters.kind) q = q.eq("kind", filters.kind);
+            const q = applyFilters(
+                requireSupabase()
+                    .from("transactions")
+                    .select("*, categories(name, icon, color)"),
+                filters,
+            );
             const { data, error } = await q
                 .order("occurred_at", { ascending: false })
                 .limit(limit);
@@ -56,18 +170,34 @@ export default function Transactions() {
         },
     });
 
-    const term = search.trim().toLowerCase();
-    const rows = (txs.data ?? []).filter(
-        (t) =>
-            !term ||
-            (t.summary ?? "").toLowerCase().includes(term) ||
-            (t.payee ?? "").toLowerCase().includes(term) ||
-            (t.memo ?? "").toLowerCase().includes(term) ||
-            (t.categories?.name ?? "").toLowerCase().includes(term),
+    // Totals span every matching row, so they stay correct as the table pages.
+    // Only three columns come back, which keeps this cheap next to the table's
+    // own query.
+    const totals = useQuery({
+        queryKey: ["transaction-totals", filters],
+        queryFn: async () => {
+            const q = applyFilters(
+                requireSupabase().from("transactions").select("kind, amount, currency"),
+                filters,
+            );
+            const { data, error } = await q.limit(EXPORT_ROW_LIMIT);
+            if (error) throw new Error(error.message);
+            const records = (data ?? []) as Array<
+                Pick<Transaction, "kind" | "amount" | "currency">
+            >;
+            return summarize(records, records.length === EXPORT_ROW_LIMIT);
+        },
+    });
+
+    const rows = txs.data ?? [];
+    const missingSummaries = rows.filter((t) => !t.summary).length;
+    const maybeMore = rows.length === limit;
+    const activeFilterCount = Object.values(filters).filter(Boolean).length;
+
+    const accountName = useMemo(
+        () => new Map((accounts.data ?? []).map((a) => [a.id, a.name])),
+        [accounts.data],
     );
-    const missingSummaries = (txs.data ?? []).filter((t) => !t.summary).length;
-    const maybeMore = (txs.data?.length ?? 0) === limit;
-    const filtersActive = Object.values(filters).some(Boolean);
 
     function setFilter<K extends keyof Filters>(key: K, value: Filters[K]) {
         setFilters((f) => ({ ...f, [key]: value }));
@@ -77,21 +207,15 @@ export default function Transactions() {
     // Export everything matching the current filters (not just loaded pages).
     const exportData = useMutation({
         mutationFn: async (format: "csv" | "json") => {
-            let q = requireSupabase()
-                .from("transactions")
-                .select("*, categories(name)")
-                .eq("review_status", "accepted");
-            if (filters.from) q = q.gte("occurred_at", filters.from);
-            if (filters.to) q = q.lte("occurred_at", `${filters.to}T23:59:59`);
-            if (filters.accountId) q = q.eq("account_id", filters.accountId);
-            if (filters.categoryId) q = q.eq("category_id", filters.categoryId);
-            if (filters.kind) q = q.eq("kind", filters.kind);
+            const q = applyFilters(
+                requireSupabase().from("transactions").select("*, categories(name)"),
+                filters,
+            );
             const { data, error } = await q
                 .order("occurred_at", { ascending: false })
                 .limit(EXPORT_ROW_LIMIT);
             if (error) throw new Error(error.message);
 
-            const accountName = new Map((accounts.data ?? []).map((a) => [a.id, a.name]));
             const records = (data ?? []).map((t) => ({
                 date: t.occurred_at,
                 summary: t.summary ?? "",
@@ -126,218 +250,493 @@ export default function Transactions() {
         },
     });
 
+    // Bulk edits and deletes for the current selection. Both ripple into
+    // balances, reports and net worth, so the whole cache is invalidated.
+    const bulkUpdate = useMutation({
+        mutationFn: async (args: { ids: string[]; patch: Record<string, unknown> }) => {
+            const { error } = await requireSupabase()
+                .from("transactions")
+                .update(args.patch)
+                .in("id", args.ids);
+            if (error) throw new Error(error.message);
+        },
+        onSuccess: () => qc.invalidateQueries(),
+    });
+
+    const bulkDelete = useMutation({
+        mutationFn: async (ids: string[]) => {
+            const { error } = await requireSupabase().from("transactions").delete().in("id", ids);
+            if (error) throw new Error(error.message);
+        },
+        onSuccess: () => qc.invalidateQueries(),
+    });
+
+    const columns: Array<Column<TxRow>> = [
+        {
+            id: "date",
+            label: "Date",
+            width: "9rem",
+            mobile: "meta",
+            sortValue: (t) => t.occurred_at,
+            searchValue: (t) => fmtDate(t.occurred_at),
+            cell: (t) => (
+                <span className="whitespace-nowrap text-[0.78125rem] text-slate-500">
+                    {fmtDate(t.occurred_at)}
+                </span>
+            ),
+        },
+        {
+            id: "summary",
+            label: "Summary",
+            hideable: false,
+            mobile: "title",
+            sortValue: (t) => t.summary ?? t.payee ?? "",
+            searchValue: (t) => [t.summary, t.payee, t.memo].filter(Boolean).join(" "),
+            // Search matches the narration too, but an export of this column
+            // should be the readable line — the raw text has its own column.
+            exportValue: (t) => t.summary ?? t.payee ?? "",
+            cell: (t, { dense }) => {
+                // The summary is the readable line. The bank's raw narration
+                // sits underneath but is clamped — those strings run to 150+
+                // characters and would set the width of the whole table. The
+                // full text is one row-click away, in TxFacts.
+                const secondary = t.summary ? (t.payee ?? t.memo) : t.memo;
+                return (
+                    <div className="min-w-0">
+                        <div className="font-medium text-slate-200">
+                            {t.summary ?? t.payee ?? "—"}
+                        </div>
+                        {secondary && (
+                            <div
+                                className={`mt-0.5 break-words text-[0.6875rem] leading-[1.35] text-slate-500 ${
+                                    dense ? "line-clamp-1" : "line-clamp-2"
+                                }`}
+                            >
+                                {secondary}
+                            </div>
+                        )}
+                    </div>
+                );
+            },
+        },
+        {
+            id: "category",
+            label: "Category",
+            width: "14rem",
+            sortValue: (t) => t.categories?.name ?? "",
+            searchValue: (t) => t.categories?.name ?? "",
+            cell: (t) =>
+                t.categories ? (
+                    <ColorPill color={t.categories.color}>
+                        {t.categories.icon} {t.categories.name}
+                    </ColorPill>
+                ) : (
+                    <span className="text-xs text-slate-500">uncategorized</span>
+                ),
+        },
+        {
+            // Off by default — the row already shows a clamped preview of it.
+            // Turn it on to read or export the bank's wording in full.
+            id: "narration",
+            label: "Narration",
+            defaultHidden: true,
+            mobile: "hidden",
+            sortValue: (t) => t.memo ?? "",
+            cell: (t, { dense }) =>
+                t.memo ? (
+                    <span
+                        className={`block break-words text-xs text-slate-400 ${
+                            dense ? "line-clamp-1" : "line-clamp-3"
+                        }`}
+                    >
+                        {t.memo}
+                    </span>
+                ) : (
+                    <span className="text-xs text-slate-600">—</span>
+                ),
+        },
+        {
+            id: "account",
+            label: "Account",
+            width: "11rem",
+            sortValue: (t) => (t.account_id ? (accountName.get(t.account_id) ?? "") : ""),
+            cell: (t) => (
+                <span className="text-[0.8125rem] text-slate-400">
+                    {(t.account_id && accountName.get(t.account_id)) || "—"}
+                </span>
+            ),
+        },
+        {
+            id: "kind",
+            label: "Kind",
+            width: "7rem",
+            defaultHidden: true,
+            sortValue: (t) => t.kind,
+            cell: (t) => (
+                <Pill tint={t.kind === "income" ? "green" : t.kind === "expense" ? "coral" : "blue"}>
+                    {t.kind}
+                </Pill>
+            ),
+        },
+        {
+            id: "tags",
+            label: "Tags",
+            defaultHidden: true,
+            searchValue: (t) => t.tags.join(" "),
+            sortValue: (t) => t.tags.join(" "),
+            cell: (t) =>
+                t.tags.length > 0 ? (
+                    <span className="flex flex-wrap gap-1">
+                        {t.tags.map((tag) => (
+                            <span key={tag} className="rounded bg-chip px-1.5 py-0.5 text-xs text-slate-400">
+                                #{tag}
+                            </span>
+                        ))}
+                    </span>
+                ) : (
+                    <span className="text-xs text-slate-600">—</span>
+                ),
+        },
+        {
+            id: "amount",
+            label: "Amount",
+            align: "right",
+            width: "10rem",
+            hideable: false,
+            mobile: "trailing",
+            sortValue: (t) => signOf(t.kind) * Number(t.amount),
+            exportValue: (t) => signOf(t.kind) * Number(t.amount),
+            cell: (t) => (
+                <span
+                    className={`whitespace-nowrap font-bold tnum ${
+                        t.kind === "income" ? "text-emerald-400" : "text-slate-200"
+                    }`}
+                >
+                    {t.kind === "expense" ? "−" : t.kind === "income" ? "+" : ""}
+                    {fmtMoney(t.amount, t.currency)}
+                </span>
+            ),
+        },
+    ];
+
     return (
         <>
             <PageHeader
                 title="Ledger"
                 subtitle={`${rows.length}${maybeMore ? "+" : ""} accepted entr${
                     rows.length === 1 ? "y" : "ies"
-                } matching your view`}
-            >
-                <Input
-                    className="sm:w-72"
-                    placeholder="Search summary, payee, memo, category…"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                />
-            </PageHeader>
+                } loaded`}
+            />
+            {/* Exporting lives in the table's own Export menu, next to the
+                controls that decide what would be exported. */}
 
-            <div className="flex flex-wrap items-center gap-2 text-sm">
-                <Input
-                    compact
-                    type="date"
-                    title="From date"
-                    value={filters.from}
-                    onChange={(e) => setFilter("from", e.target.value)}
-                />
-                <span className="text-slate-600">–</span>
-                <Input
-                    compact
-                    type="date"
-                    title="To date"
-                    value={filters.to}
-                    onChange={(e) => setFilter("to", e.target.value)}
-                />
-                <Select
-                    compact
-                    value={filters.accountId}
-                    onChange={(e) => setFilter("accountId", e.target.value)}
-                >
-                    <option value="">All accounts</option>
-                    {(accounts.data ?? [])
-                        .filter((a) => !a.is_archived)
-                        .map((a) => (
-                            <option key={a.id} value={a.id}>
-                                {a.name}
-                            </option>
-                        ))}
-                </Select>
-                <Select
-                    compact
-                    value={filters.categoryId}
-                    onChange={(e) => setFilter("categoryId", e.target.value)}
-                >
-                    <option value="">All categories</option>
-                    {(taxonomy.data ?? []).map((g) => (
-                        <optgroup key={g.id} label={g.name}>
-                            {g.categories.map((c) => (
-                                <option key={c.id} value={c.id}>
-                                    {c.parent_id ? "· " : ""}
-                                    {c.name}
-                                </option>
-                            ))}
-                        </optgroup>
-                    ))}
-                </Select>
-                <Select compact value={filters.kind} onChange={(e) => setFilter("kind", e.target.value)}>
-                    <option value="">All kinds</option>
-                    {TRANSACTION_KINDS.map((k) => (
-                        <option key={k} value={k}>
-                            {k}
-                        </option>
-                    ))}
-                </Select>
-                {filtersActive && (
-                    <button
-                        className="text-xs text-slate-500 hover:text-slate-300"
-                        onClick={() => {
-                            setFilters(EMPTY_FILTERS);
-                            setLimit(PAGE_SIZE);
-                        }}
-                    >
-                        Clear filters
-                    </button>
-                )}
-                <span className="ml-auto flex gap-2">
-                    <button
-                        className="text-xs text-slate-500 hover:text-slate-300"
-                        disabled={exportData.isPending}
-                        onClick={() => exportData.mutate("csv")}
-                        title="Download everything matching the current filters"
-                    >
-                        ⬇ CSV
-                    </button>
-                    <button
-                        className="text-xs text-slate-500 hover:text-slate-300"
-                        disabled={exportData.isPending}
-                        onClick={() => exportData.mutate("json")}
-                    >
-                        ⬇ JSON
-                    </button>
-                </span>
-            </div>
             <QueryError error={exportData.error} />
-
-            {txs.isLoading && <p className="text-sm text-slate-400">Loading…</p>}
             <QueryError error={txs.error} />
+            <QueryError error={totals.error} />
+            <QueryError error={bulkUpdate.error ?? bulkDelete.error} />
 
-            {txs.isSuccess && rows.length === 0 && (
-                <p className="text-sm text-slate-500">
-                    {term || filtersActive
-                        ? "No matches for the current search/filters."
-                        : "No accepted transactions yet — review your inbox."}
-                </p>
-            )}
+            <LedgerTotalsPanel
+                totals={totals.data}
+                loading={totals.isLoading}
+                fallbackCurrency={rows[0]?.currency ?? DEFAULT_CURRENCY}
+                scope={activeFilterCount > 0 ? "matching your filters" : "across your whole ledger"}
+            />
 
             {missingSummaries > 0 && <SummaryBacklogBanner missing={missingSummaries} />}
 
-            {rows.length > 0 && (
-                <Card padded={false}>
-                    <div className="overflow-x-auto">
-                        <table className="w-full min-w-[36rem] text-sm">
-                            <thead>
-                                <tr className="border-b border-slate-800 text-left text-[0.6875rem] font-bold uppercase tracking-[0.06em] text-slate-500">
-                                    <th className="px-5 py-3">Date</th>
-                                    <th className="px-5 py-3">What happened</th>
-                                    <th className="px-5 py-3">Category</th>
-                                    <th className="px-5 py-3 text-right">Amount</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {rows.map((t) => (
-                                    <Fragment key={t.id}>
-                                        <tr
-                                            className="cursor-pointer border-b border-slate-800 last:border-0 hover:bg-slate-950"
-                                            onClick={() =>
-                                                setExpandedId(expandedId === t.id ? null : t.id)
-                                            }
-                                        >
-                                            <td className="whitespace-nowrap px-5 py-3 text-[0.78125rem] text-slate-500">
-                                                {fmtDate(t.occurred_at)}
-                                            </td>
-                                            <td className="px-5 py-3">
-                                                {/* The summary is the readable line; the raw
-                                                    narration stays underneath, truncated, so
-                                                    the row is skimmable but nothing is hidden. */}
-                                                <div className="font-medium text-slate-200">
-                                                    {t.summary ?? t.payee ?? "—"}
-                                                </div>
-                                                {(t.summary ? (t.payee ?? t.memo) : t.memo) && (
-                                                    <div className="truncate text-xs text-slate-500">
-                                                        {t.summary ? (t.payee ?? t.memo) : t.memo}
-                                                    </div>
-                                                )}
-                                            </td>
-                                            <td className="px-5 py-3">
-                                                {t.categories ? (
-                                                    <ColorPill color={t.categories.color}>
-                                                        {t.categories.icon} {t.categories.name}
-                                                    </ColorPill>
-                                                ) : (
-                                                    <span className="text-xs text-slate-500">
-                                                        uncategorized
-                                                    </span>
-                                                )}
-                                            </td>
-                                            <td
-                                                className={`whitespace-nowrap px-5 py-3 text-right font-bold tnum ${
-                                                    t.kind === "income"
-                                                        ? "text-emerald-400"
-                                                        : "text-slate-200"
-                                                }`}
-                                            >
-                                                {t.kind === "expense"
-                                                    ? "−"
-                                                    : t.kind === "income"
-                                                      ? "+"
-                                                      : ""}
-                                                {fmtMoney(t.amount, t.currency)}
-                                            </td>
-                                        </tr>
-                                        {expandedId === t.id && (
-                                            <tr className="border-b border-slate-800 last:border-0">
-                                                <td colSpan={4} className="bg-slate-950 px-5 py-4">
-                                                    <TxDetail tx={t} />
-                                                </td>
-                                            </tr>
-                                        )}
-                                    </Fragment>
-                                ))}
-                            </tbody>
-                        </table>
+            <DataTable
+                storageKey="transactions"
+                data={rows}
+                columns={columns}
+                rowId={(t) => t.id}
+                loading={txs.isLoading}
+                searchPlaceholder="Search summary, payee, memo, category…"
+                rowNoun="entry"
+                exportFilename={`sagebook-ledger-${new Date().toISOString().slice(0, 10)}`}
+                exportActions={[
+                    {
+                        label: "Everything matching filters · CSV",
+                        hint: "Every matching row, not just the pages loaded here",
+                        onSelect: () => exportData.mutate("csv"),
+                    },
+                    {
+                        label: "Everything matching filters · JSON",
+                        hint: "Every matching row, not just the pages loaded here",
+                        onSelect: () => exportData.mutate("json"),
+                    },
+                ]}
+                initialSort={{ columnId: "date", direction: "desc" }}
+                activeFilterCount={activeFilterCount}
+                onClearFilters={() => {
+                    setFilters(EMPTY_FILTERS);
+                    setLimit(PAGE_SIZE);
+                }}
+                filters={
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                        <Field label="From">
+                            <Input
+                                type="date"
+                                value={filters.from}
+                                onChange={(e) => setFilter("from", e.target.value)}
+                            />
+                        </Field>
+                        <Field label="To">
+                            <Input
+                                type="date"
+                                value={filters.to}
+                                onChange={(e) => setFilter("to", e.target.value)}
+                            />
+                        </Field>
+                        <Field label="Account">
+                            <Picker
+                                options={accountOpts}
+                                value={filters.accountId}
+                                onChange={(v) => setFilter("accountId", v)}
+                                placeholder="All accounts"
+                                clearable
+                            />
+                        </Field>
+                        <Field label="Category">
+                            <Picker
+                                options={categoryOpts}
+                                value={filters.categoryId}
+                                onChange={(v) => setFilter("categoryId", v)}
+                                placeholder="All categories"
+                                clearable
+                            />
+                        </Field>
+                        <Field label="Kind">
+                            <Picker
+                                options={KIND_OPTIONS}
+                                value={filters.kind}
+                                onChange={(v) => setFilter("kind", v)}
+                                placeholder="All kinds"
+                                clearable
+                            />
+                        </Field>
                     </div>
-                    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 px-5 py-3.5">
-                        <span className="text-[0.78125rem] text-slate-500">
-                            Click a row for the original narration, reference, and source capture.
-                        </span>
-                        {maybeMore && (
-                            <button
-                                className="sb-btn sb-btn-ghost"
-                                disabled={txs.isFetching}
-                                onClick={() => setLimit((l) => l + PAGE_SIZE)}
-                            >
-                                {txs.isFetching ? "Loading…" : "Load more"}
-                            </button>
-                        )}
+                }
+                selectable
+                bulkActions={({ ids, clear }) => (
+                    <BulkActions
+                        ids={ids}
+                        busy={bulkUpdate.isPending || bulkDelete.isPending}
+                        onPatch={(patch) => bulkUpdate.mutate({ ids, patch }, { onSuccess: clear })}
+                        onDelete={() => bulkDelete.mutate(ids, { onSuccess: clear })}
+                    />
+                )}
+                renderExpanded={(t) => <TxDetail tx={t} />}
+                hasMore={maybeMore}
+                loadingMore={txs.isFetching}
+                onLoadMore={() => setLimit((l) => l + PAGE_SIZE)}
+                emptyTitle={
+                    activeFilterCount > 0 ? "No matches" : "No accepted transactions yet"
+                }
+                emptyBody={
+                    activeFilterCount > 0
+                        ? "Nothing matches the current filters. Clear one and try again."
+                        : "Capture something or review your inbox — accepted entries land here."
+                }
+                footNote="Click a row for the original narration, reference, and source capture."
+            />
+        </>
+    );
+}
+
+/**
+ * Money in, money out, and the difference — for whatever the filters currently
+ * select. One row of tiles per currency, so a multi-currency ledger never
+ * implies that two currencies add up.
+ */
+function LedgerTotalsPanel({
+    totals,
+    loading,
+    fallbackCurrency,
+    scope,
+}: {
+    totals: LedgerTotals | undefined;
+    loading: boolean;
+    fallbackCurrency: string;
+    scope: string;
+}) {
+    if (loading && !totals) {
+        return (
+            <div className="grid gap-3.5 sm:grid-cols-3">
+                {[0, 1, 2].map((i) => (
+                    <div key={i} className="sb-card px-5 py-[1.125rem]">
+                        <div className="sb-skeleton h-3 w-20" />
+                        <div className="sb-skeleton mt-3 h-6 w-32" />
                     </div>
-                </Card>
+                ))}
+            </div>
+        );
+    }
+    if (!totals) return null;
+
+    // An empty result still gets a row of zeros — "no credits this month" is an
+    // answer, and hiding the tiles would read as the feature being broken.
+    const rows: CurrencyTotals[] = totals.byCurrency.length
+        ? totals.byCurrency
+        : [
+              {
+                  currency: fallbackCurrency,
+                  credits: 0,
+                  debits: 0,
+                  creditCount: 0,
+                  debitCount: 0,
+              },
+          ];
+    const multi = rows.length > 1;
+
+    /** A figure the row cap may have cut short is marked as a floor, not a total. */
+    const figure = (value: number, currency: string, signed = false) => {
+        const sign = !signed || value === 0 ? "" : value > 0 ? "+" : "−";
+        const body = `${sign}${fmtMoney(signed ? Math.abs(value) : value, currency)}`;
+        if (!totals.truncated) return body;
+        return (
+            <span title={`More than ${EXPORT_ROW_LIMIT.toLocaleString()} entries match — this is a floor, not the full total. Narrow the date range for an exact figure.`}>
+                ≥ {body}
+            </span>
+        );
+    };
+
+    return (
+        <div className="flex flex-col gap-3.5">
+            {rows.map((t) => {
+                const net = t.credits - t.debits;
+                return (
+                    <div key={t.currency} className="grid gap-3.5 sm:grid-cols-3">
+                        <StatCard
+                            label={multi ? `Credits · ${t.currency}` : "Credits"}
+                            value={figure(t.credits, t.currency)}
+                            tone="positive"
+                            hint={`money in · ${t.creditCount} ${t.creditCount === 1 ? "entry" : "entries"}`}
+                        />
+                        <StatCard
+                            label={multi ? `Debits · ${t.currency}` : "Debits"}
+                            value={figure(t.debits, t.currency)}
+                            tone="negative"
+                            hint={`money out · ${t.debitCount} ${t.debitCount === 1 ? "entry" : "entries"}`}
+                        />
+                        <StatCard
+                            label={multi ? `Net · ${t.currency}` : "Net"}
+                            value={figure(net, t.currency, true)}
+                            tone="dark"
+                            hint={scope}
+                        />
+                    </div>
+                );
+            })}
+            {totals.neutralCount > 0 && (
+                <p className="text-xs text-slate-500">
+                    {totals.neutralCount} transfer
+                    {totals.neutralCount === 1 ? "" : "s"} / adjustment
+                    {totals.neutralCount === 1 ? "" : "s"} excluded — they move money between your
+                    own accounts rather than in or out.
+                </p>
             )}
+        </div>
+    );
+}
+
+/** The verbs offered once rows are ticked in the ledger. */
+function BulkActions({
+    ids,
+    busy,
+    onPatch,
+    onDelete,
+}: {
+    ids: string[];
+    busy: boolean;
+    onPatch: (patch: Record<string, unknown>) => void;
+    onDelete: () => void;
+}) {
+    const categoryOpts = useCategoryOptions();
+    const accountOpts = useAccountOptions();
+    const confirm = useConfirm();
+    const scope = `${ids.length} selected`;
+    const noun = `${ids.length} transaction${ids.length === 1 ? "" : "s"}`;
+
+    // These two are verbs, not fields: they hold no value, they apply one. The
+    // trigger keeps showing its prompt, and the palette names the target set so
+    // it is clear what a click is about to rewrite.
+    return (
+        <>
+            <Picker
+                compact
+                options={categoryOpts}
+                value=""
+                onChange={(v) => onPatch({ category_id: v })}
+                placeholder="Set category…"
+                title="Set category"
+                subtitle={scope}
+                aria-label="Set category for selected"
+                disabled={busy}
+            />
+            <Picker
+                compact
+                options={accountOpts}
+                value=""
+                onChange={(v) => onPatch({ account_id: v })}
+                placeholder="Set account…"
+                title="Set account"
+                subtitle={scope}
+                aria-label="Set account for selected"
+                disabled={busy}
+            />
+            <button
+                className="sb-tbtn"
+                disabled={busy}
+                title="Return these to the review inbox"
+                onClick={() => onPatch({ review_status: "pending_review", reviewed_at: null })}
+            >
+                Back to inbox
+            </button>
+            <button
+                className="sb-tbtn"
+                disabled={busy}
+                title="Leaves the ledger but stays on record"
+                onClick={() =>
+                    confirm({
+                        title: `Reject ${noun}?`,
+                        body: "They leave the ledger but stay on record — you can find them again with the inbox's Rejected filter and accept them back.",
+                        confirmLabel: `Reject ${ids.length}`,
+                        onConfirm: () => onPatch({ review_status: "rejected" }),
+                    })
+                }
+            >
+                Reject
+            </button>
+            <button
+                className="sb-tbtn !border-rose-900/60 !text-rose-400"
+                disabled={busy}
+                onClick={() =>
+                    confirm({
+                        title: `Delete ${noun}?`,
+                        body: "They are erased from the ledger for good — no undo, and the balances and reports they feed change to match.",
+                        confirmLabel: `Delete ${ids.length} permanently`,
+                        danger: true,
+                        // Bulk deletion is the one action here that can wreck a
+                        // ledger in a click, so it costs a deliberate keystroke.
+                        requirePhrase: "delete",
+                        alternative: {
+                            label: "Reject instead",
+                            hint: "Rejecting takes them out of the ledger but keeps the records.",
+                            onSelect: () => onPatch({ review_status: "rejected" }),
+                        },
+                        onConfirm: onDelete,
+                    })
+                }
+            >
+                {busy ? "Working…" : "Delete"}
+            </button>
         </>
     );
 }
 
 function TxDetail({ tx }: { tx: TxRow }) {
     const qc = useQueryClient();
+    const confirm = useConfirm();
     const [editing, setEditing] = useState(false);
 
     const update = useMutation({
@@ -409,11 +808,14 @@ function TxDetail({ tx }: { tx: TxRow }) {
                         className="rounded-lg bg-rose-900/50 px-3 py-1.5 text-rose-200 hover:bg-rose-900"
                         disabled={update.isPending}
                         title="Leaves the ledger but stays on record (recoverable from the inbox filters)"
-                        onClick={() => {
-                            if (window.confirm("Reject this transaction? It leaves the ledger but stays on record.")) {
-                                update.mutate({ review_status: "rejected" });
-                            }
-                        }}
+                        onClick={() =>
+                            confirm({
+                                title: "Reject this transaction?",
+                                body: "It leaves the ledger but stays on record — the inbox's Rejected filter can bring it back.",
+                                confirmLabel: "Reject",
+                                onConfirm: () => update.mutate({ review_status: "rejected" }),
+                            })
+                        }
                     >
                         Reject
                     </button>
@@ -421,15 +823,28 @@ function TxDetail({ tx }: { tx: TxRow }) {
                         className="ml-auto rounded-lg px-3 py-1.5 text-rose-400 hover:bg-rose-950/50 hover:text-rose-300"
                         disabled={remove.isPending}
                         title="Permanently delete — cannot be undone"
-                        onClick={() => {
-                            if (
-                                window.confirm(
-                                    `Permanently delete this transaction (${fmtMoney(tx.amount, tx.currency)}${tx.payee ? ` · ${tx.payee}` : ""})? This cannot be undone.`,
-                                )
-                            ) {
-                                remove.mutate();
-                            }
-                        }}
+                        onClick={() =>
+                            confirm({
+                                title: "Delete this transaction?",
+                                body: (
+                                    <>
+                                        <b className="text-slate-300">
+                                            {fmtMoney(tx.amount, tx.currency)}
+                                            {tx.payee ? ` · ${tx.payee}` : ""}
+                                        </b>{" "}
+                                        is erased for good, and your balances change to match.
+                                    </>
+                                ),
+                                confirmLabel: "Delete permanently",
+                                danger: true,
+                                alternative: {
+                                    label: "Reject instead",
+                                    hint: "Rejecting takes it out of the ledger but keeps the record.",
+                                    onSelect: () => update.mutate({ review_status: "rejected" }),
+                                },
+                                onConfirm: () => remove.mutate(),
+                            })
+                        }
                     >
                         {remove.isPending ? "Deleting…" : "Delete"}
                     </button>
@@ -589,8 +1004,8 @@ function TxEditForm({
     const [memo, setMemo] = useState(tx.memo ?? "");
     const [tags, setTags] = useState(tx.tags.join(", "));
 
-    const taxonomy = useTaxonomy();
-    const accounts = useAccounts();
+    const categoryOpts = useCategoryOptions();
+    const accountOpts = useAccountOptions({ showCurrency: true });
 
     function submit(e: FormEvent) {
         e.preventDefault();
@@ -641,16 +1056,13 @@ function TxEditForm({
                     onChange={(e) => setCurrency(e.target.value)}
                     required
                 />
-                <select
-                    className={editInputCls}
+                <Picker
+                    className={editPickerCls}
+                    options={KIND_OPTIONS}
                     value={kind}
-                    onChange={(e) => setKind(e.target.value as TxRow["kind"])}
-                >
-                    <option value="expense">expense</option>
-                    <option value="income">income</option>
-                    <option value="transfer">transfer</option>
-                    <option value="adjustment">adjustment</option>
-                </select>
+                    onChange={(v) => setKind(v as TxRow["kind"])}
+                    title="Kind"
+                />
             </div>
             <input
                 className={editInputCls}
@@ -659,29 +1071,24 @@ function TxEditForm({
                 onChange={(e) => setOccurredAt(e.target.value)}
                 required
             />
-            <select className={editInputCls} value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-                <option value="">— no category —</option>
-                {(taxonomy.data ?? []).map((group) => (
-                    <optgroup key={group.id} label={group.name}>
-                        {group.categories.map((c) => (
-                            <option key={c.id} value={c.id}>
-                                {c.parent_id ? "· " : ""}
-                                {c.name}
-                            </option>
-                        ))}
-                    </optgroup>
-                ))}
-            </select>
-            <select className={editInputCls} value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-                <option value="">— no account —</option>
-                {(accounts.data ?? [])
-                    .filter((a) => !a.is_archived)
-                    .map((a) => (
-                        <option key={a.id} value={a.id}>
-                            {a.name} ({a.currency})
-                        </option>
-                    ))}
-            </select>
+            <Picker
+                className={editPickerCls}
+                options={categoryOpts}
+                value={categoryId}
+                onChange={setCategoryId}
+                placeholder="— no category —"
+                title="Category"
+                clearable
+            />
+            <Picker
+                className={editPickerCls}
+                options={accountOpts}
+                value={accountId}
+                onChange={setAccountId}
+                placeholder="— no account —"
+                title="Account"
+                clearable
+            />
             <input className={editInputCls} value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="memo" />
             <input
                 className={`${editInputCls} sm:col-span-2`}
@@ -710,6 +1117,9 @@ function TxEditForm({
 
 const editInputCls =
     "sb-input !py-1.5 text-xs";
+
+/* `Picker` already carries `.sb-input`, so it takes only the size overrides. */
+const editPickerCls = "!py-1.5 text-xs";
 
 function MediaPreview({ ingestionId }: { ingestionId: string }) {
     const media = useQuery({

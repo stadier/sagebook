@@ -1,14 +1,26 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useMemo, useState } from "react";
+import { usePalette } from "../components/CommandPalette";
+import { useConfirm } from "../components/Confirm";
+import DataTable, { type Column, type RowAction } from "../components/DataTable";
+import {
+    ArchiveIcon,
+    CloseIcon,
+    EditIcon,
+    MergeIcon,
+    PlusIcon,
+    TrashIcon,
+    UnarchiveIcon,
+} from "../components/icons";
 import {
     Avatar,
-    Card,
+    Field,
     Input,
+    Modal,
     PageHeader,
+    Picker,
     Pill,
     QueryError,
-    Select,
-    SectionLabel,
     StatCard,
     tintFor,
 } from "../components/ui";
@@ -19,14 +31,29 @@ import {
     DEFAULT_CURRENCY,
 } from "../lib/constants";
 import { fmtMoney } from "../lib/format";
+import { pairOptions } from "../lib/options";
 import { QK, useAccountBalances } from "../lib/queries";
 import { requireSupabase } from "../lib/supabase";
 import type { AccountType, AccountWithBalance } from "../lib/types";
 
+/** The asset class an account type belongs to, per the dashboard's stacking. */
+function sectionOf(type: AccountType): string {
+    return ACCOUNT_SECTIONS.find((s) => s.types.includes(type))?.label ?? "Other";
+}
+
+const TYPE_OPTIONS = pairOptions(ACCOUNT_TYPES);
+
+/** Asset classes filter on their own label, so value and label coincide. */
+const SECTION_OPTIONS = ACCOUNT_SECTIONS.map((s) => ({ value: s.label, label: s.label }));
+
 export default function Accounts() {
     const qc = useQueryClient();
+    const palette = usePalette();
+    const confirm = useConfirm();
     const [showArchived, setShowArchived] = useState(false);
+    const [sectionFilter, setSectionFilter] = useState("");
     const [editingId, setEditingId] = useState<string | null>(null);
+    const [creating, setCreating] = useState(false);
 
     const accounts = useAccountBalances();
 
@@ -62,6 +89,19 @@ export default function Accounts() {
         },
     });
 
+    /**
+     * How much history hangs off an account. Asked for at the moment of
+     * deleting rather than carried on every row: a confirmation that can't say
+     * what it costs isn't really asking anything.
+     */
+    async function transactionCount(id: string): Promise<number | null> {
+        const { count, error } = await requireSupabase()
+            .from("transactions")
+            .select("id", { count: "exact", head: true })
+            .eq("account_id", id);
+        return error ? null : (count ?? 0);
+    }
+
     // Fold one account into another — all transactions and scheduled items move.
     const merge = useMutation({
         mutationFn: async (args: { source: string; target: string }) => {
@@ -74,18 +114,127 @@ export default function Accounts() {
         onSuccess: () => qc.invalidateQueries(),
     });
 
-    const rows = (accounts.data ?? []).filter((a) => showArchived || !a.is_archived);
+    const rows = (accounts.data ?? []).filter(
+        (a) =>
+            (showArchived || !a.is_archived) &&
+            (!sectionFilter || sectionOf(a.type) === sectionFilter),
+    );
     const allActive = (accounts.data ?? []).filter((a) => !a.is_archived);
 
-    // The design stacks accounts by asset class, each class its own card.
-    const sections = ACCOUNT_SECTIONS.map((s) => ({
-        ...s,
-        accounts: rows.filter((a) => s.types.includes(a.type)),
-    })).filter((s) => s.accounts.length > 0);
+    // Merge candidates, built once for the whole table; each row then drops
+    // itself from the list rather than re-deriving it per row.
+    const mergeTargets = useMemo(
+        () =>
+            allActive.map((a) => ({
+                value: a.id,
+                label: a.name,
+                hint: a.currency,
+                keywords: a.institution ?? undefined,
+            })),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [accounts.data],
+    );
 
     const assets = allActive.reduce((s, a) => s + Math.max(0, Number(a.current_balance)), 0);
     const liabilities = allActive.reduce((s, a) => s + Math.min(0, Number(a.current_balance)), 0);
     const baseCurrency = allActive[0]?.currency ?? DEFAULT_CURRENCY;
+
+    const activeFilterCount = (showArchived ? 1 : 0) + (sectionFilter ? 1 : 0);
+
+    const columns: Array<Column<AccountWithBalance>> = [
+        {
+            id: "name",
+            label: "Account",
+            hideable: false,
+            mobile: "title",
+            sortValue: (a) => a.name,
+            searchValue: (a) => [a.name, a.institution, a.metadata?.number_masked].filter(Boolean).join(" "),
+            cell: (a) => (
+                <div className="flex min-w-0 items-center gap-3">
+                    <Avatar label={a.name} tint={tintFor(a.name)} size={30} />
+                    <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2 text-[0.875rem] font-semibold text-slate-100">
+                            <span className="truncate">{a.name}</span>
+                            {a.metadata?.auto_balance && (
+                                <span title="Opening balance is inferred from observed activity (a debit implies the funds were there). Set an opening balance manually to take over.">
+                                    <Pill tint="indigo">inferred</Pill>
+                                </span>
+                            )}
+                            {a.is_archived && <Pill>archived</Pill>}
+                        </div>
+                        {(a.institution || a.metadata?.number_masked) && (
+                            <div className="truncate text-xs text-slate-500">
+                                {[a.institution, a.metadata?.number_masked]
+                                    .filter(Boolean)
+                                    .join(" · ")}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            ),
+        },
+        {
+            id: "type",
+            label: "Type",
+            width: "11rem",
+            sortValue: (a) => accountTypeLabel(a.type),
+            cell: (a) => (
+                <span className="text-[0.8125rem] text-slate-400">{accountTypeLabel(a.type)}</span>
+            ),
+        },
+        {
+            id: "class",
+            label: "Class",
+            width: "9rem",
+            defaultHidden: true,
+            sortValue: (a) => sectionOf(a.type),
+            cell: (a) => <Pill>{sectionOf(a.type)}</Pill>,
+        },
+        {
+            id: "currency",
+            label: "Currency",
+            width: "7rem",
+            defaultHidden: true,
+            sortValue: (a) => a.currency,
+            cell: (a) => <span className="text-[0.8125rem] text-slate-400">{a.currency}</span>,
+        },
+        {
+            id: "opening",
+            label: "Opened at",
+            align: "right",
+            width: "10rem",
+            defaultHidden: true,
+            sortValue: (a) => Number(a.opening_balance),
+            cell: (a) => (
+                <span className="whitespace-nowrap text-[0.8125rem] text-slate-500 tnum">
+                    {fmtMoney(Number(a.opening_balance), a.currency)}
+                </span>
+            ),
+        },
+        {
+            id: "balance",
+            label: "Balance",
+            align: "right",
+            width: "11rem",
+            hideable: false,
+            mobile: "trailing",
+            sortValue: (a) => Number(a.current_balance),
+            cell: (a) => (
+                <div>
+                    <div
+                        className={`whitespace-nowrap text-[0.9375rem] font-bold tnum ${
+                            Number(a.current_balance) < 0 ? "text-rose-400" : "text-slate-100"
+                        }`}
+                    >
+                        {fmtMoney(Number(a.current_balance), a.currency)}
+                    </div>
+                    <div className="whitespace-nowrap text-xs text-slate-500">
+                        opened at {fmtMoney(Number(a.opening_balance), a.currency)}
+                    </div>
+                </div>
+            ),
+        },
+    ];
 
     return (
         <>
@@ -93,14 +242,10 @@ export default function Accounts() {
                 title="Accounts"
                 subtitle={`${allActive.length} active · where transactions are filed on accept`}
             >
-                <label className="flex items-center gap-2 text-[0.8125rem] text-slate-400">
-                    <input
-                        type="checkbox"
-                        checked={showArchived}
-                        onChange={(e) => setShowArchived(e.target.checked)}
-                    />
-                    Show archived
-                </label>
+                <button className="sb-btn sb-btn-primary" onClick={() => setCreating(true)}>
+                    <PlusIcon size={15} />
+                    Add account
+                </button>
             </PageHeader>
 
             <div className="grid gap-3.5 sm:grid-cols-3">
@@ -113,138 +258,154 @@ export default function Accounts() {
                 <StatCard label="Net worth" value={fmtMoney(assets + liabilities, baseCurrency)} tone="dark" />
             </div>
 
-            {accounts.isLoading && <p className="text-sm text-slate-400">Loading…</p>}
             <QueryError error={accounts.error} />
+            <QueryError error={merge.error ?? remove.error ?? setArchived.error} />
 
-            {sections.map((section) => (
-                <div key={section.label}>
-                    <SectionLabel>{section.label}</SectionLabel>
-                    <Card padded={false}>
-                {section.accounts.map((a) => (
-                    <div
-                        key={a.id}
-                        className={`border-b border-slate-800 px-5 py-3.5 last:border-0 ${
-                            a.is_archived ? "opacity-50" : ""
-                        }`}
-                    >
-                    {editingId === a.id ? (
-                        <EditAccountForm
-                            account={a}
-                            onDone={() => setEditingId(null)}
-                        />
-                    ) : (
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                        <div className="flex items-center gap-3.5 sm:flex-1">
-                            <Avatar label={a.name} tint={tintFor(a.name)} />
-                            <div className="min-w-0 flex-1">
-                                <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-100">
-                                    {a.name}
-                                    {a.metadata?.auto_balance && (
-                                        <span title="Opening balance is inferred from observed activity (a debit implies the funds were there). Set an opening balance manually to take over.">
-                                            <Pill tint="indigo">inferred</Pill>
-                                        </span>
-                                    )}
-                                </div>
-                                <div className="text-xs text-slate-500">
-                                    {accountTypeLabel(a.type)}
-                                    {a.institution ? ` · ${a.institution}` : ""}
-                                    {a.metadata?.number_masked ? ` · ${a.metadata.number_masked}` : ""}
-                                </div>
-                            </div>
-                            <div className="shrink-0 text-right">
-                                <div
-                                    className={`text-[0.9375rem] font-bold tnum ${
-                                        Number(a.current_balance) < 0
-                                            ? "text-rose-400"
-                                            : "text-slate-100"
-                                    }`}
-                                >
-                                    {fmtMoney(Number(a.current_balance), a.currency)}
-                                </div>
-                                <div className="text-xs text-slate-500">
-                                    opened at {fmtMoney(Number(a.opening_balance), a.currency)}
-                                </div>
-                            </div>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                            <button
-                                className="text-xs text-slate-500 hover:text-slate-300"
-                                onClick={() => setEditingId(a.id)}
-                            >
-                                Edit
-                            </button>
-                            <button
-                                className="text-xs text-slate-500 hover:text-slate-300"
-                                disabled={setArchived.isPending}
-                                onClick={() => setArchived.mutate({ id: a.id, archived: !a.is_archived })}
-                            >
-                                {a.is_archived ? "Unarchive" : "Archive"}
-                            </button>
-                            {allActive.length > 1 && (
-                                <Select
-                                    compact
-                                    className="!px-2 !py-1 text-xs"
-                                    title="Merge this account into another (moves all its transactions)"
-                                    value=""
-                                    disabled={merge.isPending}
-                                    onChange={(e) => {
-                                        const target = e.target.value;
-                                        if (!target) return;
-                                        const targetName = allActive.find((x) => x.id === target)?.name;
-                                        if (
-                                            window.confirm(
-                                                `Merge "${a.name}" into "${targetName}"? All of "${a.name}"'s transactions and scheduled items move over, then "${a.name}" is deleted.`,
-                                            )
-                                        ) {
-                                            merge.mutate({ source: a.id, target });
-                                        }
-                                        e.target.value = "";
-                                    }}
-                                >
-                                    <option value="">Merge into…</option>
-                                    {allActive
-                                        .filter((x) => x.id !== a.id)
-                                        .map((x) => (
-                                            <option key={x.id} value={x.id}>
-                                                {x.name}
-                                            </option>
-                                        ))}
-                                </Select>
-                            )}
-                            <button
-                                className="text-xs text-rose-400 hover:text-rose-300"
-                                disabled={remove.isPending}
-                                title="Permanently delete this account; its transactions are kept but unlinked"
-                                onClick={() => {
-                                    if (
-                                        window.confirm(
-                                            `Permanently delete "${a.name}"? Its transactions are kept but will no longer be filed under any account. This cannot be undone.`,
-                                        )
-                                    ) {
-                                        remove.mutate(a.id);
-                                    }
-                                }}
-                            >
-                                {remove.isPending ? "Deleting…" : "Delete"}
-                            </button>
-                        </div>
+            <DataTable
+                storageKey="accounts"
+                data={rows}
+                columns={columns}
+                rowId={(a) => a.id}
+                loading={accounts.isLoading}
+                rowNoun="account"
+                searchPlaceholder="Search name, institution, number…"
+                exportFilename="sagebook-accounts"
+                initialSort={{ columnId: "balance", direction: "desc" }}
+                activeFilterCount={activeFilterCount}
+                onClearFilters={() => {
+                    setShowArchived(false);
+                    setSectionFilter("");
+                }}
+                filters={
+                    <div className="grid gap-3 sm:grid-cols-2">
+                        <Field label="Asset class">
+                            <Picker
+                                options={SECTION_OPTIONS}
+                                value={sectionFilter}
+                                onChange={setSectionFilter}
+                                placeholder="All classes"
+                                title="Asset class"
+                                clearable
+                            />
+                        </Field>
+                        <Field label="Archived">
+                            <label className="flex items-center gap-2 py-2 text-[0.8125rem] text-slate-400">
+                                <input
+                                    type="checkbox"
+                                    className="sb-check"
+                                    checked={showArchived}
+                                    onChange={(e) => setShowArchived(e.target.checked)}
+                                />
+                                Show archived accounts
+                            </label>
+                        </Field>
                     </div>
-                    )}
-                    </div>
-                ))}
-                    </Card>
-                </div>
-            ))}
+                }
+                rowClassName={(a) => (a.is_archived ? "opacity-60" : "")}
+                expandedIds={editingId ? [editingId] : []}
+                onExpandedChange={(ids) => setEditingId(ids[ids.length - 1] ?? null)}
+                renderExpanded={(a) => (
+                    <EditAccountForm account={a} onDone={() => setEditingId(null)} />
+                )}
+                rowLabel={(a) => a.name}
+                rowActions={(a): RowAction[] => [
+                    {
+                        label: editingId === a.id ? "Close editor" : "Edit account",
+                        icon: editingId === a.id ? <CloseIcon size={16} /> : <EditIcon />,
+                        onSelect: () => setEditingId(editingId === a.id ? null : a.id),
+                    },
+                    {
+                        label: a.is_archived ? "Unarchive account" : "Archive account",
+                        hint: a.is_archived ? "back to the list" : "hides it, keeps everything",
+                        icon: a.is_archived ? <UnarchiveIcon /> : <ArchiveIcon />,
+                        disabled: setArchived.isPending,
+                        onSelect: () => setArchived.mutate({ id: a.id, archived: !a.is_archived }),
+                    },
+                    {
+                        label: "Merge into another account…",
+                        icon: <MergeIcon />,
+                        hidden: allActive.length < 2 || a.is_archived,
+                        disabled: merge.isPending,
+                        onSelect: () =>
+                            palette.open({
+                                title: "Merge into",
+                                subtitle: `Move everything from ${a.name}`,
+                                options: mergeTargets.filter((x) => x.value !== a.id),
+                                onSelect: (target) =>
+                                    confirm({
+                                        title: "Merge accounts?",
+                                        body: `All of "${a.name}"'s transactions and scheduled items move to "${
+                                            allActive.find((x) => x.id === target)?.name
+                                        }", then "${a.name}" is deleted.`,
+                                        confirmLabel: "Merge",
+                                        onConfirm: () => merge.mutate({ source: a.id, target }),
+                                    }),
+                            }),
+                    },
+                    {
+                        label: "Delete account…",
+                        icon: <TrashIcon />,
+                        danger: true,
+                        disabled: remove.isPending,
+                        // Async so the dialog can state what the delete actually
+                        // costs rather than a vague "this cannot be undone".
+                        onSelect: async () => {
+                            const count = await transactionCount(a.id);
+                            confirm({
+                                title: `Delete "${a.name}"?`,
+                                body: (
+                                    <>
+                                        There is no undo and no trash to recover it from.
+                                        {count !== null && count > 0 && (
+                                            <>
+                                                {" "}
+                                                Its{" "}
+                                                <b className="text-slate-300">
+                                                    {count.toLocaleString()} transaction
+                                                    {count === 1 ? "" : "s"}
+                                                </b>{" "}
+                                                are kept, but they stop being filed under any
+                                                account — your balances will change to match.
+                                            </>
+                                        )}
+                                    </>
+                                ),
+                                confirmLabel: "Delete permanently",
+                                danger: true,
+                                requirePhrase: a.name,
+                                // Archiving is nearly always what "get this off
+                                // my list" actually means — so it is the primary
+                                // button, and delete is the one you reach past.
+                                alternative: a.is_archived
+                                    ? undefined
+                                    : {
+                                          label: "Archive instead",
+                                          hint: "Archiving keeps everything and can be undone — archived accounts are under Filter → Show archived.",
+                                          onSelect: () =>
+                                              setArchived.mutate({ id: a.id, archived: true }),
+                                      },
+                                onConfirm: () => remove.mutate(a.id),
+                            });
+                        },
+                    },
+                ]}
+                emptyTitle="No accounts yet"
+                emptyBody="Add your first account — captures are filed against it on accept."
+                footNote="Click a row to edit it."
+            />
 
-            {accounts.isSuccess && rows.length === 0 && (
-                <p className="text-sm text-slate-500">No accounts yet — create your first below.</p>
-            )}
-            <QueryError error={merge.error} />
-
-            <CreateAccountForm />
+            <Modal
+                open={creating}
+                onClose={() => setCreating(false)}
+                title="New account"
+                subtitle="Captures are filed against an account when you accept them."
+            >
+                <CreateAccountForm onDone={() => setCreating(false)} />
+            </Modal>
         </>
     );
 }
+
 
 function EditAccountForm({
     account,
@@ -297,13 +458,7 @@ function EditAccountForm({
             className="grid gap-2 sm:grid-cols-2"
         >
             <Input value={name} onChange={(e) => setName(e.target.value)} required />
-            <Select value={type} onChange={(e) => setType(e.target.value as AccountType)}>
-                {ACCOUNT_TYPES.map((t) => (
-                    <option key={t.value} value={t.value}>
-                        {t.label}
-                    </option>
-                ))}
-            </Select>
+            <Picker options={TYPE_OPTIONS} value={type} onChange={setType} title="Account type" />
             <Input
                 value={currency}
                 maxLength={3}
@@ -346,7 +501,7 @@ function EditAccountForm({
     );
 }
 
-function CreateAccountForm() {
+function CreateAccountForm({ onDone }: { onDone: () => void }) {
     const qc = useQueryClient();
     const [name, setName] = useState("");
     const [type, setType] = useState<AccountType>("checking");
@@ -375,6 +530,7 @@ function CreateAccountForm() {
             setOpeningBalance("0");
             qc.invalidateQueries({ queryKey: QK.accounts });
             qc.invalidateQueries({ queryKey: QK.accountBalances });
+            onDone();
         },
     });
 
@@ -384,11 +540,7 @@ function CreateAccountForm() {
     }
 
     return (
-        <form
-            onSubmit={submit}
-            className="sb-card p-4"
-        >
-            <h2 className="mb-3 text-sm font-semibold text-slate-200">New account</h2>
+        <form onSubmit={submit}>
             <div className="grid gap-2 sm:grid-cols-2">
                 <Input
                     placeholder="Name, e.g. GTBank Current"
@@ -396,13 +548,7 @@ function CreateAccountForm() {
                     onChange={(e) => setName(e.target.value)}
                     required
                 />
-                <Select value={type} onChange={(e) => setType(e.target.value as AccountType)}>
-                    {ACCOUNT_TYPES.map((t) => (
-                        <option key={t.value} value={t.value}>
-                            {t.label}
-                        </option>
-                    ))}
-                </Select>
+                <Picker options={TYPE_OPTIONS} value={type} onChange={setType} title="Account type" />
                 <Input
                     placeholder="Currency (ISO), e.g. NGN"
                     value={currency}
@@ -422,16 +568,21 @@ function CreateAccountForm() {
                     value={openingBalance}
                     onChange={(e) => setOpeningBalance(e.target.value)}
                 />
-                <button className="sb-btn sb-btn-primary" disabled={create.isPending || !name.trim()}>
-                    {create.isPending ? "Creating…" : "Create account"}
-                </button>
             </div>
-            <p className="mt-2 text-xs text-slate-500">
-                Note: the currency must exist in the currencies table (majors plus NGN,
-                ZAR, KES, GHS, INR, AED and more are seeded by the migrations).
+            <p className="mt-2.5 text-xs text-slate-500">
+                The currency must exist in the currencies table — majors plus NGN, ZAR, KES,
+                GHS, INR and AED are seeded by the migrations.
             </p>
             <div className="mt-2">
                 <QueryError error={create.error} />
+            </div>
+            <div className="mt-4 flex items-center gap-2">
+                <button className="sb-btn sb-btn-primary" disabled={create.isPending || !name.trim()}>
+                    {create.isPending ? "Creating…" : "Create account"}
+                </button>
+                <button type="button" className="sb-btn sb-btn-ghost" onClick={onDone}>
+                    Cancel
+                </button>
             </div>
         </form>
     );

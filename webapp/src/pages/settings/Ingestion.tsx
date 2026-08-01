@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { Card, CardHeader, PageHeader } from "../components/ui";
-import { requireSupabase } from "../lib/supabase";
-import type { IngestAddress } from "../lib/types";
+import { Card, CardHeader } from "../../components/ui";
+import { requireSupabase } from "../../lib/supabase";
+import type { IngestAddress } from "../../lib/types";
+import { SettingsSection } from "../Settings";
 
 const INGEST_DOMAIN = "ingest.sagebook.app";
 
-export default function Settings() {
+export default function Ingestion() {
     const [addr, setAddr] = useState<IngestAddress | null>(null);
     const [loading, setLoading] = useState(true);
     const [copied, setCopied] = useState(false);
@@ -46,7 +47,10 @@ export default function Settings() {
 
     return (
         <>
-            <PageHeader title="Settings" subtitle="How captures reach Sagebook." />
+            <SettingsSection
+                title="Ingestion"
+                description="How captures reach Sagebook without you opening the app."
+            />
 
             <Card feature>
                 <CardHeader title="Email forwarding" />

@@ -1,11 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { PageHeader, QueryError } from "../components/ui";
+import { PageHeader, Picker, QueryError } from "../components/ui";
 import { STORAGE_KEYS } from "../lib/constants";
 import { fmtDateTime, fmtMoney } from "../lib/format";
 import { logEvent } from "../lib/logger";
-import { QK, useAccounts, usePendingReview, useTaxonomy } from "../lib/queries";
+import { accountOptions } from "../lib/options";
+import {
+    QK,
+    useAccounts,
+    useCategoryOptions,
+    usePendingReview,
+    useTaxonomy,
+} from "../lib/queries";
 import { invokeFn, requireSupabase } from "../lib/supabase";
 import type { Account, ParsedTransaction, PendingTransaction } from "../lib/types";
 
@@ -238,6 +245,10 @@ function InboxCard({
     const [accountId, setAccountId] = useState(
         () => tx.account_id ?? localStorage.getItem(LAST_ACCOUNT_KEY) ?? "",
     );
+    const accountOpts = useMemo(
+        () => accountOptions(accounts, { showCurrency: true }),
+        [accounts],
+    );
 
     useEffect(() => {
         if (focused) cardRef.current?.scrollIntoView({ block: "nearest" });
@@ -257,7 +268,7 @@ function InboxCard({
         const params = new URLSearchParams();
         if (tx.payee) params.set("payee", tx.payee);
         if (tx.category_name) params.set("category", tx.category_name);
-        navigate(`/rules?${params.toString()}`);
+        navigate(`/settings/rules?${params.toString()}`);
     }
 
     return (
@@ -331,19 +342,16 @@ function InboxCard({
                 />
             ) : (
                 <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <select
-                        className="sb-input py-1.5"
+                    <Picker
+                        compact
+                        options={accountOpts}
                         value={accountId}
-                        onChange={(e) => setAccountId(e.target.value)}
-                        title="Account to file this under on accept"
-                    >
-                        <option value="">— no account —</option>
-                        {accounts.map((a) => (
-                            <option key={a.id} value={a.id}>
-                                {a.name} ({a.currency})
-                            </option>
-                        ))}
-                    </select>
+                        onChange={setAccountId}
+                        placeholder="— no account —"
+                        title="File under account"
+                        subtitle="Applied when you accept"
+                        clearable
+                    />
                     <button className={acceptCls} disabled={busy} onClick={accept}>
                         Accept
                     </button>
@@ -379,6 +387,14 @@ function InferencePanel({ tx }: { tx: PendingTransaction }) {
 
     const ai = tx.original_ai_data;
     const taxonomy = useTaxonomy();
+    // "Ungrouped" is a synthetic bucket, not somewhere a new category can go.
+    const groupOptions = useMemo(
+        () =>
+            (taxonomy.data ?? [])
+                .filter((g) => g.id !== "__ungrouped__")
+                .map((g) => ({ value: g.id, label: g.name })),
+        [taxonomy.data],
+    );
 
     // A source account was detected but the model couldn't name it — synthesize
     // a placeholder from whatever it did read, so it can still be captured and
@@ -525,20 +541,16 @@ function InferencePanel({ tx }: { tx: PendingTransaction }) {
                         <span className="text-slate-300">
                             New category: <span className="font-medium">{ai.category}</span>
                         </span>
-                        <select
-                            className="rounded border border-slate-700 bg-slate-950 px-1.5 py-0.5 text-slate-300"
+                        <Picker
+                            compact
+                            className="!px-1.5 !py-0.5"
+                            options={groupOptions}
                             value={categoryGroupId}
-                            onChange={(e) => setCategoryGroupId(e.target.value)}
-                        >
-                            <option value="">— pick group —</option>
-                            {(taxonomy.data ?? [])
-                                .filter((g) => g.id !== "__ungrouped__")
-                                .map((g) => (
-                                    <option key={g.id} value={g.id}>
-                                        {g.name}
-                                    </option>
-                                ))}
-                        </select>
+                            onChange={setCategoryGroupId}
+                            placeholder="— pick group —"
+                            title="Group for the new category"
+                            subtitle={ai?.category ?? undefined}
+                        />
                         <button
                             className="rounded bg-sky-800/60 px-2 py-0.5 text-sky-200 hover:bg-sky-700/60 disabled:opacity-50"
                             disabled={createCategory.isPending || !categoryGroupId}
@@ -739,7 +751,11 @@ function EditForm({
     );
     const [memo, setMemo] = useState(tx.memo ?? "");
 
-    const taxonomy = useTaxonomy();
+    const categoryOpts = useCategoryOptions();
+    const accountOpts = useMemo(
+        () => accountOptions(accounts, { showCurrency: true }),
+        [accounts],
+    );
 
     function submit(e: FormEvent) {
         e.preventDefault();
@@ -775,27 +791,22 @@ function EditForm({
                     required
                 />
             </div>
-            <select className="sb-input" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-                <option value="">— no category —</option>
-                {(taxonomy.data ?? []).map((group) => (
-                    <optgroup key={group.id} label={group.name}>
-                        {group.categories.map((c) => (
-                            <option key={c.id} value={c.id}>
-                                {c.parent_id ? "· " : ""}
-                                {c.name}
-                            </option>
-                        ))}
-                    </optgroup>
-                ))}
-            </select>
-            <select className="sb-input" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-                <option value="">— no account —</option>
-                {accounts.map((a) => (
-                    <option key={a.id} value={a.id}>
-                        {a.name} ({a.currency})
-                    </option>
-                ))}
-            </select>
+            <Picker
+                options={categoryOpts}
+                value={categoryId}
+                onChange={setCategoryId}
+                placeholder="— no category —"
+                title="Category"
+                clearable
+            />
+            <Picker
+                options={accountOpts}
+                value={accountId}
+                onChange={setAccountId}
+                placeholder="— no account —"
+                title="Account"
+                clearable
+            />
             <input
                 className="sb-input sm:col-span-2"
                 value={memo}

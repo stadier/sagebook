@@ -11,8 +11,10 @@
    Mutations stay with the screen that owns them — this file is reads only. */
 
 import { useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
 import { RECENT_TRANSACTION_LIMIT, SNAPSHOT_LIMIT } from "./constants";
 import { currentMonthStart } from "./format";
+import { accountOptions, categoryNameOptions, categoryOptions } from "./options";
 import { requireSupabase } from "./supabase";
 import { fetchAccounts, fetchTaxonomy } from "./taxonomy";
 import type {
@@ -86,6 +88,34 @@ export function useAccountBalances() {
 /** Category groups with their categories, parents before children. */
 export function useTaxonomy() {
     return useQuery({ queryKey: QK.taxonomy, queryFn: fetchTaxonomy });
+}
+
+/* --- Picker options ---------------------------------------------------------
+   The two lists half the app needs to offer as choices. Kept here rather than
+   memoised at each call site so the flattening happens once per query result,
+   and a screen that wants an account picker writes one line. */
+
+/** Live accounts as `<Picker>` options. */
+export function useAccountOptions(opts?: { includeArchived?: boolean; showCurrency?: boolean }) {
+    const accounts = useAccounts();
+    const includeArchived = opts?.includeArchived ?? false;
+    const showCurrency = opts?.showCurrency ?? false;
+    return useMemo(
+        () => accountOptions(accounts.data, { includeArchived, showCurrency }),
+        [accounts.data, includeArchived, showCurrency],
+    );
+}
+
+/** The whole taxonomy as `<Picker>` options, keyed by category id. */
+export function useCategoryOptions() {
+    const taxonomy = useTaxonomy();
+    return useMemo(() => categoryOptions(taxonomy.data), [taxonomy.data]);
+}
+
+/** The same, keyed by category *name* — the shape rules store. */
+export function useCategoryNameOptions() {
+    const taxonomy = useTaxonomy();
+    return useMemo(() => categoryNameOptions(taxonomy.data), [taxonomy.data]);
 }
 
 /* --- Inbox ------------------------------------------------------------------ */

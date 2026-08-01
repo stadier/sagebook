@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { DEFAULT_CURRENCY, IMPORT_MAX_ROWS } from "../../lib/constants";
 import { fmtDate, fmtMoney } from "../../lib/format";
 import {
@@ -21,10 +21,29 @@ import {
 import { importJobRunning, startImport } from "../../lib/importJob";
 import { logEvent } from "../../lib/logger";
 import { pdfGridFor } from "../../lib/pdfTable";
-import { QK, useAccounts } from "../../lib/queries";
+import { pairOptions } from "../../lib/options";
+import { QK, useAccountOptions, useAccounts } from "../../lib/queries";
 import { uploadToIngest } from "../../lib/storage";
 import { requireSupabase } from "../../lib/supabase";
-import { Input, Select } from "../ui";
+import { Input, Picker } from "../ui";
+
+/* The mapper's fixed vocabularies. */
+const DATE_FORMAT_OPTIONS = pairOptions<CsvMapping["dateFormat"]>([
+    { value: "auto", label: "auto" },
+    { value: "dmy", label: "DD/MM/YYYY" },
+    { value: "mdy", label: "MM/DD/YYYY" },
+    { value: "ymd", label: "YYYY-MM-DD" },
+]);
+
+const AMOUNT_MODE_OPTIONS = pairOptions<CsvMapping["amountMode"]>([
+    { value: "signed", label: "one signed column" },
+    { value: "debit_credit", label: "debit + credit columns" },
+]);
+
+const SIGN_OPTIONS = pairOptions<CsvMapping["signConvention"]>([
+    { value: "negative_expense", label: "negative = money out" },
+    { value: "positive_expense", label: "positive = money out" },
+]);
 
 /**
  * Deterministic statement import (CSV / Excel / OFX) — column mapping, preview,
@@ -43,6 +62,7 @@ export default function ImportFlow({
     const qc = useQueryClient();
     const accounts = useAccounts();
     const activeAccounts = (accounts.data ?? []).filter((a) => !a.is_archived);
+    const accountOpts = useAccountOptions({ showCurrency: true });
 
     const [fileKind, setFileKind] = useState<"csv" | "ofx" | null>(null);
     const [rows, setRows] = useState<string[][]>([]);
@@ -336,14 +356,15 @@ export default function ImportFlow({
             )}
 
             <div className="mb-4 flex flex-wrap items-center gap-3">
-                <Select compact value={accountId} onChange={(e) => onAccount(e.target.value)}>
-                    <option value="">File under account… (optional)</option>
-                    {activeAccounts.map((a) => (
-                        <option key={a.id} value={a.id}>
-                            {a.name} ({a.currency})
-                        </option>
-                    ))}
-                </Select>
+                <Picker
+                    compact
+                    options={accountOpts}
+                    value={accountId}
+                    onChange={onAccount}
+                    placeholder="File under account… (optional)"
+                    title="File under account"
+                    clearable
+                />
                 <label className="flex items-center gap-2 text-sm text-slate-400">
                     Currency
                     <Input
@@ -410,6 +431,18 @@ function MappingEditor({
     const set = <K extends keyof CsvMapping>(key: K, value: CsvMapping[K]) =>
         onChange({ ...mapping, [key]: value });
 
+    // Column indices are numbers on `CsvMapping` but strings as option values,
+    // so each picker converts on the way back in. The position rides along as a
+    // hint — with a wide statement, "col 14" is often what you actually know.
+    const colOptions = useMemo(
+        () => headers.map((h, i) => ({ value: String(i), label: h, hint: `col ${i + 1}` })),
+        [headers],
+    );
+    const noneThen = (options: typeof colOptions) => [
+        { value: "-1", label: "— none —" },
+        ...options,
+    ];
+
     const colSelect = (
         label: string,
         key: "dateCol" | "amountCol" | "debitCol" | "creditCol" | "payeeCol" | "memoCol" | "referenceCol",
@@ -417,18 +450,15 @@ function MappingEditor({
     ) => (
         <label className="flex items-center gap-2 text-sm text-slate-400">
             {label}
-            <Select
+            <Picker
                 compact
-                value={mapping[key]}
-                onChange={(e) => set(key, Number(e.target.value))}
-            >
-                {optional && <option value={-1}>— none —</option>}
-                {headers.map((h, i) => (
-                    <option key={i} value={i}>
-                        {h}
-                    </option>
-                ))}
-            </Select>
+                options={optional ? noneThen(colOptions) : colOptions}
+                value={String(mapping[key])}
+                onChange={(v) => set(key, Number(v))}
+                placeholder="— none —"
+                title={`${label} column`}
+                searchPlaceholder="Search column names…"
+            />
         </label>
     );
 
@@ -464,43 +494,36 @@ function MappingEditor({
                 {colSelect("Date", "dateCol")}
                 <label className="flex items-center gap-2 text-sm text-slate-400">
                     Date format
-                    <Select
+                    <Picker
                         compact
+                        options={DATE_FORMAT_OPTIONS}
                         value={mapping.dateFormat}
-                        onChange={(e) => set("dateFormat", e.target.value as CsvMapping["dateFormat"])}
-                    >
-                        <option value="auto">auto</option>
-                        <option value="dmy">DD/MM/YYYY</option>
-                        <option value="mdy">MM/DD/YYYY</option>
-                        <option value="ymd">YYYY-MM-DD</option>
-                    </Select>
+                        onChange={(v) => set("dateFormat", v)}
+                        title="Date format"
+                    />
                 </label>
                 <label className="flex items-center gap-2 text-sm text-slate-400">
                     Amounts
-                    <Select
+                    <Picker
                         compact
+                        options={AMOUNT_MODE_OPTIONS}
                         value={mapping.amountMode}
-                        onChange={(e) => set("amountMode", e.target.value as CsvMapping["amountMode"])}
-                    >
-                        <option value="signed">one signed column</option>
-                        <option value="debit_credit">debit + credit columns</option>
-                    </Select>
+                        onChange={(v) => set("amountMode", v)}
+                        title="How amounts are laid out"
+                    />
                 </label>
                 {mapping.amountMode === "signed" ? (
                     <>
                         {colSelect("Amount", "amountCol")}
                         <label className="flex items-center gap-2 text-sm text-slate-400">
                             Sign
-                            <Select
+                            <Picker
                                 compact
+                                options={SIGN_OPTIONS}
                                 value={mapping.signConvention}
-                                onChange={(e) =>
-                                    set("signConvention", e.target.value as CsvMapping["signConvention"])
-                                }
-                            >
-                                <option value="negative_expense">negative = money out</option>
-                                <option value="positive_expense">positive = money out</option>
-                            </Select>
+                                onChange={(v) => set("signConvention", v)}
+                                title="Sign convention"
+                            />
                         </label>
                     </>
                 ) : (

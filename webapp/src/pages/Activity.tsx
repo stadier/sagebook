@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { PageHeader } from "../components/ui";
+import { useMemo, useState } from "react";
+import DataTable, { type Column } from "../components/DataTable";
+import { Field, PageHeader, Picker, QueryError } from "../components/ui";
 import { fmtDateTime } from "../lib/format";
+import { pairOptions } from "../lib/options";
 import { requireSupabase } from "../lib/supabase";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -154,6 +156,75 @@ export default function Activity() {
 
     const failureCount = all.filter(isFailure).length;
 
+    // The failures row carries its own count, so the filter says how much there
+    // is to look at before you pick it.
+    const filterOptions = useMemo(
+        () =>
+            pairOptions<Filter>([
+                { value: "all", label: "Everything" },
+                { value: "failures", label: `Failures (${failureCount})` },
+                { value: "ingestions", label: "Captures & imports" },
+                { value: "events", label: "Client events" },
+            ]),
+        [failureCount],
+    );
+
+    const columns: Array<Column<Entry>> = [
+        {
+            id: "status",
+            label: "Status",
+            width: "8rem",
+            mobile: "trailing",
+            sortValue: (e) => badgeOf(e),
+            cell: (e) => (
+                <span className={`sb-pill ${STATUS_TONE[badgeOf(e)] ?? STATUS_TONE.info}`}>
+                    {badgeOf(e)}
+                </span>
+            ),
+        },
+        {
+            id: "at",
+            label: "When",
+            width: "12rem",
+            sortValue: (e) => e.at,
+            searchValue: (e) => fmtDateTime(e.at),
+            cell: (e) => (
+                <span className="whitespace-nowrap text-[0.78125rem] text-slate-500">
+                    {fmtDateTime(e.at)}
+                </span>
+            ),
+        },
+        {
+            id: "what",
+            label: "What happened",
+            hideable: false,
+            mobile: "title",
+            sortValue: (e) => describe(e).title,
+            searchValue: (e) => `${describe(e).title} ${describe(e).subtitle}`,
+            cell: (e) => {
+                const { title, subtitle } = describe(e);
+                return (
+                    <div className="min-w-0">
+                        <div className="truncate text-slate-200">{title}</div>
+                        <div className="truncate text-xs text-slate-500">{subtitle}</div>
+                    </div>
+                );
+            },
+        },
+        {
+            id: "source",
+            label: "Source",
+            width: "9rem",
+            defaultHidden: true,
+            sortValue: (e) => (e.type === "ingestion" ? e.ingestion.media_kind : e.log.source),
+            cell: (e) => (
+                <span className="text-[0.8125rem] text-slate-400">
+                    {e.type === "ingestion" ? e.ingestion.media_kind : e.log.source}
+                </span>
+            ),
+        },
+    ];
+
     return (
         <>
             <PageHeader
@@ -165,56 +236,51 @@ export default function Activity() {
                 </button>
             </PageHeader>
 
-            <div className="flex flex-wrap items-center gap-2 text-sm">
-                {(
-                    [
-                        ["all", "All"],
-                        ["failures", `Failures (${failureCount})`],
-                        ["ingestions", "Captures & imports"],
-                        ["events", "Client events"],
-                    ] as Array<[Filter, string]>
-                ).map(([value, label]) => (
-                    <button
-                        key={value}
-                        onClick={() => setFilter(value)}
-                        className={`rounded-full px-3.5 py-[0.4375rem] text-[0.78125rem] transition-colors ${
-                            filter === value
-                                ? "bg-slate-200 font-bold text-slate-900"
-                                : "border border-slate-700 font-semibold text-slate-300 hover:border-slate-600"
-                        }`}
-                    >
-                        {label}
-                    </button>
-                ))}
-                <button
-                    className="ml-auto text-xs text-slate-600 hover:text-rose-300"
-                    disabled={clearLogs.isPending}
-                    onClick={() => clearLogs.mutate()}
-                    title="Deletes client events only; capture/import history stays"
-                >
-                    Clear client events
-                </button>
-            </div>
-
-            {entries.isLoading && <p className="text-sm text-slate-400">Loading…</p>}
-            {entries.isError && (
-                <p className="text-sm text-rose-400">{(entries.error as Error).message}</p>
-            )}
+            <QueryError error={entries.error} />
             {entries.data?.logsUnavailable && (
-                <p className="mb-3 text-xs text-amber-400">
+                <p className="text-xs text-amber-400">
                     Client-event log unavailable ({entries.data.logsUnavailable}) — apply the
                     latest database migrations to enable it. Captures and imports still show.
                 </p>
             )}
-            {entries.isSuccess && rows.length === 0 && (
-                <p className="text-sm text-slate-500">Nothing here yet.</p>
-            )}
 
-            <div className="flex flex-col gap-2">
-                {rows.map((e) => (
-                    <EntryCard key={`${e.type}-${e.type === "ingestion" ? e.ingestion.id : e.log.id}`} entry={e} />
-                ))}
-            </div>
+            <DataTable
+                storageKey="activity"
+                data={rows}
+                columns={columns}
+                rowId={(e) => `${e.type}-${e.type === "ingestion" ? e.ingestion.id : e.log.id}`}
+                loading={entries.isLoading}
+                rowNoun="entry"
+                searchPlaceholder="Search messages, sources…"
+                initialSort={{ columnId: "at", direction: "desc" }}
+                activeFilterCount={filter === "all" ? 0 : 1}
+                onClearFilters={() => setFilter("all")}
+                filters={
+                    <Field label="Show">
+                        <Picker
+                            options={filterOptions}
+                            value={filter}
+                            onChange={setFilter}
+                            title="Show"
+                        />
+                    </Field>
+                }
+                toolbarActions={
+                    <button
+                        className="sb-tbtn"
+                        disabled={clearLogs.isPending}
+                        onClick={() => clearLogs.mutate()}
+                        title="Deletes client events only; capture/import history stays"
+                    >
+                        Clear client events
+                    </button>
+                }
+                rowClassName={(e) => (isFailure(e) ? "is-danger" : "")}
+                renderExpanded={(e) => <EntryDetail entry={e} />}
+                emptyTitle="Nothing here yet"
+                emptyBody="Captures, imports and client-side errors all land in this log."
+                footNote="Click an entry for its raw payload."
+            />
         </>
     );
 }
@@ -234,25 +300,27 @@ const STATUS_TONE: Record<string, string> = {
     error: "bg-tint-coral text-rose-400",
 };
 
-function EntryCard({ entry }: { entry: Entry }) {
-    const [open, setOpen] = useState(false);
-    const [copied, setCopied] = useState(false);
+/** The status word an entry is badged with. */
+function badgeOf(entry: Entry): string {
+    return entry.type === "ingestion" ? entry.ingestion.status : entry.log.level;
+}
 
-    const badge = entry.type === "ingestion" ? entry.ingestion.status : entry.log.level;
-    const failed = isFailure(entry);
-
-    let title: string;
-    let subtitle: string;
+/** The row's headline and its supporting line. */
+function describe(entry: Entry): { title: string; subtitle: string } {
     if (entry.type === "ingestion") {
         const i = entry.ingestion;
         const found = i.parsed_payload?.transactions?.length ?? 0;
         const committed = i.transactions?.[0]?.count ?? 0;
-        title = i.parsed_payload?.summary || `${i.media_kind} capture (${i.mime_type})`;
-        subtitle = `${found} found · ${committed} saved${i.model ? ` · ${i.model}` : ""}`;
-    } else {
-        title = entry.log.message;
-        subtitle = entry.log.source;
+        return {
+            title: i.parsed_payload?.summary || `${i.media_kind} capture (${i.mime_type})`,
+            subtitle: `${found} found · ${committed} saved${i.model ? ` · ${i.model}` : ""}`,
+        };
     }
+    return { title: entry.log.message, subtitle: entry.log.source };
+}
+
+function EntryDetail({ entry }: { entry: Entry }) {
+    const [copied, setCopied] = useState(false);
 
     async function copy() {
         try {
@@ -265,58 +333,36 @@ function EntryCard({ entry }: { entry: Entry }) {
     }
 
     return (
-        <div
-            className={`sb-card p-3.5 ${failed ? "ring-1 ring-rose-400/40" : ""}`}
-        >
-            <button className="flex w-full items-center gap-3 text-left" onClick={() => setOpen(!open)}>
-                <span className={`sb-pill shrink-0 ${STATUS_TONE[badge] ?? STATUS_TONE.info}`}>
-                    {badge}
-                </span>
-                <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm text-slate-200">{title}</span>
-                    <span className="block text-xs text-slate-500">
-                        {fmtDateTime(entry.at)} · {subtitle}
-                    </span>
-                </span>
-                <span className="text-xs text-slate-600">{open ? "▲" : "▼"}</span>
-            </button>
-
-            {open && (
-                <div className="mt-3 flex flex-col gap-2 border-t border-slate-800 pt-3 text-xs">
-                    {entry.type === "ingestion" && entry.ingestion.error && (
-                        <p className="text-rose-300">{entry.ingestion.error}</p>
-                    )}
-                    {entry.type === "ingestion" && entry.ingestion.parsed_payload?.transcript && (
-                        <blockquote className="rounded-lg border-l-2 border-slate-700 bg-slate-950/60 px-3 py-2 italic text-slate-400">
-                            “{entry.ingestion.parsed_payload.transcript}”
-                        </blockquote>
-                    )}
-                    <pre className="max-h-64 overflow-auto rounded-lg bg-slate-950/80 p-3 text-slate-400">
-                        {entry.type === "ingestion"
-                            ? JSON.stringify(
-                                  {
-                                      id: entry.ingestion.id,
-                                      media: entry.ingestion.mime_type,
-                                      bytes: entry.ingestion.bytes,
-                                      hint: entry.ingestion.prompt_hint,
-                                      storage_path: entry.ingestion.storage_path,
-                                      parsed_payload: entry.ingestion.parsed_payload,
-                                  },
-                                  null,
-                                  2,
-                              )
-                            : JSON.stringify(entry.log.context, null, 2)}
-                    </pre>
-                    <div>
-                        <button
-                            onClick={copy}
-                            className="rounded-lg bg-slate-800 px-3 py-1.5 text-slate-200 hover:bg-slate-700"
-                        >
-                            {copied ? "Copied ✓" : "Copy report"}
-                        </button>
-                    </div>
-                </div>
+        <div className="flex flex-col gap-2 text-xs">
+            {entry.type === "ingestion" && entry.ingestion.error && (
+                <p className="text-rose-300">{entry.ingestion.error}</p>
             )}
+            {entry.type === "ingestion" && entry.ingestion.parsed_payload?.transcript && (
+                <blockquote className="rounded-lg border-l-2 border-slate-700 bg-slate-950/60 px-3 py-2 italic text-slate-400">
+                    “{entry.ingestion.parsed_payload.transcript}”
+                </blockquote>
+            )}
+            <pre className="max-h-64 overflow-auto rounded-lg bg-slate-950/80 p-3 text-slate-400">
+                {entry.type === "ingestion"
+                    ? JSON.stringify(
+                          {
+                              id: entry.ingestion.id,
+                              media: entry.ingestion.mime_type,
+                              bytes: entry.ingestion.bytes,
+                              hint: entry.ingestion.prompt_hint,
+                              storage_path: entry.ingestion.storage_path,
+                              parsed_payload: entry.ingestion.parsed_payload,
+                          },
+                          null,
+                          2,
+                      )
+                    : JSON.stringify(entry.log.context, null, 2)}
+            </pre>
+            <div>
+                <button className="sb-tbtn" onClick={copy}>
+                    {copied ? "Copied ✓" : "Copy report"}
+                </button>
+            </div>
         </div>
     );
 }

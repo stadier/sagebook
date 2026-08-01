@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
+import { useConfirm } from "../components/Confirm";
 import { Input, PageHeader, QueryError } from "../components/ui";
 import { QK, useTaxonomy } from "../lib/queries";
 import { requireSupabase } from "../lib/supabase";
@@ -28,6 +29,7 @@ export default function Categories() {
 
 function CategoryRow({ category }: { category: GroupWithCategories["categories"][number] }) {
     const qc = useQueryClient();
+    const confirm = useConfirm();
     const [editing, setEditing] = useState(false);
     const [name, setName] = useState(category.name);
 
@@ -103,18 +105,24 @@ function CategoryRow({ category }: { category: GroupWithCategories["categories"]
         >
             <span aria-hidden>{category.icon}</span>
             <span className="min-w-0 truncate">{category.name}</span>
-            <span className="ml-auto hidden gap-2 text-xs group-hover:flex">
+            {/* Quiet, but never invisible — a verb you can only find by hovering
+                is a verb you find by clicking it accidentally. */}
+            <span className="ml-auto flex gap-2 text-xs opacity-60 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
                 <button className="text-slate-500 hover:text-slate-300" onClick={() => setEditing(true)}>
                     Rename
                 </button>
                 <button
                     className="text-slate-600 hover:text-rose-400"
                     disabled={remove.isPending}
-                    onClick={() => {
-                        if (window.confirm(`Delete category "${category.name}"? Transactions keep their data but lose this label.`)) {
-                            remove.mutate();
-                        }
-                    }}
+                    onClick={() =>
+                        confirm({
+                            title: `Delete "${category.name}"?`,
+                            body: "Transactions filed under it keep their amounts and payees but lose this label, and it disappears from your reports.",
+                            confirmLabel: "Delete permanently",
+                            danger: true,
+                            onConfirm: () => remove.mutate(),
+                        })
+                    }
                 >
                     Delete
                 </button>

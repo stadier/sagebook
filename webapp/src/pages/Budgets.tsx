@@ -1,23 +1,45 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useMemo, useState } from "react";
+import { useConfirm } from "../components/Confirm";
 import {
     Input,
     PageHeader,
+    Picker,
     Pill,
     QueryError,
     SectionLabel,
-    Select,
     StatCard,
 } from "../components/ui";
 import { BUDGET_KIND_LABELS, BUDGET_PERIODS, DEFAULT_CURRENCY } from "../lib/constants";
 import { fmtMoney } from "../lib/format";
-import { QK, useBudgetProgress, useBudgets, useTaxonomy } from "../lib/queries";
+import { enumOptions, pairOptions } from "../lib/options";
+import {
+    QK,
+    useBudgetProgress,
+    useBudgets,
+    useCategoryOptions,
+    useTaxonomy,
+} from "../lib/queries";
 import { requireSupabase } from "../lib/supabase";
 import type { Budget, BudgetLineKind, BudgetPeriod, BudgetProgress } from "../lib/types";
 
 /* -------------------------------------------------------------------------- */
 /*  Helpers                                                                    */
 /* -------------------------------------------------------------------------- */
+
+const PERIOD_OPTIONS = pairOptions(BUDGET_PERIODS);
+
+const KIND_OPTIONS = enumOptions(
+    Object.keys(BUDGET_KIND_LABELS) as BudgetLineKind[],
+    (k) => BUDGET_KIND_LABELS[k],
+);
+
+/** What a budget line is measured against. */
+const MODE_OPTIONS = pairOptions([
+    { value: "category", label: "By category" },
+    { value: "group", label: "By group (all categories in group)" },
+    { value: "custom", label: "Custom label" },
+] as const);
 
 function periodDates(kind: BudgetPeriod): { starts: string; ends: string } {
     const now = new Date();
@@ -236,7 +258,16 @@ function CreateBudgetForm() {
         if (name.trim()) create.mutate();
     }
 
-    const cloneable = (budgets.data ?? []).filter((b) => b.is_template || !b.is_template);
+    // Any existing budget can seed a new one; templates say so on the row.
+    const cloneOptions = useMemo(
+        () =>
+            (budgets.data ?? []).map((b) => ({
+                value: b.id,
+                label: b.name,
+                hint: b.is_template ? "template" : undefined,
+            })),
+        [budgets.data],
+    );
 
     return (
         <form onSubmit={submit} className="sb-card p-4">
@@ -248,16 +279,12 @@ function CreateBudgetForm() {
                     onChange={(e) => setName(e.target.value)}
                     required
                 />
-                <Select
+                <Picker
+                    options={PERIOD_OPTIONS}
                     value={periodKind}
-                    onChange={(e) => handlePeriodChange(e.target.value as BudgetPeriod)}
-                >
-                    {BUDGET_PERIODS.map((p) => (
-                        <option key={p.value} value={p.value}>
-                            {p.label}
-                        </option>
-                    ))}
-                </Select>
+                    onChange={handlePeriodChange}
+                    title="Period"
+                />
                 <Input
                     type="date"
                     value={startsOn}
@@ -277,16 +304,15 @@ function CreateBudgetForm() {
                     onChange={(e) => setCurrency(e.target.value.toUpperCase())}
                     required
                 />
-                {cloneable.length > 0 && (
-                    <Select value={cloneFrom} onChange={(e) => setCloneFrom(e.target.value)}>
-                        <option value="">Clone from… (optional)</option>
-                        {cloneable.map((b) => (
-                            <option key={b.id} value={b.id}>
-                                {b.name}
-                                {b.is_template ? " (template)" : ""}
-                            </option>
-                        ))}
-                    </Select>
+                {cloneOptions.length > 0 && (
+                    <Picker
+                        options={cloneOptions}
+                        value={cloneFrom}
+                        onChange={setCloneFrom}
+                        placeholder="Clone from… (optional)"
+                        title="Clone from"
+                        clearable
+                    />
                 )}
             </div>
             <label className="mt-2 flex items-center gap-2 text-sm text-slate-400">
@@ -314,6 +340,7 @@ function CreateBudgetForm() {
 
 function BudgetDetail({ budget, onBack }: { budget: Budget; onBack: () => void }) {
     const qc = useQueryClient();
+    const confirm = useConfirm();
     const progress = useBudgetProgress(budget.id);
 
     const lines = progress.data ?? [];
@@ -370,9 +397,15 @@ function BudgetDetail({ budget, onBack }: { budget: Budget; onBack: () => void }
             >
                 <button
                     className="sb-btn sb-btn-ghost !text-rose-400"
-                    onClick={() => {
-                        if (window.confirm(`Delete budget "${budget.name}"?`)) remove.mutate();
-                    }}
+                    onClick={() =>
+                        confirm({
+                            title: `Delete "${budget.name}"?`,
+                            body: "The budget and every line in it go for good. Your transactions are untouched — only the plan they were measured against disappears.",
+                            confirmLabel: "Delete permanently",
+                            danger: true,
+                            onConfirm: () => remove.mutate(),
+                        })
+                    }
                 >
                     Delete budget
                 </button>
@@ -590,6 +623,11 @@ function LineSection({
 function AddLineForm({ budgetId }: { budgetId: string }) {
     const qc = useQueryClient();
     const taxonomy = useTaxonomy();
+    const categoryOpts = useCategoryOptions();
+    const groupOptions = useMemo(
+        () => (taxonomy.data ?? []).map((g) => ({ value: g.id, label: g.name })),
+        [taxonomy.data],
+    );
 
     const [kind, setKind] = useState<BudgetLineKind>("expense");
     const [categoryId, setCategoryId] = useState("");
@@ -635,38 +673,28 @@ function AddLineForm({ budgetId }: { budgetId: string }) {
         <form onSubmit={submit} className="sb-card p-4">
             <h2 className="mb-3 text-sm font-semibold text-slate-200">Add budget line</h2>
             <div className="grid gap-2 sm:grid-cols-2">
-                <Select value={kind} onChange={(e) => setKind(e.target.value as BudgetLineKind)}>
-                    {(Object.keys(BUDGET_KIND_LABELS) as BudgetLineKind[]).map((k) => (
-                        <option key={k} value={k}>{BUDGET_KIND_LABELS[k]}</option>
-                    ))}
-                </Select>
-                <Select value={mode} onChange={(e) => setMode(e.target.value as "category" | "group" | "custom")}>
-                    <option value="category">By category</option>
-                    <option value="group">By group (all categories in group)</option>
-                    <option value="custom">Custom label</option>
-                </Select>
+                <Picker options={KIND_OPTIONS} value={kind} onChange={setKind} title="Line kind" />
+                <Picker options={MODE_OPTIONS} value={mode} onChange={setMode} title="Measured by" />
 
                 {mode === "category" && (
-                    <Select className="sm:col-span-2" value={categoryId} onChange={(e) => setCategoryId(e.target.value)} required>
-                        <option value="">Select category…</option>
-                        {(taxonomy.data ?? []).map((g) => (
-                            <optgroup key={g.id} label={g.name}>
-                                {g.categories.map((c) => (
-                                    <option key={c.id} value={c.id}>
-                                        {c.parent_id ? "· " : ""}{c.name}
-                                    </option>
-                                ))}
-                            </optgroup>
-                        ))}
-                    </Select>
+                    <Picker
+                        className="sm:col-span-2"
+                        options={categoryOpts}
+                        value={categoryId}
+                        onChange={setCategoryId}
+                        placeholder="Select category…"
+                        title="Category"
+                    />
                 )}
                 {mode === "group" && (
-                    <Select className="sm:col-span-2" value={groupId} onChange={(e) => setGroupId(e.target.value)} required>
-                        <option value="">Select group…</option>
-                        {(taxonomy.data ?? []).map((g) => (
-                            <option key={g.id} value={g.id}>{g.name}</option>
-                        ))}
-                    </Select>
+                    <Picker
+                        className="sm:col-span-2"
+                        options={groupOptions}
+                        value={groupId}
+                        onChange={setGroupId}
+                        placeholder="Select group…"
+                        title="Group"
+                    />
                 )}
                 {mode === "custom" && (
                     <Input

@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { currentBudget, useBudgetProgress, useBudgets, usePendingReview } from "../lib/queries";
+import { STORAGE_KEYS } from "../lib/constants";
+import { usePendingReview } from "../lib/queries";
 import { requireSupabase } from "../lib/supabase";
-import { CHART_COLORS } from "../lib/theme";
 import { useTheme } from "../lib/useTheme";
-import { LogoutIcon, MenuIcon, PlusIcon, ThemeIcon } from "./icons";
+import { GlobalSearchProvider } from "./GlobalSearch";
+import { LogoutIcon, MenuIcon, PanelToggleIcon, PlusIcon, ThemeIcon } from "./icons";
 import { BrandMark, Icon, NAV, NAV_GROUPS } from "./nav";
 import IngestModal from "./ingest/IngestModal";
 import ImportProgress from "./ingest/ImportProgress";
@@ -12,13 +13,21 @@ import ImportProgress from "./ingest/ImportProgress";
 /* The shell is a fixed dark rail plus a single scrolling column, exactly as in
    the design: the sidebar never scrolls with the page, and it stays navy in
    both themes so the app always has one constant anchor. Below `lg` the rail
-   becomes a slide-over drawer behind a sticky mobile top bar. */
+   becomes a slide-over drawer behind a sticky mobile top bar.
+
+   From `lg` up the rail collapses to an icon strip. That is a desktop
+   affordance only — the drawer already dismisses via its backdrop — so the
+   collapsed state is expressed through `lg:` variants rather than by dropping
+   labels from the tree, and the drawer stays fully labelled on a phone. */
 
 export default function AppShell() {
     const navigate = useNavigate();
     const location = useLocation();
     const [params] = useSearchParams();
     const [drawerOpen, setDrawerOpen] = useState(false);
+    const [collapsed, setCollapsed] = useState(
+        () => localStorage.getItem(STORAGE_KEYS.sidebarCollapsed) === "1",
+    );
     const { theme, toggle: toggleTheme } = useTheme();
     const [email, setEmail] = useState<string | null>(null);
     const [ingestOpen, setIngestOpen] = useState(false);
@@ -77,6 +86,7 @@ export default function AppShell() {
     const initial = (email?.[0] ?? "S").toUpperCase();
 
     return (
+        <GlobalSearchProvider>
         <div className="flex h-screen w-full overflow-hidden bg-paper text-slate-200">
             {/* Drawer backdrop (below lg only) */}
             {drawerOpen && (
@@ -89,6 +99,14 @@ export default function AppShell() {
 
             <Sidebar
                 open={drawerOpen}
+                collapsed={collapsed}
+                onToggleCollapsed={() => {
+                    const next = !collapsed;
+                    setCollapsed(next);
+                    localStorage.setItem(STORAGE_KEYS.sidebarCollapsed, next ? "1" : "0");
+                    // The account popover is anchored to the expanded footer.
+                    setMenuOpen(false);
+                }}
                 pendingCount={pendingCount}
                 name={name}
                 initial={initial}
@@ -143,6 +161,7 @@ export default function AppShell() {
             {/* Persistent background-import progress, visible on every page. */}
             <ImportProgress />
         </div>
+        </GlobalSearchProvider>
     );
 }
 
@@ -152,6 +171,8 @@ export default function AppShell() {
 
 function Sidebar({
     open,
+    collapsed,
+    onToggleCollapsed,
     pendingCount,
     name,
     initial,
@@ -162,6 +183,8 @@ function Sidebar({
     setMenuOpen,
 }: {
     open: boolean;
+    collapsed: boolean;
+    onToggleCollapsed: () => void;
     pendingCount: number;
     name: string;
     initial: string;
@@ -173,32 +196,56 @@ function Sidebar({
 }) {
     return (
         <aside
-            className={`fixed inset-y-0 left-0 z-[60] flex h-full w-[248px] shrink-0 flex-col overflow-y-auto bg-sidebar px-3.5 pb-4 pt-5 text-[#eef0f4] transition-transform duration-200 ease-out lg:static lg:translate-x-0 ${
+            data-rail={collapsed ? "collapsed" : "expanded"}
+            className={`sb-rail fixed inset-y-0 left-0 z-[60] flex h-full w-[248px] shrink-0 flex-col overflow-y-auto overflow-x-hidden bg-sidebar px-3.5 pb-4 pt-5 text-[#eef0f4] transition-[transform,width] duration-200 ease-out lg:static lg:translate-x-0 ${
                 open ? "translate-x-0 shadow-[0_0_40px_rgba(0,0,0,0.4)]" : "-translate-x-full"
             }`}
         >
-            <Link to="/" className="flex items-center gap-2.5 px-2.5 pb-6">
-                <span className="grid h-[30px] w-[30px] place-items-center rounded-[10px] bg-coral text-coral-fg">
-                    <BrandMark />
-                </span>
-                <span className="text-[1.0625rem] font-extrabold tracking-tight">Sagebook</span>
-            </Link>
+            {/* Brand + the collapse control, which sits to the right of the
+                wordmark and drops beneath the mark once the rail is narrow. */}
+            <div className="sb-rail-brand flex items-center gap-2.5 px-2.5 pb-6">
+                <Link to="/" className="flex min-w-0 items-center gap-2.5">
+                    <span className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-[10px] bg-coral text-coral-fg">
+                        <BrandMark />
+                    </span>
+                    <span className="sb-rail-label whitespace-nowrap text-[1.0625rem] font-extrabold tracking-tight">
+                        Sagebook
+                    </span>
+                </Link>
+                <button
+                    onClick={onToggleCollapsed}
+                    aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+                    aria-expanded={!collapsed}
+                    title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+                    className="sb-rail-toggle ml-auto hidden h-[30px] w-[30px] shrink-0 place-items-center rounded-[9px] text-[#9aa0ad] transition-colors hover:bg-white/[0.08] hover:text-[#eef0f4] lg:grid"
+                >
+                    <PanelToggleIcon collapsed={collapsed} />
+                </button>
+            </div>
 
             <nav className="flex flex-col gap-3">
                 {NAV_GROUPS.map((group, gi) => (
                     <div key={group.id} className="flex flex-col gap-[3px]">
                         {gi > 0 && (
-                            <div className="px-3.5 pb-2 pt-3 text-[0.6875rem] font-bold uppercase tracking-[0.1em] text-[#767d8c]">
-                                {group.label}
-                            </div>
+                            <>
+                                <div className="sb-rail-label px-3.5 pb-2 pt-3 text-[0.6875rem] font-bold uppercase tracking-[0.1em] text-[#767d8c]">
+                                    {group.label}
+                                </div>
+                                {/* Collapsed, the group label becomes a rule so
+                                    the sections still read as separate. */}
+                                {collapsed && (
+                                    <div className="mx-2 my-2 hidden border-t border-white/10 lg:block" />
+                                )}
+                            </>
                         )}
                         {NAV.filter((n) => n.group === group.id).map((item) => (
                             <NavLink
                                 key={item.to}
                                 to={item.to}
                                 end={item.to === "/"}
+                                title={collapsed ? item.label : undefined}
                                 className={({ isActive }) =>
-                                    `flex items-center gap-[11px] rounded-xl px-3.5 py-2.5 text-sm transition-colors ${
+                                    `sb-rail-item relative flex items-center gap-[11px] rounded-xl px-3.5 py-2.5 text-sm transition-colors ${
                                         isActive
                                             ? "bg-coral font-bold text-coral-fg"
                                             : "font-medium text-[#9aa0ad] hover:bg-white/[0.06] hover:text-[#eef0f4]"
@@ -208,15 +255,28 @@ function Sidebar({
                                 {({ isActive }) => (
                                     <>
                                         <Icon name={item.icon} size={17} />
-                                        {item.label}
+                                        <span className="sb-rail-label whitespace-nowrap">
+                                            {item.label}
+                                        </span>
                                         {item.to === "/inbox" && pendingCount > 0 && (
-                                            <span
-                                                className={`ml-auto text-[0.6875rem] font-bold ${
-                                                    isActive ? "text-coral-fg" : "text-[#767d8c]"
-                                                }`}
-                                            >
-                                                {pendingCount}
-                                            </span>
+                                            <>
+                                                <span
+                                                    className={`sb-rail-label ml-auto text-[0.6875rem] font-bold ${
+                                                        isActive ? "text-coral-fg" : "text-[#767d8c]"
+                                                    }`}
+                                                >
+                                                    {pendingCount}
+                                                </span>
+                                                {/* The count has nowhere to go on
+                                                    the rail, so it becomes a dot. */}
+                                                {collapsed && (
+                                                    <span
+                                                        className={`absolute right-2 top-1.5 hidden h-[7px] w-[7px] rounded-full lg:block ${
+                                                            isActive ? "bg-coral-fg" : "bg-coral"
+                                                        }`}
+                                                    />
+                                                )}
+                                            </>
                                         )}
                                     </>
                                 )}
@@ -226,10 +286,46 @@ function Sidebar({
                 ))}
             </nav>
 
-            <SidebarBudgets />
+            {/* Collapsed footer — plain icon buttons. The expanded footer's
+                popover would be clipped by this rail's own overflow. */}
+            {collapsed && (
+                <div className="mt-auto hidden flex-col items-center gap-1.5 pt-4 lg:flex">
+                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#ffb443] text-[0.8125rem] font-bold text-[#191d24]">
+                        {initial}
+                    </span>
+                    <NavLink
+                        to="/settings"
+                        title="Settings"
+                        aria-label="Settings"
+                        className="grid h-[30px] w-[30px] place-items-center rounded-[9px] text-[#9aa0ad] transition-colors hover:bg-white/[0.08] hover:text-[#eef0f4]"
+                    >
+                        <Icon name="settings" size={16} />
+                    </NavLink>
+                    <button
+                        aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                        title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                        onClick={onToggleTheme}
+                        className="grid h-[30px] w-[30px] place-items-center rounded-[9px] bg-[#2c313d] text-[#d5d8de] transition-colors hover:text-white"
+                    >
+                        <ThemeIcon theme={theme} size={15} />
+                    </button>
+                    <button
+                        aria-label="Sign out"
+                        title="Sign out"
+                        onClick={onSignOut}
+                        className="grid h-[30px] w-[30px] place-items-center rounded-[9px] text-[#9aa0ad] transition-colors hover:bg-white/[0.08] hover:text-[#eef0f4]"
+                    >
+                        <LogoutIcon />
+                    </button>
+                </div>
+            )}
 
             {/* User footer — identity, plan, theme */}
-            <div className="relative mt-auto flex items-center gap-2.5 pt-4">
+            <div
+                className={`relative mt-auto flex items-center gap-2.5 pt-4 ${
+                    collapsed ? "lg:hidden" : ""
+                }`}
+            >
                 <button
                     onClick={() => setMenuOpen(!menuOpen)}
                     className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl p-2 text-left transition-colors hover:bg-white/[0.06]"
@@ -289,49 +385,4 @@ function Sidebar({
     );
 }
 
-/** The design's goal-progress rail. Sagebook plans in budgets, so the rail
- *  shows the live budget's biggest lines — the same "am I on track?" glance. */
-function SidebarBudgets() {
-    const budgets = useBudgets();
-    const budget = currentBudget(budgets.data);
-    const progress = useBudgetProgress(budget?.id);
-
-    const lines = (progress.data ?? [])
-        .filter((l) => l.kind === "expense" && Number(l.planned_amount) > 0)
-        .sort((a, b) => Number(b.planned_amount) - Number(a.planned_amount))
-        .slice(0, 3);
-
-    if (!budget || lines.length === 0) return null;
-
-    return (
-        <div className="pt-6">
-            <div className="px-3.5 pb-2.5 text-[0.6875rem] font-bold uppercase tracking-[0.1em] text-[#767d8c]">
-                {budget.name}
-            </div>
-            <div className="flex flex-col gap-3.5 px-3.5">
-                {lines.map((line) => {
-                    const pct = Math.round(Number(line.pct_used) * (Number(line.pct_used) <= 1 ? 100 : 1));
-                    const over = pct > 100;
-                    return (
-                        <div key={line.budget_category_id}>
-                            <div className="mb-1.5 flex justify-between gap-2 text-[0.78125rem]">
-                                <span className="min-w-0 truncate text-[#d5d8de]">{line.label}</span>
-                                <span className="shrink-0 text-[#9aa0ad] tnum">{pct}%</span>
-                            </div>
-                            <div className="h-[5px] rounded-full bg-[#2c313d]">
-                                <div
-                                    className="h-[5px] rounded-full"
-                                    style={{
-                                        width: `${Math.min(100, pct)}%`,
-                                        background: over ? CHART_COLORS.negative : CHART_COLORS.primary,
-                                    }}
-                                />
-                            </div>
-                        </div>
-                    );
-                })}
-            </div>
-        </div>
-    );
-}
 

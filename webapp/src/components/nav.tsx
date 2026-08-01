@@ -36,7 +36,6 @@ export const NAV: NavItem[] = [
     { to: "/accounts", label: "Accounts", icon: "accounts", group: "money" },
     { to: "/budgets", label: "Budgets", icon: "budgets", group: "plan" },
     { to: "/scheduled", label: "Scheduled", icon: "scheduled", group: "plan" },
-    { to: "/rules", label: "Rules", icon: "rules", group: "plan" },
     { to: "/categories", label: "Categories", icon: "categories", group: "plan" },
     { to: "/reports", label: "Reports", icon: "reports", group: "insight" },
     { to: "/net-worth", label: "Net worth", icon: "networth", group: "insight" },
@@ -48,6 +47,28 @@ export const NAV_GROUPS: Array<{ id: NavGroup; label: string }> = [
     { id: "money", label: "Money" },
     { id: "plan", label: "Plan" },
     { id: "insight", label: "Insight" },
+];
+
+/** Sections of the Settings sub-app. These configure the pipeline rather than
+ *  record money, which is why they sit behind Settings and not on the rail. */
+export const SETTINGS_NAV: Array<{
+    to: string;
+    label: string;
+    icon: IconName;
+    description: string;
+}> = [
+    {
+        to: "/settings/ingestion",
+        label: "Ingestion",
+        icon: "inbox",
+        description: "Your forwarding address and how captures get in",
+    },
+    {
+        to: "/settings/rules",
+        label: "Rules",
+        icon: "rules",
+        description: "Auto-categorise recurring payees on the way in",
+    },
 ];
 
 /** Look up a nav item by its route. */

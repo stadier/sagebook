@@ -1,9 +1,19 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useState } from "react";
-import { Input, PageHeader, Pill, QueryError, Select } from "../components/ui";
+import { type FormEvent, useMemo, useState } from "react";
+import { useConfirm } from "../components/Confirm";
+import DataTable, { type Column, type RowAction } from "../components/DataTable";
+import { PauseIcon, PlayIcon, SendIcon, TrashIcon } from "../components/icons";
+import { Field, Input, PageHeader, Picker, Pill, QueryError } from "../components/ui";
 import { DEFAULT_CURRENCY } from "../lib/constants";
 import { fmtDate, fmtMoney } from "../lib/format";
-import { QK, useAccounts, useScheduled, useTaxonomy } from "../lib/queries";
+import { pairOptions } from "../lib/options";
+import {
+    QK,
+    useAccountOptions,
+    useAccounts,
+    useCategoryOptions,
+    useScheduled,
+} from "../lib/queries";
 import { requireSupabase } from "../lib/supabase";
 import type { Recurrence, ScheduledTransaction } from "../lib/types";
 
@@ -15,8 +25,44 @@ function flavour(s: ScheduledTransaction): string {
     return s.kind === "income" ? "Owed to me (receivable)" : "I owe (payable)";
 }
 
+/** The three buckets the page used to split into separate sections. */
+const GROUPS = [
+    { value: "recurring", label: "Recurring" },
+    { value: "receivable", label: "Owed to me" },
+    { value: "payable", label: "I owe" },
+] as const;
+
+const GROUP_OPTIONS = pairOptions(GROUPS);
+
+/* The form's fixed choices. Written once at module scope so the picker's
+   options array is referentially stable across renders. */
+const KIND_OPTIONS = pairOptions([
+    { value: "income", label: "Money in (income)" },
+    { value: "expense", label: "Money out (expense)" },
+] as const);
+
+const RECURRENCE_OPTIONS = pairOptions([
+    { value: "weekly", label: "Weekly" },
+    { value: "biweekly", label: "Every 2 weeks" },
+    { value: "monthly", label: "Monthly" },
+    { value: "quarterly", label: "Quarterly" },
+    { value: "yearly", label: "Yearly" },
+] as const);
+
+function groupOf(s: ScheduledTransaction): (typeof GROUPS)[number]["value"] {
+    if (s.schedule_kind === "recurring") return "recurring";
+    return s.kind === "income" ? "receivable" : "payable";
+}
+
+function isDue(s: ScheduledTransaction): boolean {
+    return s.active && s.next_due <= new Date().toISOString().slice(0, 10);
+}
+
 export default function Scheduled() {
     const qc = useQueryClient();
+    const confirm = useConfirm();
+    const [group, setGroup] = useState("");
+    const [dueOnly, setDueOnly] = useState(false);
     const scheduled = useScheduled();
     const accounts = useAccounts();
 
@@ -67,79 +113,87 @@ export default function Scheduled() {
         onSuccess: () => qc.invalidateQueries({ queryKey: QK.scheduled }),
     });
 
-    const rows = scheduled.data ?? [];
-    const recurring = rows.filter((s) => s.schedule_kind === "recurring");
-    const receivables = rows.filter((s) => s.schedule_kind === "one_off" && s.kind === "income");
-    const payables = rows.filter((s) => s.schedule_kind === "one_off" && s.kind === "expense");
-    const dueCount = rows.filter((s) => s.active && s.next_due <= new Date().toISOString().slice(0, 10)).length;
+    const all = scheduled.data ?? [];
+    const rows = all.filter(
+        (s) => (!group || groupOf(s) === group) && (!dueOnly || isDue(s)),
+    );
+    const dueCount = all.filter(isDue).length;
+    const activeFilterCount = (group ? 1 : 0) + (dueOnly ? 1 : 0);
 
-    function Section({ title, items }: { title: string; items: ScheduledTransaction[] }) {
-        if (items.length === 0) return null;
-        return (
-            <div className="mb-6">
-                <h2 className="mb-2 text-sm font-semibold text-slate-300">{title}</h2>
-                <div className="flex flex-col gap-2">
-                    {items.map((s) => {
-                        const due = s.active && s.next_due <= new Date().toISOString().slice(0, 10);
-                        return (
-                            <div
-                                key={s.id}
-                                className={`sb-card flex flex-wrap items-center gap-3 px-5 py-3.5 ${
-                                    s.active ? "" : "opacity-60"
-                                }`}
-                            >
-                                <div className="min-w-0 flex-1">
-                                    <div className="flex items-center gap-2 text-sm font-medium text-slate-100">
-                                        {s.name}
-                                        {due && <Pill tint="amber">due</Pill>}
-                                    </div>
-                                    <div className="text-xs text-slate-500">
-                                        {flavour(s)} · next {fmtDate(s.next_due)}
-                                        {s.account_id && accountName.has(s.account_id)
-                                            ? ` · ${accountName.get(s.account_id)}`
-                                            : ""}
-                                        {s.payee ? ` · ${s.payee}` : ""}
-                                    </div>
-                                </div>
-                                <div
-                                    className={`text-sm font-semibold ${
-                                        s.kind === "income" ? "text-emerald-400" : "text-slate-100"
-                                    }`}
-                                >
-                                    {s.kind === "income" ? "+" : "−"}
-                                    {fmtMoney(Number(s.amount), s.currency)}
-                                </div>
-                                <div className="flex items-center gap-2 text-xs">
-                                    <button
-                                        className="sb-btn sb-btn-ghost !px-2 !py-1 !text-xs"
-                                        disabled={postNow.isPending || !s.active}
-                                        title="Post this into the inbox right now"
-                                        onClick={() => postNow.mutate(s.id)}
-                                    >
-                                        Post now
-                                    </button>
-                                    <button
-                                        className="text-slate-500 hover:text-slate-300"
-                                        onClick={() => toggle.mutate({ id: s.id, active: !s.active })}
-                                    >
-                                        {s.active ? "Pause" : "Resume"}
-                                    </button>
-                                    <button
-                                        className="text-slate-600 hover:text-rose-400"
-                                        onClick={() => {
-                                            if (window.confirm(`Delete scheduled item "${s.name}"?`)) remove.mutate(s.id);
-                                        }}
-                                    >
-                                        Delete
-                                    </button>
-                                </div>
-                            </div>
-                        );
-                    })}
+    const columns: Array<Column<ScheduledTransaction>> = [
+        {
+            id: "name",
+            label: "Item",
+            hideable: false,
+            mobile: "title",
+            sortValue: (s) => s.name,
+            searchValue: (s) => `${s.name} ${s.payee ?? ""} ${flavour(s)}`,
+            cell: (s) => (
+                <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2 text-[0.875rem] font-semibold text-slate-100">
+                        <span className="truncate">{s.name}</span>
+                        {isDue(s) && <Pill tint="amber">due</Pill>}
+                        {!s.active && <Pill>paused</Pill>}
+                    </div>
+                    {s.payee && <div className="truncate text-xs text-slate-500">{s.payee}</div>}
                 </div>
-            </div>
-        );
-    }
+            ),
+        },
+        {
+            id: "flavour",
+            label: "Type",
+            width: "14rem",
+            sortValue: (s) => flavour(s),
+            cell: (s) => <span className="text-[0.8125rem] text-slate-400">{flavour(s)}</span>,
+        },
+        {
+            id: "next_due",
+            label: "Next due",
+            width: "10rem",
+            sortValue: (s) => s.next_due,
+            searchValue: (s) => fmtDate(s.next_due),
+            cell: (s) => (
+                <span
+                    className={`whitespace-nowrap text-[0.8125rem] ${
+                        isDue(s) ? "font-semibold text-amber-400" : "text-slate-400"
+                    }`}
+                >
+                    {fmtDate(s.next_due)}
+                </span>
+            ),
+        },
+        {
+            id: "account",
+            label: "Account",
+            width: "11rem",
+            defaultHidden: true,
+            sortValue: (s) => (s.account_id ? (accountName.get(s.account_id) ?? "") : ""),
+            cell: (s) => (
+                <span className="text-[0.8125rem] text-slate-400">
+                    {(s.account_id && accountName.get(s.account_id)) || "—"}
+                </span>
+            ),
+        },
+        {
+            id: "amount",
+            label: "Amount",
+            align: "right",
+            width: "10rem",
+            hideable: false,
+            mobile: "trailing",
+            sortValue: (s) => (s.kind === "income" ? 1 : -1) * Number(s.amount),
+            cell: (s) => (
+                <span
+                    className={`whitespace-nowrap font-bold tnum ${
+                        s.kind === "income" ? "text-emerald-400" : "text-slate-100"
+                    }`}
+                >
+                    {s.kind === "income" ? "+" : "−"}
+                    {fmtMoney(Number(s.amount), s.currency)}
+                </span>
+            ),
+        },
+    ];
 
     return (
         <>
@@ -175,24 +229,97 @@ export default function Scheduled() {
 
             <CreateScheduledForm />
 
-            {scheduled.isLoading && <p className="text-sm text-slate-400">Loading…</p>}
-            {scheduled.isSuccess && rows.length === 0 && (
-                <p className="text-sm text-slate-500">Nothing scheduled yet.</p>
-            )}
+            <QueryError error={scheduled.error ?? toggle.error ?? remove.error} />
 
-            <div>
-                <Section title="Recurring" items={recurring} />
-                <Section title="Owed to me" items={receivables} />
-                <Section title="I owe" items={payables} />
-            </div>
+            <DataTable
+                storageKey="scheduled"
+                data={rows}
+                columns={columns}
+                rowId={(s) => s.id}
+                loading={scheduled.isLoading}
+                rowNoun="item"
+                searchPlaceholder="Search name, payee, type…"
+                exportFilename="sagebook-scheduled"
+                initialSort={{ columnId: "next_due", direction: "asc" }}
+                activeFilterCount={activeFilterCount}
+                onClearFilters={() => {
+                    setGroup("");
+                    setDueOnly(false);
+                }}
+                filters={
+                    <div className="grid gap-3 sm:grid-cols-2">
+                        <Field label="Kind">
+                            <Picker
+                                options={GROUP_OPTIONS}
+                                value={group}
+                                onChange={setGroup}
+                                placeholder="Everything"
+                                title="Kind"
+                                clearable
+                            />
+                        </Field>
+                        <Field label="Due">
+                            <label className="flex items-center gap-2 py-2 text-[0.8125rem] text-slate-400">
+                                <input
+                                    type="checkbox"
+                                    className="sb-check"
+                                    checked={dueOnly}
+                                    onChange={(e) => setDueOnly(e.target.checked)}
+                                />
+                                Only items due now
+                            </label>
+                        </Field>
+                    </div>
+                }
+                rowClassName={(s) => (s.active ? "" : "opacity-60")}
+                rowLabel={(s) => s.name}
+                rowActions={(s): RowAction[] => [
+                    {
+                        label: "Post to inbox now",
+                        icon: <SendIcon />,
+                        hint: "Skips the wait",
+                        disabled: postNow.isPending || !s.active,
+                        onSelect: () => postNow.mutate(s.id),
+                    },
+                    {
+                        label: s.active ? "Pause" : "Resume",
+                        icon: s.active ? <PauseIcon /> : <PlayIcon />,
+                        onSelect: () => toggle.mutate({ id: s.id, active: !s.active }),
+                    },
+                    {
+                        label: "Delete…",
+                        icon: <TrashIcon />,
+                        danger: true,
+                        onSelect: () =>
+                            confirm({
+                                title: `Delete "${s.name}"?`,
+                                body: "The schedule goes for good. Anything it has already posted into your inbox or ledger stays where it is.",
+                                confirmLabel: "Delete permanently",
+                                danger: true,
+                                // Pausing is the reversible version of "stop this".
+                                alternative: s.active
+                                    ? {
+                                          label: "Pause instead",
+                                          hint: "Pausing keeps the schedule and stops it posting.",
+                                          onSelect: () =>
+                                              toggle.mutate({ id: s.id, active: false }),
+                                      }
+                                    : undefined,
+                                onConfirm: () => remove.mutate(s.id),
+                            }),
+                    },
+                ]}
+                emptyTitle="Nothing scheduled yet"
+                emptyBody="Add salary, bills, or a one-off you owe above — each drops into your inbox on its date."
+            />
         </>
     );
 }
 
 function CreateScheduledForm() {
     const qc = useQueryClient();
-    const accounts = useAccounts();
-    const taxonomy = useTaxonomy();
+    const accountOpts = useAccountOptions({ showCurrency: true });
+    const categoryOpts = useCategoryOptions();
 
     const [name, setName] = useState("");
     const [kind, setKind] = useState<"income" | "expense">("income");
@@ -239,6 +366,15 @@ function CreateScheduledForm() {
     }
 
     const oneOffLabel = kind === "income" ? "someone will pay me" : "I owe someone";
+    // The one-off row explains itself differently for money in and money out.
+    const scheduleKindOptions = useMemo(
+        () =>
+            pairOptions([
+                { value: "recurring", label: "Repeats" },
+                { value: "one_off", label: `One-off (${oneOffLabel})` },
+            ] as const),
+        [oneOffLabel],
+    );
 
     return (
         <form onSubmit={submit} className="sb-card p-4">
@@ -250,25 +386,25 @@ function CreateScheduledForm() {
                     onChange={(e) => setName(e.target.value)}
                     required
                 />
-                <Select value={kind} onChange={(e) => setKind(e.target.value as "income" | "expense")}>
-                    <option value="income">Money in (income)</option>
-                    <option value="expense">Money out (expense)</option>
-                </Select>
-                <Select
+                <Picker
+                    options={KIND_OPTIONS}
+                    value={kind}
+                    onChange={setKind}
+                    title="Direction"
+                />
+                <Picker
+                    options={scheduleKindOptions}
                     value={scheduleKind}
-                    onChange={(e) => setScheduleKind(e.target.value as "recurring" | "one_off")}
-                >
-                    <option value="recurring">Repeats</option>
-                    <option value="one_off">One-off ({oneOffLabel})</option>
-                </Select>
+                    onChange={setScheduleKind}
+                    title="Schedule"
+                />
                 {scheduleKind === "recurring" ? (
-                    <Select value={recurrence} onChange={(e) => setRecurrence(e.target.value as Recurrence)}>
-                        <option value="weekly">Weekly</option>
-                        <option value="biweekly">Every 2 weeks</option>
-                        <option value="monthly">Monthly</option>
-                        <option value="quarterly">Quarterly</option>
-                        <option value="yearly">Yearly</option>
-                    </Select>
+                    <Picker
+                        options={RECURRENCE_OPTIONS}
+                        value={recurrence}
+                        onChange={setRecurrence}
+                        title="How often"
+                    />
                 ) : (
                     <div />
                 )}
@@ -301,29 +437,22 @@ function CreateScheduledForm() {
                         required
                     />
                 </label>
-                <Select value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-                    <option value="">Account… (optional)</option>
-                    {(accounts.data ?? [])
-                        .filter((a) => !a.is_archived)
-                        .map((a) => (
-                            <option key={a.id} value={a.id}>
-                                {a.name} ({a.currency})
-                            </option>
-                        ))}
-                </Select>
-                <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-                    <option value="">Category… (optional)</option>
-                    {(taxonomy.data ?? []).map((g) => (
-                        <optgroup key={g.id} label={g.name}>
-                            {g.categories.map((c) => (
-                                <option key={c.id} value={c.id}>
-                                    {c.parent_id ? "· " : ""}
-                                    {c.name}
-                                </option>
-                            ))}
-                        </optgroup>
-                    ))}
-                </Select>
+                <Picker
+                    options={accountOpts}
+                    value={accountId}
+                    onChange={setAccountId}
+                    placeholder="Account… (optional)"
+                    title="Account"
+                    clearable
+                />
+                <Picker
+                    options={categoryOpts}
+                    value={categoryId}
+                    onChange={setCategoryId}
+                    placeholder="Category… (optional)"
+                    title="Category"
+                    clearable
+                />
                 <Input
                     className="sm:col-span-2"
                     placeholder="Payee / counterparty (optional), e.g. Acme Ltd"

@@ -5,14 +5,14 @@
    Colour decisions live in lib/theme.ts and index.css — nothing here should
    contain a hex value. */
 
-import type {
-    InputHTMLAttributes,
-    ReactNode,
-    SelectHTMLAttributes,
-    TextareaHTMLAttributes,
-} from "react";
+import { isValidElement, useEffect, useState } from "react";
+import type { InputHTMLAttributes, ReactNode, TextareaHTMLAttributes } from "react";
+import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
+import { findOption, type Option } from "../lib/options";
 import { CHART_COLORS, TINT_STYLES, type Tint } from "../lib/theme";
+import { usePalette } from "./CommandPalette";
+import { ChevronDownIcon, CloseIcon } from "./icons";
 
 export { tintFor } from "../lib/theme";
 export type { Tint } from "../lib/theme";
@@ -114,6 +114,31 @@ export function CardHeader({
    Label over a big tabular figure. `tone="dark"` renders the inverted variant
    the design uses for the single most important number in a row. */
 
+/** The plain text inside a node — for type scaling and the title attribute. */
+function plainText(node: ReactNode): string {
+    if (node === null || node === undefined || typeof node === "boolean") return "";
+    if (typeof node === "string" || typeof node === "number") return String(node);
+    if (Array.isArray(node)) return node.map(plainText).join("");
+    if (isValidElement(node)) {
+        return plainText((node.props as { children?: ReactNode }).children);
+    }
+    return "";
+}
+
+/**
+ * A figure must never be clipped by its tile, and a currency amount is one
+ * unbreakable run — `Intl.NumberFormat` joins the code to the digits with a
+ * non-breaking space, so "NGN 63,687,101.54" offers nowhere to wrap. Step the
+ * type down as the figure grows; `overflow-wrap: anywhere` on the element then
+ * catches whatever is still too wide, so the worst case is a second line
+ * rather than a number cut in half.
+ */
+function valueSize(text: string): string {
+    if (text.length > 20) return "text-lg";
+    if (text.length > 14) return "text-xl";
+    return "text-2xl";
+}
+
 export function StatCard({
     label,
     value,
@@ -125,11 +150,16 @@ export function StatCard({
     tone?: "default" | "dark" | "positive" | "negative";
     hint?: ReactNode;
 }) {
+    const text = plainText(value);
+    const valueClass = `mt-1.5 ${valueSize(text)} font-extrabold tnum [overflow-wrap:anywhere]`;
+
     if (tone === "dark") {
         return (
             <div className="sb-panel px-5 py-[1.125rem]">
                 <div className="text-xs text-slate-400">{label}</div>
-                <div className="mt-1.5 text-2xl font-extrabold tnum">{value}</div>
+                <div className={valueClass} title={text || undefined}>
+                    {value}
+                </div>
                 {hint && <div className="mt-1 text-xs text-slate-400">{hint}</div>}
             </div>
         );
@@ -143,7 +173,9 @@ export function StatCard({
     return (
         <div className="sb-card px-5 py-[1.125rem]">
             <div className="text-xs text-slate-400">{label}</div>
-            <div className={`mt-1.5 text-2xl font-extrabold tnum ${valueTone}`}>{value}</div>
+            <div className={`${valueClass} ${valueTone}`} title={text || undefined}>
+                {value}
+            </div>
             {hint && <div className="mt-1 text-xs text-slate-500">{hint}</div>}
         </div>
     );
@@ -316,16 +348,95 @@ export function Input({
     return <input {...props} className={controlClass({ compact, className })} />;
 }
 
-export function Select({
+/**
+ * The one way to choose from a list. Renders as a control that matches `Input`
+ * exactly, and opens the command palette — searchable, keyboard-driven, never
+ * clipped by its container — instead of a native dropdown. It replaced the old
+ * `Select` wrapper: a list of four and a list of four hundred are now the same
+ * component, and the palette decides how much apparatus each one needs.
+ *
+ * `placeholder` doubles as the trigger's empty text and the palette's title.
+ * With `clearable`, it also becomes a real first row that selects `""` — that
+ * is the "All accounts" / "— no category —" case. Leave it off when the field
+ * is required and the placeholder is only a prompt.
+ */
+export function Picker<T extends string>({
+    options,
+    value,
+    onChange,
+    placeholder = "Select…",
+    clearable = false,
+    title,
+    subtitle,
+    searchPlaceholder,
+    emptyText,
+    disabled,
     compact,
     className,
-    children,
-    ...props
-}: SelectHTMLAttributes<HTMLSelectElement> & ControlSize) {
+    id,
+    "aria-label": ariaLabel,
+}: ControlSize & {
+    options: Option<T>[];
+    value: T | "" | null | undefined;
+    onChange: (value: T) => void;
+    placeholder?: string;
+    clearable?: boolean;
+    title?: string;
+    subtitle?: ReactNode;
+    searchPlaceholder?: string;
+    emptyText?: string;
+    disabled?: boolean;
+    id?: string;
+    "aria-label"?: string;
+}) {
+    const palette = usePalette();
+    const selected = findOption(options, value);
+    // What this control is *for*. `placeholder` says it when it stands alone
+    // ("All accounts"); `title` is there for the fields whose placeholder is
+    // only a prompt, where "Select…: expense" would tell a screen reader
+    // nothing about which field it just read.
+    const name = title ?? placeholder;
+
+    // The clear row is a genuine option, so it filters, highlights and ticks
+    // like any other rather than being a special case in the palette.
+    const rows = clearable
+        ? [{ value: "" as T, label: placeholder }, ...options]
+        : options;
+
     return (
-        <select {...props} className={controlClass({ compact, className })}>
-            {children}
-        </select>
+        <button
+            type="button"
+            id={id}
+            disabled={disabled}
+            aria-label={ariaLabel ?? (selected ? `${name}: ${selected.label}` : name)}
+            aria-haspopup="listbox"
+            onClick={() =>
+                palette.open<T>({
+                    title: name,
+                    subtitle: typeof subtitle === "string" ? subtitle : undefined,
+                    options: rows,
+                    value,
+                    onSelect: onChange,
+                    searchPlaceholder,
+                    emptyText,
+                })
+            }
+            className={`sb-picker ${selected ? "" : "is-empty"} ${controlClass({ compact, className })}`}
+        >
+            {selected?.color && (
+                <span
+                    className="h-2 w-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: selected.color }}
+                />
+            )}
+            <span className="min-w-0 flex-1 truncate">{selected?.label ?? placeholder}</span>
+            {selected?.hint && (
+                <span className="shrink-0 text-xs text-slate-500">{selected.hint}</span>
+            )}
+            <span className="shrink-0 text-slate-600">
+                <ChevronDownIcon size={15} />
+            </span>
+        </button>
     );
 }
 
@@ -377,6 +488,90 @@ export function Empty({ loading, children }: { loading?: boolean; children: Reac
 export function QueryError({ error }: { error: unknown }) {
     if (!error) return null;
     return <p className="text-sm text-rose-400">{(error as Error).message}</p>;
+}
+
+/* --- Modal -----------------------------------------------------------------
+   A centred dialog for a form that would otherwise sit permanently on the page.
+   Portalled to `document.body` so no card's `overflow: hidden` can clip it. */
+
+export function Modal({
+    open,
+    onClose,
+    title,
+    subtitle,
+    children,
+    width = "32rem",
+}: {
+    open: boolean;
+    onClose: () => void;
+    title: ReactNode;
+    subtitle?: ReactNode;
+    children: ReactNode;
+    width?: string;
+}) {
+    // Flipped a frame after mount so the panel animates in rather than popping.
+    const [visible, setVisible] = useState(false);
+
+    useEffect(() => {
+        if (!open) {
+            setVisible(false);
+            return;
+        }
+        const frame = requestAnimationFrame(() => setVisible(true));
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === "Escape") onClose();
+        };
+        window.addEventListener("keydown", onKey);
+        // The page behind must not scroll while the dialog is up.
+        const previousOverflow = document.body.style.overflow;
+        document.body.style.overflow = "hidden";
+        return () => {
+            cancelAnimationFrame(frame);
+            window.removeEventListener("keydown", onKey);
+            document.body.style.overflow = previousOverflow;
+        };
+    }, [open, onClose]);
+
+    if (!open) return null;
+
+    return createPortal(
+        <div
+            className="fixed inset-0 z-[70] flex items-end justify-center p-0 sm:items-center sm:p-6"
+            role="dialog"
+            aria-modal="true"
+        >
+            <button
+                aria-hidden
+                tabIndex={-1}
+                onClick={onClose}
+                className={`absolute inset-0 cursor-default bg-black/45 backdrop-blur-[2px] transition-opacity duration-150 ${
+                    visible ? "opacity-100" : "opacity-0"
+                }`}
+            />
+            <div
+                style={{ maxWidth: width }}
+                className={`sb-card-lg relative flex max-h-[92vh] w-full flex-col transition-all duration-150 ease-out ${
+                    visible ? "translate-y-0 scale-100 opacity-100" : "translate-y-3 scale-[0.98] opacity-0"
+                }`}
+            >
+                <div className="flex items-start justify-between gap-3 px-5 pb-3 pt-5">
+                    <div className="min-w-0">
+                        <h2 className="text-[0.9375rem] font-bold text-slate-100">{title}</h2>
+                        {subtitle && <p className="mt-0.5 text-xs text-slate-500">{subtitle}</p>}
+                    </div>
+                    <button
+                        aria-label="Close"
+                        onClick={onClose}
+                        className="-mr-1 shrink-0 rounded-lg p-1.5 text-slate-500 hover:bg-slate-800 hover:text-slate-200"
+                    >
+                        <CloseIcon />
+                    </button>
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5">{children}</div>
+            </div>
+        </div>,
+        document.body,
+    );
 }
 
 /* --- Section eyebrow ------------------------------------------------------- */

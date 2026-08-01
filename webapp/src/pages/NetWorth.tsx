@@ -1,11 +1,75 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import DataTable, { type Column } from "../components/DataTable";
 import NetWorthChart from "../components/NetWorthChart";
-import { Card, CardHeader, Empty, PageHeader, QueryError, StatCard } from "../components/ui";
+import {
+    Card,
+    CardHeader,
+    Empty,
+    PageHeader,
+    QueryError,
+    SectionLabel,
+    StatCard,
+} from "../components/ui";
 import { accountTypeLabel } from "../lib/constants";
 import { fmtDate, fmtMoney } from "../lib/format";
 import { logEvent } from "../lib/logger";
 import { QK, useNetWorthSnapshots } from "../lib/queries";
 import { invokeFn, requireSupabase } from "../lib/supabase";
+import type { NetWorthBreakdownEntry } from "../lib/types";
+
+/** The snapshot's per-account rows, converted into the base currency. */
+function breakdownColumns(base: string): Array<Column<NetWorthBreakdownEntry>> {
+    return [
+        {
+            id: "name",
+            label: "Account",
+            hideable: false,
+            mobile: "title",
+            sortValue: (b) => b.name,
+            searchValue: (b) => `${b.name} ${accountTypeLabel(b.type)}`,
+            cell: (b) => (
+                <div className="min-w-0">
+                    <div className="truncate font-semibold text-slate-200">{b.name}</div>
+                    <div className="text-xs text-slate-500">{accountTypeLabel(b.type)}</div>
+                </div>
+            ),
+        },
+        {
+            id: "balance",
+            label: "Balance",
+            align: "right",
+            width: "12rem",
+            sortValue: (b) => Number(b.balance),
+            cell: (b) => (
+                <span className="whitespace-nowrap text-slate-300 tnum">
+                    {fmtMoney(Number(b.balance), b.currency)}
+                </span>
+            ),
+        },
+        {
+            id: "base",
+            label: `In ${base}`,
+            align: "right",
+            width: "12rem",
+            hideable: false,
+            mobile: "trailing",
+            sortValue: (b) => (b.rate_missing ? null : Number(b.base_amount ?? 0)),
+            cell: (b) =>
+                b.rate_missing ? (
+                    <span
+                        className="whitespace-nowrap text-xs font-semibold text-amber-400"
+                        title="No FX rate for this currency yet — excluded from totals. Try 'Update now'."
+                    >
+                        ⚠ no rate
+                    </span>
+                ) : (
+                    <span className="whitespace-nowrap font-bold text-slate-200 tnum">
+                        {fmtMoney(Number(b.base_amount ?? 0), base)}
+                    </span>
+                ),
+        },
+    ];
+}
 
 export default function NetWorth() {
     const qc = useQueryClient();
@@ -93,56 +157,20 @@ export default function NetWorth() {
                         )}
                     </Card>
 
-                    <Card padded={false}>
-                        <div className="border-b border-slate-800 px-5 py-4">
-                            <h2 className="text-[0.8125rem] font-bold text-slate-200">
-                                Breakdown · {fmtDate(latest.as_of)}
-                            </h2>
-                        </div>
-                        <div className="overflow-x-auto">
-                            <table className="w-full min-w-[28rem] text-sm">
-                                <thead>
-                                    <tr className="border-b border-slate-800 text-left text-[0.6875rem] font-bold uppercase tracking-[0.06em] text-slate-500">
-                                        <th className="px-5 py-3">Account</th>
-                                        <th className="px-5 py-3">Balance</th>
-                                        <th className="px-5 py-3 text-right">
-                                            In {latest.base_currency}
-                                        </th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {(latest.breakdown ?? []).map((b) => (
-                                        <tr key={b.account_id} className="border-b border-slate-800 last:border-0">
-                                            <td className="px-5 py-3">
-                                                <div className="font-medium text-slate-200">{b.name}</div>
-                                                <div className="text-xs text-slate-500">
-                                                    {accountTypeLabel(b.type)}
-                                                </div>
-                                            </td>
-                                            <td className="px-5 py-3 text-slate-300 tnum">
-                                                {fmtMoney(Number(b.balance), b.currency)}
-                                            </td>
-                                            <td className="px-5 py-3 text-right font-bold text-slate-200 tnum">
-                                                {b.rate_missing ? (
-                                                    <span
-                                                        className="text-xs font-semibold text-amber-400"
-                                                        title="No FX rate for this currency yet — excluded from totals. Try 'Update now'."
-                                                    >
-                                                        ⚠ no rate
-                                                    </span>
-                                                ) : (
-                                                    fmtMoney(
-                                                        Number(b.base_amount ?? 0),
-                                                        latest.base_currency,
-                                                    )
-                                                )}
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </Card>
+                    <div>
+                        <SectionLabel>Breakdown · {fmtDate(latest.as_of)}</SectionLabel>
+                        <DataTable
+                            storageKey="net-worth-breakdown"
+                            data={latest.breakdown ?? []}
+                            columns={breakdownColumns(latest.base_currency)}
+                            rowId={(b) => b.account_id}
+                            rowNoun="account"
+                            searchPlaceholder="Search accounts…"
+                            exportFilename={`sagebook-net-worth-${latest.as_of}`}
+                            initialSort={{ columnId: "base", direction: "desc" }}
+                            emptyTitle="No accounts in this snapshot"
+                        />
+                    </div>
                 </>
             )}
         </>
