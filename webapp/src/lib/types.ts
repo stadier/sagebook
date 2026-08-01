@@ -48,7 +48,8 @@ export interface Rule {
     match_field: "payee" | "memo" | "kind";
     match_op: "contains" | "equals" | "starts_with" | "regex";
     match_value: string;
-    set_category_name: string | null;
+    /** Foreign key, not a name — renaming a category must not break the rule. */
+    set_category_id: string | null;
     set_tags: string[];
     set_memo: string | null;
 }

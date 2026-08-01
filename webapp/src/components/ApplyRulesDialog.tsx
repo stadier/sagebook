@@ -133,11 +133,11 @@ export default function ApplyRulesDialog({
                             <Stat label={applied ? "Changed" : "Would change"} value={result.changed} />
                         </div>
 
-                        {result.unresolvedCategories.length > 0 && (
+                        {result.inertRules.length > 0 && (
                             <p className="rounded-xl border border-amber-900/60 bg-amber-950/30 px-4 py-3 text-xs text-amber-300">
-                                These rules point at a category that no longer exists, so they can't
-                                fire: {result.unresolvedCategories.join(", ")}. Rename the category
-                                back, or edit the rule.
+                                Skipped — these rules have nothing left to apply, because the
+                                category they pointed at was deleted and they set no tags or memo:{" "}
+                                {result.inertRules.join(", ")}. Give them a target, or delete them.
                             </p>
                         )}
 

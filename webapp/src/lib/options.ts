@@ -142,11 +142,6 @@ export function categoryOptions(taxonomy: GroupWithCategories[] | undefined): Op
     return out;
 }
 
-/** Categories keyed by *name* — the shape rules store, rather than an id. */
-export function categoryNameOptions(taxonomy: GroupWithCategories[] | undefined): Option[] {
-    return categoryOptions(taxonomy).map((o) => ({ ...o, value: o.label }));
-}
-
 /**
  * Live accounts, with the institution as searchable context and the currency
  * as the hint. Archived accounts are dropped unless asked for, matching what

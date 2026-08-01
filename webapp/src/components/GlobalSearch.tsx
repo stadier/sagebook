@@ -24,7 +24,7 @@ import {
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { fmtDate, fmtMoney } from "../lib/format";
-import { useAccounts, useRules, useScheduled, useTaxonomy } from "../lib/queries";
+import { useAccounts, useCategoryById, useRules, useScheduled, useTaxonomy } from "../lib/queries";
 import { requireSupabase } from "../lib/supabase";
 import { SearchIcon } from "./icons";
 import { Icon, NAV, SETTINGS_NAV, type IconName } from "./nav";
@@ -96,6 +96,7 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
 
     const accounts = useAccounts();
     const taxonomy = useTaxonomy();
+    const categoryById = useCategoryById();
     const rules = useRules();
     const scheduled = useScheduled();
 
@@ -181,7 +182,10 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
         }
 
         for (const r of (rules.data ?? []).filter(
-            (r) => has(r.name) || has(r.match_value) || has(r.set_category_name),
+            (r) =>
+                has(r.name) ||
+                has(r.match_value) ||
+                has(r.set_category_id ? categoryById.get(r.set_category_id)?.name : null),
         ).slice(0, SECTION_LIMIT)) {
             out.push({
                 id: `rule-${r.id}`,
@@ -224,7 +228,15 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
         }
 
         return out;
-    }, [debounced, transactions.data, accounts.data, taxonomy.data, rules.data, scheduled.data]);
+    }, [
+        debounced,
+        transactions.data,
+        accounts.data,
+        taxonomy.data,
+        categoryById,
+        rules.data,
+        scheduled.data,
+    ]);
 
     useEffect(() => setActive(0), [hits.length]);
 

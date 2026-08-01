@@ -40,8 +40,8 @@ export interface ApplyRulesResult {
     matched: number;
     /** Rows that would actually change — matched, but not already correct. */
     changed: number;
-    /** Rule categories that no longer resolve to a category; those rules can't fire. */
-    unresolvedCategories: string[];
+    /** Rules with nothing left to apply — deleted category, no tags, no memo. */
+    inertRules: string[];
     byRule: Array<{ id: string; name: string; matched: number; changed: number }>;
     sample: ApplySample[];
 }

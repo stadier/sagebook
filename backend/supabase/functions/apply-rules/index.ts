@@ -13,7 +13,13 @@
 // write. The UI uses that to show the damage before anyone commits to it.
 // =============================================================================
 
-import { type ParsedTx, type Rule, ruleMatches } from "../_shared/commit.ts";
+import {
+  type ParsedTx,
+  RULE_MATCH_COLUMNS,
+  type Rule,
+  ruleHasEffect,
+  ruleMatches,
+} from "../_shared/commit.ts";
 import { createApp, readJson, requireUser, serve } from "../_shared/http.ts";
 
 /** Which existing rows a backfill is allowed to touch. */
@@ -36,9 +42,7 @@ interface StoredRule extends Rule {
   active: boolean;
 }
 
-const RULE_COLUMNS =
-  "id, name, priority, active, match_field, match_op, match_value, " +
-  "set_category_name, set_tags, set_memo";
+const RULE_COLUMNS = `${RULE_MATCH_COLUMNS}, name, priority, active`;
 
 /** The row shape the scan reads. `occurred_at` is for the preview only. */
 interface LedgerRow {
@@ -112,32 +116,29 @@ app.post("/apply-rules", async (c) => {
   }
 
   // --- categories ----------------------------------------------------------
-  // Rules store a category *name*; the ledger stores an id.
+  // Names, for the preview only; the rules themselves carry ids.
   const { data: cats } = await auth.admin
     .from("categories")
     .select("id, name")
     .eq("user_id", auth.userId);
 
-  const idByName = new Map<string, string>();
   const nameById = new Map<string, string>();
   for (const cat of (cats ?? []) as Array<{ id: string; name: string }>) {
-    idByName.set(cat.name.toLowerCase(), cat.id);
     nameById.set(cat.id, cat.name);
   }
 
-  // A rule pointing at a category the user has since renamed or deleted can
-  // never fire — worth saying so rather than silently matching nothing.
-  const unresolved = [
-    ...new Set(
-      rules
-        .map((r) => r.set_category_name)
-        .filter((n): n is string => !!n && !idByName.has(n.toLowerCase())),
-    ),
-  ];
+  // A rule with nothing left to apply — its category was deleted and it sets no
+  // tags or memo — is skipped by the matcher. Name them so a run that changes
+  // nothing is explicable rather than mysterious.
+  const inertRules = rules.filter((r) => !ruleHasEffect(r)).map((r) => r.name);
+  const liveRules = rules.filter(ruleHasEffect);
+  if (!liveRules.length) {
+    return c.json({ error: "those rules have no category, tags or memo to apply" }, 400);
+  }
 
   // --- scan ----------------------------------------------------------------
   const perRule = new Map<string, { name: string; matched: number; changed: number }>();
-  for (const rule of rules) perRule.set(rule.id, { name: rule.name, matched: 0, changed: 0 });
+  for (const rule of liveRules) perRule.set(rule.id, { name: rule.name, matched: 0, changed: 0 });
 
   // Rows sharing an identical patch update in one statement, so a backfill is
   // a handful of writes rather than one per row.
@@ -180,8 +181,9 @@ app.post("/apply-rules", async (c) => {
         memo: tx.memo ?? undefined,
       };
 
-      // First match wins, highest priority first — the ingest semantics.
-      const hit = rules.find((rule) => ruleMatches(rule, probe));
+      // First match wins, highest priority first — the ingest semantics, over
+      // the same live-rules-only set the commit pipeline uses.
+      const hit = liveRules.find((rule) => ruleMatches(rule, probe));
       if (!hit) continue;
 
       matched++;
@@ -191,12 +193,9 @@ app.post("/apply-rules", async (c) => {
       const patch: Record<string, unknown> = {};
       let toCategory: string | null = null;
 
-      if (hit.set_category_name) {
-        const cid = idByName.get(hit.set_category_name.toLowerCase());
-        if (cid && cid !== tx.category_id) {
-          patch.category_id = cid;
-          toCategory = nameById.get(cid) ?? null;
-        }
+      if (hit.set_category_id && hit.set_category_id !== tx.category_id) {
+        patch.category_id = hit.set_category_id;
+        toCategory = nameById.get(hit.set_category_id) ?? null;
       }
 
       const existingTags = tx.tags ?? [];
@@ -256,13 +255,13 @@ app.post("/apply-rules", async (c) => {
       user_id: auth.userId,
       level: "info",
       source: "rules",
-      message: `Applied ${rules.length} rule(s) to ${changed} existing transaction(s)`,
+      message: `Applied ${liveRules.length} rule(s) to ${changed} existing transaction(s)`,
       context: {
         scope,
         scanned,
         matched,
         changed,
-        rules: rules.map((r) => ({ id: r.id, name: r.name })),
+        rules: liveRules.map((r) => ({ id: r.id, name: r.name })),
       },
     });
   }
@@ -273,7 +272,7 @@ app.post("/apply-rules", async (c) => {
     scanned,
     matched,
     changed,
-    unresolvedCategories: unresolved,
+    inertRules,
     byRule: [...perRule.entries()]
       .map(([id, s]) => ({ id, ...s }))
       .filter((r) => r.matched > 0)

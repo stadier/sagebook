@@ -14,13 +14,14 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { RECENT_TRANSACTION_LIMIT, SNAPSHOT_LIMIT } from "./constants";
 import { currentMonthStart } from "./format";
-import { accountOptions, categoryNameOptions, categoryOptions } from "./options";
+import { accountOptions, categoryOptions } from "./options";
 import { requireSupabase } from "./supabase";
 import { fetchAccounts, fetchTaxonomy } from "./taxonomy";
 import type {
     AccountWithBalance,
     Budget,
     BudgetProgress,
+    Category,
     CategorySummaryRow,
     MonthlySummaryRow,
     NetWorthSnapshot,
@@ -112,10 +113,16 @@ export function useCategoryOptions() {
     return useMemo(() => categoryOptions(taxonomy.data), [taxonomy.data]);
 }
 
-/** The same, keyed by category *name* — the shape rules store. */
-export function useCategoryNameOptions() {
+/** Every category by id, for screens that store a reference and render a name. */
+export function useCategoryById(): Map<string, Category> {
     const taxonomy = useTaxonomy();
-    return useMemo(() => categoryNameOptions(taxonomy.data), [taxonomy.data]);
+    return useMemo(() => {
+        const byId = new Map<string, Category>();
+        for (const group of taxonomy.data ?? []) {
+            for (const category of group.categories) byId.set(category.id, category);
+        }
+        return byId;
+    }, [taxonomy.data]);
 }
 
 /* --- Inbox ------------------------------------------------------------------ */

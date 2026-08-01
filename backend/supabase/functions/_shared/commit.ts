@@ -14,9 +14,26 @@ export interface Rule {
   match_field: "payee" | "memo" | "kind";
   match_op: "contains" | "equals" | "starts_with" | "regex";
   match_value: string;
-  set_category_name: string | null;
+  /** Foreign key, not a name — a category rename must not break the rule. */
+  set_category_id: string | null;
   set_tags: string[];
   set_memo: string | null;
+}
+
+/** The columns rule evaluation needs, wherever it is loaded. */
+export const RULE_MATCH_COLUMNS =
+  "id, match_field, match_op, match_value, set_category_id, set_tags, set_memo";
+
+/**
+ * Whether a rule still has anything to do.
+ *
+ * A rule whose only action was a category that has since been deleted (the FK
+ * nulls on delete) applies nothing. It must not be allowed to win a match:
+ * first-match-wins would consume the row and shadow every lower-priority rule
+ * beneath it, so an empty rule is passed over instead.
+ */
+export function ruleHasEffect(rule: Rule): boolean {
+  return !!rule.set_category_id || !!rule.set_tags?.length || !!rule.set_memo;
 }
 
 export interface ParsedTx {
@@ -182,7 +199,7 @@ export async function commitParsedTransactions(
   // Load user rules (highest priority first)
   const { data: rules } = await admin
     .from("rules")
-    .select("id, match_field, match_op, match_value, set_category_name, set_tags, set_memo")
+    .select(RULE_MATCH_COLUMNS)
     .eq("user_id", userId)
     .eq("active", true)
     .order("priority", { ascending: false });
@@ -223,18 +240,17 @@ export async function commitParsedTransactions(
     let finalMemo = parsed.memo ?? null;
 
     for (const rule of (rules ?? []) as Rule[]) {
-      if (ruleMatches(rule, parsed)) {
-        if (rule.set_category_name) {
-          const cid = catMap.get(rule.set_category_name.toLowerCase());
-          if (cid) categoryId = cid;
-        }
-        if (rule.set_tags?.length) {
-          finalTags = [...new Set([...finalTags, ...rule.set_tags])];
-        }
-        if (rule.set_memo) finalMemo = rule.set_memo;
-        rulesApplied++;
-        break;
+      if (!ruleMatches(rule, parsed)) continue;
+      // An inert rule does not get to claim the match — see `ruleHasEffect`.
+      if (!ruleHasEffect(rule)) continue;
+
+      if (rule.set_category_id) categoryId = rule.set_category_id;
+      if (rule.set_tags?.length) {
+        finalTags = [...new Set([...finalTags, ...rule.set_tags])];
       }
+      if (rule.set_memo) finalMemo = rule.set_memo;
+      rulesApplied++;
+      break;
     }
 
     // Fall back to the AI-suggested category when no rule matched

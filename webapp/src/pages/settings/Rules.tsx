@@ -5,9 +5,9 @@ import ApplyRulesDialog from "../../components/ApplyRulesDialog";
 import { useConfirm } from "../../components/Confirm";
 import DataTable, { type Column, type RowAction } from "../../components/DataTable";
 import { PauseIcon, PlayIcon, ReplayIcon, TrashIcon } from "../../components/icons";
-import { Input, Picker, Pill, QueryError } from "../../components/ui";
+import { ColorPill, Input, Picker, Pill, QueryError } from "../../components/ui";
 import { pairOptions } from "../../lib/options";
-import { QK, useCategoryNameOptions, useRules } from "../../lib/queries";
+import { QK, useCategoryById, useCategoryOptions, useRules } from "../../lib/queries";
 import { requireSupabase } from "../../lib/supabase";
 import type { Rule } from "../../lib/types";
 import { SettingsSection } from "../Settings";
@@ -22,6 +22,16 @@ interface ApplyTarget {
 /** The rule's condition as one readable clause. */
 function conditionText(rule: Rule): string {
     return `${rule.match_field} ${rule.match_op.replace("_", " ")} "${rule.match_value}"`;
+}
+
+/**
+ * Whether a rule still has anything to do. Mirrors `ruleHasEffect` in the
+ * backend's _shared/commit.ts: deleting a category nulls `set_category_id`, and
+ * a rule left with no category, tags or memo is skipped by the matcher rather
+ * than allowed to win first-match-wins and shadow the rules below it.
+ */
+function hasEffect(rule: Rule): boolean {
+    return !!rule.set_category_id || rule.set_tags.length > 0 || !!rule.set_memo;
 }
 
 const MATCH_FIELD_OPTIONS = pairOptions<Rule["match_field"]>([
@@ -43,6 +53,7 @@ export default function Rules() {
     const [activeOnly, setActiveOnly] = useState(false);
     const [applyTarget, setApplyTarget] = useState<ApplyTarget | null>(null);
     const rules = useRules();
+    const categoryById = useCategoryById();
 
     const update = useMutation({
         mutationFn: async (args: { id: string; patch: Record<string, unknown> }) => {
@@ -76,6 +87,9 @@ export default function Rules() {
 
     const rows = (rules.data ?? []).filter((r) => !activeOnly || r.active);
 
+    /** The rule's target category, or null once it has been deleted. */
+    const target = (r: Rule) => (r.set_category_id ? categoryById.get(r.set_category_id) : undefined);
+
     const columns: Array<Column<Rule>> = [
         {
             id: "name",
@@ -83,8 +97,15 @@ export default function Rules() {
             hideable: false,
             mobile: "title",
             sortValue: (r) => r.name,
-            searchValue: (r) => `${r.name} ${conditionText(r)} ${r.set_category_name ?? ""}`,
-            cell: (r) => <span className="font-semibold text-slate-100">{r.name}</span>,
+            searchValue: (r) => `${r.name} ${conditionText(r)} ${target(r)?.name ?? ""}`,
+            cell: (r) => (
+                <span className="flex items-center gap-2">
+                    <span className="font-semibold text-slate-100">{r.name}</span>
+                    {/* A rule with nothing left to apply is skipped entirely,
+                        which is invisible unless the row says so. */}
+                    {!hasEffect(r) && <Pill tint="amber">no effect</Pill>}
+                </span>
+            ),
         },
         {
             id: "condition",
@@ -101,12 +122,18 @@ export default function Rules() {
         {
             id: "sets",
             label: "Then",
-            sortValue: (r) => r.set_category_name ?? "",
-            searchValue: (r) => `${r.set_category_name ?? ""} ${r.set_tags.join(" ")}`,
-            cell: (r) => (
+            sortValue: (r) => target(r)?.name ?? "",
+            searchValue: (r) => `${target(r)?.name ?? ""} ${r.set_tags.join(" ")}`,
+            cell: (r) => {
+                const category = target(r);
+                return (
                 <span className="flex flex-wrap items-center gap-1.5 text-[0.8125rem] text-slate-400">
-                    {r.set_category_name ? (
-                        <Pill tint="indigo">{r.set_category_name}</Pill>
+                    {category ? (
+                        <ColorPill color={category.color}>{category.name}</ColorPill>
+                    ) : r.set_category_id ? (
+                        // The FK nulls on delete, so a set id that resolves to
+                        // nothing means the taxonomy hasn't loaded yet.
+                        <span className="text-xs text-slate-600">…</span>
                     ) : (
                         <span className="text-xs text-slate-600">no category</span>
                     )}
@@ -116,7 +143,8 @@ export default function Rules() {
                         </span>
                     ))}
                 </span>
-            ),
+                );
+            },
         },
         {
             id: "priority",
@@ -307,11 +335,11 @@ function CreateRuleForm() {
     const [matchField, setMatchField] = useState<Rule["match_field"]>("payee");
     const [matchOp, setMatchOp] = useState<Rule["match_op"]>("contains");
     const [matchValue, setMatchValue] = useState(prefillPayee);
-    const [categoryName, setCategoryName] = useState(prefillCategory);
+    const [categoryId, setCategoryId] = useState(prefillCategory);
     const [tags, setTags] = useState("");
     const [priority, setPriority] = useState("0");
 
-    const categoryOpts = useCategoryNameOptions();
+    const categoryOpts = useCategoryOptions();
 
     const create = useMutation({
         mutationFn: async () => {
@@ -324,7 +352,7 @@ function CreateRuleForm() {
                 match_field: matchField,
                 match_op: matchOp,
                 match_value: matchValue.trim(),
-                set_category_name: categoryName || null,
+                set_category_id: categoryId || null,
                 set_tags: tags
                     .split(",")
                     .map((t) => t.trim())
@@ -336,7 +364,7 @@ function CreateRuleForm() {
         onSuccess: () => {
             setName("");
             setMatchValue("");
-            setCategoryName("");
+            setCategoryId("");
             setTags("");
             setPriority("0");
             qc.invalidateQueries({ queryKey: QK.rules });
@@ -381,11 +409,10 @@ function CreateRuleForm() {
                         required
                     />
                 </div>
-                {/* Rules store the category by name, not id — see the adapter. */}
                 <Picker
                     options={categoryOpts}
-                    value={categoryName}
-                    onChange={setCategoryName}
+                    value={categoryId}
+                    onChange={setCategoryId}
                     placeholder="— set no category —"
                     title="Set category"
                     clearable

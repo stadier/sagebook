@@ -267,7 +267,8 @@ function InboxCard({
     function createRule() {
         const params = new URLSearchParams();
         if (tx.payee) params.set("payee", tx.payee);
-        if (tx.category_name) params.set("category", tx.category_name);
+        // The id, not the name — rules reference the category by key.
+        if (tx.category_id) params.set("category", tx.category_id);
         navigate(`/settings/rules?${params.toString()}`);
     }
 
