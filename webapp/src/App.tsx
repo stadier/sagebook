@@ -11,6 +11,7 @@ import Activity from "./pages/Activity";
 import Budgets from "./pages/Budgets";
 import Categories from "./pages/Categories";
 import Console from "./pages/Console";
+import Documents from "./pages/Documents";
 import Inbox from "./pages/Inbox";
 import NetWorth from "./pages/NetWorth";
 import Overview from "./pages/Overview";
@@ -90,6 +91,7 @@ export default function App() {
                                     <Route path="/capture" element={<Overview />} />
                                     <Route path="/import" element={<Overview />} />
                                     <Route path="/inbox" element={<Inbox />} />
+                                    <Route path="/documents" element={<Documents />} />
                                     <Route path="/transactions" element={<Transactions />} />
                                     <Route path="/accounts" element={<Accounts />} />
                                     <Route path="/categories" element={<Categories />} />

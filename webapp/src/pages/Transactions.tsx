@@ -404,15 +404,26 @@ export default function Transactions() {
             width: "10rem",
             hideable: false,
             mobile: "trailing",
+            // The table's Settings menu styles expense figures — negative sign,
+            // red ink — and feeds the choices back into this cell.
+            amount: true,
             sortValue: (t) => signOf(t.kind) * Number(t.amount),
             exportValue: (t) => signOf(t.kind) * Number(t.amount),
-            cell: (t) => (
+            cell: (t, { amounts }) => (
                 <span
                     className={`whitespace-nowrap font-bold tnum ${
-                        t.kind === "income" ? "text-emerald-400" : "text-slate-200"
+                        t.kind === "income"
+                            ? "text-emerald-400"
+                            : t.kind === "expense" && amounts.redExpenses
+                              ? "text-rose-400"
+                              : "text-slate-200"
                     }`}
                 >
-                    {t.kind === "expense" ? "−" : t.kind === "income" ? "+" : ""}
+                    {t.kind === "expense" && amounts.negativeExpenses
+                        ? "−"
+                        : t.kind === "income"
+                          ? "+"
+                          : ""}
                     {fmtMoney(t.amount, t.currency)}
                 </span>
             ),

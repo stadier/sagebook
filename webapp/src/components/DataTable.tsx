@@ -32,6 +32,7 @@ import {
     FilterIcon,
     MoreIcon,
     SearchIcon,
+    SlidersIcon,
     SortArrowIcon,
     SortIcon,
 } from "./icons";
@@ -40,6 +41,18 @@ import { Picker } from "./ui";
 /* --- Column model ---------------------------------------------------------- */
 
 export type ColumnAlign = "left" | "right" | "center";
+
+/**
+ * How a table styles its expense figures, set from the table's Settings menu
+ * and persisted per table under `storageKey`. A column opts in by marking
+ * itself `amount`; its cell then reads these from the cell context.
+ */
+export interface AmountPrefs {
+    /** Expenses carry a minus sign, e.g. "−$12.50" instead of "$12.50". */
+    negativeExpenses: boolean;
+    /** Expenses are tinted red to set them apart from income at a glance. */
+    redExpenses: boolean;
+}
 
 /**
  * Where a column lands in the mobile card.
@@ -67,7 +80,7 @@ export interface Column<T> {
      * that minimum stays huge and the column simply grows; `truncate` is worse
      * still, since `nowrap` makes the minimum the entire string.
      */
-    cell: (row: T, ctx: { dense: boolean }) => ReactNode;
+    cell: (row: T, ctx: { dense: boolean; amounts: AmountPrefs }) => ReactNode;
     /** Supplying this makes the column sortable. */
     sortValue?: (row: T) => string | number | null | undefined;
     /** Text the global search matches against. Falls back to `sortValue`. */
@@ -75,6 +88,12 @@ export interface Column<T> {
     /** Value written to the CSV export. Falls back to `searchValue`/`sortValue`. */
     exportValue?: (row: T) => string | number | null | undefined;
     align?: ColumnAlign;
+    /**
+     * Marks the column as a money figure. The table then offers the Settings
+     * menu — "expenses as negative numbers", "expenses in red" — and passes the
+     * chosen `AmountPrefs` into the cell's context so the page can honour them.
+     */
+    amount?: boolean;
     /** CSS width for the column, e.g. "12rem" or "1%". */
     width?: string;
     /** false pins the column visible in the column menu. Default true. */
@@ -450,6 +469,8 @@ export function DataTable<T>({
             order: [] as string[],
             dense: false,
             pageSize: defaultPageSize,
+            /** Expense display, set from the Settings menu (see `Column.amount`). */
+            amounts: { negativeExpenses: true, redExpenses: false },
         },
     );
 
@@ -478,12 +499,13 @@ export function DataTable<T>({
         setSelecting(false);
         setSelected(new Set());
     }
-    const [menu, setMenu] = useState<"columns" | "sort" | "export" | null>(null);
+    const [menu, setMenu] = useState<"columns" | "sort" | "export" | "settings" | null>(null);
 
     const closeMenu = () => setMenu(null);
     const columnsRef = useDismiss(menu === "columns", closeMenu);
     const sortRef = useDismiss(menu === "sort", closeMenu);
     const exportRef = useDismiss(menu === "export", closeMenu);
+    const settingsRef = useDismiss(menu === "settings", closeMenu);
 
     const hiddenIds = useMemo(() => new Set(prefs.hidden), [prefs.hidden]);
 
@@ -509,6 +531,9 @@ export function DataTable<T>({
 
     const visibleColumns = orderedColumns.filter((c) => !hiddenIds.has(c.id));
     const sortableColumns = orderedColumns.filter((c) => c.sortValue);
+    /* The Settings menu only earns its place where an amount column is visible
+       — on a table of names and dates it would offer nothing to change. */
+    const hasAmountColumns = visibleColumns.some((c) => c.amount);
 
     /* Search → sort. Both are pure derivations of `data`, so a refetch never
        drops the user's view. */
@@ -626,6 +651,11 @@ export function DataTable<T>({
             ? prefs.hidden.filter((h) => h !== id)
             : [...prefs.hidden, id];
         setPrefs({ ...prefs, hidden: next });
+    }
+
+    /** Flip one of the amount display options from the Settings menu. */
+    function toggleAmounts(patch: Partial<AmountPrefs>) {
+        setPrefs({ ...prefs, amounts: { ...prefs.amounts, ...patch } });
     }
 
     /**
@@ -847,6 +877,79 @@ export function DataTable<T>({
                                             ))}
                                         </div>
                                     )}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {hasAmountColumns && (
+                        <div className="relative" ref={settingsRef}>
+                            <button
+                                className="sb-tbtn"
+                                aria-expanded={menu === "settings"}
+                                onClick={() => setMenu(menu === "settings" ? null : "settings")}
+                            >
+                                <SlidersIcon size={15} />
+                                <span className="hidden sm:inline">Settings</span>
+                                <ChevronDownIcon size={13} className="text-slate-600" />
+                            </button>
+                            {menu === "settings" && (
+                                <div className="sb-menu right-0 top-[calc(100%+0.375rem)]">
+                                    <div className="px-2 pb-1 pt-1 text-[0.6875rem] font-bold uppercase tracking-[0.06em] text-slate-500">
+                                        Amounts
+                                    </div>
+                                    <button
+                                        className="sb-menu-item"
+                                        title={
+                                            prefs.amounts.negativeExpenses
+                                                ? "Expenses carry a minus sign — e.g. −$12.50"
+                                                : "Expenses show as plain numbers, e.g. $12.50"
+                                        }
+                                        onClick={() =>
+                                            toggleAmounts({
+                                                negativeExpenses: !prefs.amounts.negativeExpenses,
+                                            })
+                                        }
+                                    >
+                                        <span
+                                            className={`grid h-4 w-4 place-items-center rounded ${
+                                                prefs.amounts.negativeExpenses
+                                                    ? "text-coral"
+                                                    : "text-transparent"
+                                            }`}
+                                        >
+                                            <CheckIcon size={13} />
+                                        </span>
+                                        <span className="min-w-0 flex-1 truncate">
+                                            Expenses as negative numbers
+                                        </span>
+                                    </button>
+                                    <button
+                                        className="sb-menu-item"
+                                        title={
+                                            prefs.amounts.redExpenses
+                                                ? "Expenses are tinted red"
+                                                : "Expenses use the table's default ink"
+                                        }
+                                        onClick={() =>
+                                            toggleAmounts({
+                                                redExpenses: !prefs.amounts.redExpenses,
+                                            })
+                                        }
+                                    >
+                                        <span
+                                            className={`grid h-4 w-4 place-items-center rounded ${
+                                                prefs.amounts.redExpenses
+                                                    ? "text-coral"
+                                                    : "text-transparent"
+                                            }`}
+                                        >
+                                            <CheckIcon size={13} />
+                                        </span>
+                                        <span className="min-w-0 flex-1 truncate">
+                                            Expenses in red
+                                        </span>
+                                    </button>
                                 </div>
                             )}
                         </div>
@@ -1153,7 +1256,10 @@ export function DataTable<T>({
                                                                 alignClass[c.align ?? "left"]
                                                             } ${c.cellClassName ?? ""}`}
                                                         >
-                                                            {c.cell(row, { dense })}
+                                                            {c.cell(row, {
+                                                                dense,
+                                                                amounts: prefs.amounts,
+                                                            })}
                                                         </td>
                                                     ))}
                                                     {rowActions && (
@@ -1206,6 +1312,7 @@ export function DataTable<T>({
                                     rowActions={rowActions}
                                     rowLabel={rowLabel}
                                     dense={dense}
+                                    amounts={prefs.amounts}
                                     className={rowClassName?.(row) ?? ""}
                                 />
                             ))}
@@ -1321,6 +1428,7 @@ function MobileRow<T>({
     rowActions,
     rowLabel,
     dense,
+    amounts,
     className,
 }: {
     row: T;
@@ -1334,6 +1442,7 @@ function MobileRow<T>({
     rowActions?: (row: T) => RowAction[];
     rowLabel?: (row: T) => string;
     dense: boolean;
+    amounts: AmountPrefs;
     className: string;
 }) {
     // The first column is the headline unless a column claims the slot; the
@@ -1368,16 +1477,16 @@ function MobileRow<T>({
                 <div className="min-w-0 flex-1" onClick={onClick}>
                     <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
-                            {titleCol && titleCol.cell(row, { dense })}
+                            {titleCol && titleCol.cell(row, { dense, amounts })}
                             {subtitleCol && (
                                 <div className="mt-0.5 text-xs text-slate-500">
-                                    {subtitleCol.cell(row, { dense })}
+                                    {subtitleCol.cell(row, { dense, amounts })}
                                 </div>
                             )}
                         </div>
                         {trailingCol && (
                             <div className="shrink-0 text-right">
-                                {trailingCol.cell(row, { dense })}
+                                {trailingCol.cell(row, { dense, amounts })}
                             </div>
                         )}
                     </div>
@@ -1388,7 +1497,7 @@ function MobileRow<T>({
                                 <div key={c.id} className="flex items-baseline gap-2 text-xs">
                                     <dt className="w-[5.5rem] shrink-0 text-slate-500">{c.label}</dt>
                                     <dd className="min-w-0 flex-1 text-slate-300">
-                                        {c.cell(row, { dense })}
+                                        {c.cell(row, { dense, amounts })}
                                     </dd>
                                 </div>
                             ))}

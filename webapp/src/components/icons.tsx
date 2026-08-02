@@ -179,6 +179,18 @@ export function DownloadIcon({ size = 16, className }: IconProps) {
     );
 }
 
+/** Table display settings — how amount figures are styled (the Settings menu). */
+export function SlidersIcon({ size = 16, className }: IconProps) {
+    return (
+        <Stroke size={size} width={1.8} className={className}>
+            <path d="M4 8h8M18 8h2" />
+            <path d="M4 16h4M14 16h6" />
+            <circle cx="15" cy="8" r="2.4" />
+            <circle cx="11" cy="16" r="2.4" />
+        </Stroke>
+    );
+}
+
 /** The caret pair in a sortable header — the active direction is filled in. */
 export function SortArrowIcon({
     direction,

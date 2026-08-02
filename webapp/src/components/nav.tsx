@@ -8,6 +8,7 @@
 export type IconName =
     | "overview"
     | "inbox"
+    | "documents"
     | "transactions"
     | "accounts"
     | "categories"
@@ -32,6 +33,7 @@ export interface NavItem {
 export const NAV: NavItem[] = [
     { to: "/", label: "Overview", icon: "overview", group: "money" },
     { to: "/inbox", label: "Inbox", icon: "inbox", group: "money" },
+    { to: "/documents", label: "Documents", icon: "documents", group: "money" },
     { to: "/transactions", label: "Ledger", icon: "transactions", group: "money" },
     { to: "/accounts", label: "Accounts", icon: "accounts", group: "money" },
     { to: "/budgets", label: "Budgets", icon: "budgets", group: "plan" },
@@ -109,6 +111,13 @@ export function Icon({ name, size }: { name: IconName; size?: number }) {
                 <Svg size={size}>
                     <path d="M4 13h4l1.5 3h5L16 13h4" />
                     <path d="M5 13 7 5h10l2 8v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z" />
+                </Svg>
+            );
+        case "documents":
+            return (
+                <Svg size={size}>
+                    <path d="M6 3h8l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" />
+                    <path d="M14 3v4h4M9 12h6M9 16h6" />
                 </Svg>
             );
         case "transactions":

@@ -46,6 +46,7 @@ export const QK = {
     rules: ["rules"] as const,
     budgets: ["budgets"] as const,
     scheduled: ["scheduled"] as const,
+    documents: ["documents"] as const,
     monthlySummary: (month: string) => ["monthly-summary", month] as const,
     monthlySummaryAll: ["monthly-summary-all"] as const,
     categorySummary: (month: string) => ["category-summary", month] as const,
@@ -57,6 +58,28 @@ export type RecentTransaction = Pick<
     Transaction,
     "id" | "kind" | "occurred_at" | "amount" | "currency" | "payee"
 >;
+
+/** A row of the documents view — one uploaded capture/import. */
+export type DocumentRow = {
+    id: string;
+    created_at: string;
+    updated_at: string;
+    status: "pending" | "processing" | "parsed" | "failed" | "applied";
+    media_kind: string;
+    mime_type: string;
+    bytes: number | null;
+    model: string | null;
+    prompt_hint: string | null;
+    error: string | null;
+    storage_path: string | null;
+    parsed_payload: {
+        summary?: string;
+        confidence?: number;
+        transcript?: string;
+        transactions?: unknown[];
+    } | null;
+    transactions: Array<{ count: number }>;
+};
 
 const RECENT_COLUMNS = "id, kind, occurred_at, amount, currency, payee";
 
@@ -135,6 +158,29 @@ export function usePendingReview() {
         queryFn: () =>
             rows<PendingTransaction>((sb) =>
                 sb.from("v_pending_review").select("*").order("occurred_at", { ascending: false }),
+            ),
+    });
+}
+
+/* --- Documents ----------------------------------------------------------------
+
+   Every uploaded capture/import, newest first. `transactions(count)` tells the
+   documents view what each file produced; the join is cheap because the count
+   is aggregated server-side. */
+
+const DOCUMENT_COLUMNS =
+    "id, created_at, updated_at, status, media_kind, mime_type, bytes, model, prompt_hint, error, storage_path, parsed_payload, transactions(count)";
+
+export function useDocuments() {
+    return useQuery({
+        queryKey: QK.documents,
+        queryFn: () =>
+            rows<DocumentRow>((sb) =>
+                sb
+                    .from("media_ingestions")
+                    .select(DOCUMENT_COLUMNS)
+                    .order("created_at", { ascending: false })
+                    .limit(200),
             ),
     });
 }

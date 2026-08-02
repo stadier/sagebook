@@ -10,7 +10,7 @@
    render: `answer` plus `highlights` is the fallback, which is exactly what the
    card used to show. */
 
-import { DataTable, type Column } from "../DataTable";
+import { DataTable, type AmountPrefs, type Column } from "../DataTable";
 import { fmtDate, fmtMoney } from "../../lib/format";
 import type {
     SageAnswer,
@@ -120,15 +120,26 @@ function Stats({ items }: { items: SageHighlight[] }) {
    Which one applies is decided by the query's `select`, never by inspecting the
    model's output. */
 
-/** Expense reads as money leaving; income as money arriving. Matches the ledger. */
-function amountCell(kind: string, amount: number, currency: string) {
+/**
+ * Expense reads as money leaving; income as money arriving. Matches the ledger,
+ * including the table's Settings choices for how expenses are styled.
+ */
+function amountCell(kind: string, amount: number, currency: string, amounts: AmountPrefs) {
     return (
         <span
             className={`whitespace-nowrap font-bold tnum ${
-                kind === "income" ? "text-emerald-400" : "text-slate-200"
+                kind === "income"
+                    ? "text-emerald-400"
+                    : kind === "expense" && amounts.redExpenses
+                      ? "text-rose-400"
+                      : "text-slate-200"
             }`}
         >
-            {kind === "expense" ? "−" : kind === "income" ? "+" : ""}
+            {kind === "expense" && amounts.negativeExpenses
+                ? "−"
+                : kind === "income"
+                  ? "+"
+                  : ""}
             {fmtMoney(amount, currency)}
         </span>
     );
@@ -193,9 +204,10 @@ const LIST_COLUMNS: Array<Column<SageListRow>> = [
         width: "10rem",
         hideable: false,
         mobile: "trailing",
+        amount: true,
         sortValue: (r) => (r.kind === "expense" ? -r.amount : r.amount),
         exportValue: (r) => (r.kind === "expense" ? -r.amount : r.amount),
-        cell: (r) => amountCell(r.kind, r.amount, r.currency),
+        cell: (r, { amounts }) => amountCell(r.kind, r.amount, r.currency, amounts),
     },
 ];
 

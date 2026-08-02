@@ -55,6 +55,21 @@ export function fmtDateTime(iso: string): string {
     });
 }
 
+/** "1.4 MB" — human file size for the documents view. Null → "—". */
+export function fmtBytes(bytes: number | null | undefined): string {
+    if (bytes === null || bytes === undefined || bytes < 0) return "—";
+    if (bytes < 1024) return `${bytes} B`;
+    const units = ["KB", "MB", "GB"];
+    let value = bytes;
+    let unit = "B";
+    for (const u of units) {
+        value /= 1024;
+        unit = u;
+        if (value < 1024) break;
+    }
+    return `${value >= 100 ? value.toFixed(0) : value.toFixed(1)} ${unit}`;
+}
+
 /** ISO date of the first day of the current month, e.g. "2026-07-01". */
 export function currentMonthStart(): string {
     const now = new Date();
