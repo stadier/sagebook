@@ -271,7 +271,7 @@ function Sidebar({
                                                     the rail, so it becomes a dot. */}
                                                 {collapsed && (
                                                     <span
-                                                        className={`absolute right-2 top-1.5 hidden h-[7px] w-[7px] rounded-full lg:block ${
+                                                        className={`absolute right-1 top-1 hidden h-[7px] w-[7px] rounded-full lg:block ${
                                                             isActive ? "bg-coral-fg" : "bg-coral"
                                                         }`}
                                                     />

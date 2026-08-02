@@ -3,6 +3,7 @@ import NetWorthChart from "../components/NetWorthChart";
 import {
     Card,
     CardHeader,
+    Donut,
     Empty,
     LegendDot,
     Meter,
@@ -272,45 +273,6 @@ function categoryColumns(
 }
 
 /* -------------------------------------------------------------------------- */
-
-/** SVG donut built from stroke-dasharray arcs, as in the design. */
-function Donut({
-    slices,
-    total,
-}: {
-    slices: Array<{ value: number; color: string }>;
-    total: number;
-}) {
-    const R = 46;
-    const C = 2 * Math.PI * R;
-    let offset = 0;
-
-    return (
-        <svg width="120" height="120" viewBox="0 0 120 120" className="shrink-0" aria-hidden>
-            <circle cx="60" cy="60" r={R} fill="none" stroke={CHART_COLORS.track} strokeWidth="20" />
-            {slices.map((s, i) => {
-                const len = total > 0 ? (s.value / total) * C : 0;
-                const dash = `${len} ${C - len}`;
-                const el = (
-                    <circle
-                        key={i}
-                        cx="60"
-                        cy="60"
-                        r={R}
-                        fill="none"
-                        stroke={s.color}
-                        strokeWidth="20"
-                        strokeDasharray={dash}
-                        strokeDashoffset={-offset}
-                        transform="rotate(-90 60 60)"
-                    />
-                );
-                offset += len;
-                return el;
-            })}
-        </svg>
-    );
-}
 
 function sum(rows: MonthlySummaryRow[]): number {
     return rows.reduce((s, r) => s + Number(r.total_amount), 0);

@@ -59,6 +59,37 @@ export const TINT_STYLES: Record<Tint, CSSProperties> = {
 const TINT_CYCLE: Tint[] = ["indigo", "green", "blue", "amber", "violet", "coral"];
 
 /**
+ * The swatches offered when a user picks a colour for a category. Literal hex
+ * rather than `var(--…)`, unlike everything else here: these are written to the
+ * database and read back by exports, the backend and any future client, none of
+ * which can resolve one of this app's custom properties.
+ */
+export const CATEGORY_COLORS = [
+    "#6c63ff",
+    "#ff6a55",
+    "#5ea8ff",
+    "#8b6cff",
+    "#ffb443",
+    "#2fa86a",
+] as const;
+
+/**
+ * Pale fill plus readable ink for a colour the database supplied — the recipe
+ * behind category pills and the board's icon tiles. Falls back to the hashed
+ * tint when the row never got a colour, so an uncoloured category still reads
+ * as itself rather than as grey.
+ */
+export function tintStyle(color: string | null | undefined, seed = ""): CSSProperties {
+    if (!color) return TINT_STYLES[tintFor(seed)];
+    // 12% alpha. The hex suffix only works on a 6-digit value, so anything
+    // else goes the long way round.
+    const fill = /^#[0-9a-f]{6}$/i.test(color)
+        ? `${color}1f`
+        : `color-mix(in oklab, ${color} 12%, transparent)`;
+    return { backgroundColor: fill, color };
+}
+
+/**
  * Stable tint for a name. Deterministic so an account or payee keeps its colour
  * across pages and reloads, without persisting a choice anywhere.
  */

@@ -695,7 +695,7 @@ export function DataTable<T>({
             {/* --- Toolbar ------------------------------------------------- */}
             <div className="flex flex-wrap items-center gap-2">
                 {searchable && (
-                    <div className="relative min-w-0 flex-1 sm:min-w-[22rem] sm:max-w-md">
+                    <div className="relative min-w-0 flex-1 sm:min-w-[15rem] sm:max-w-[20rem]">
                         <SearchIcon
                             size={15}
                             className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-600"

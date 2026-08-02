@@ -7,6 +7,7 @@
 import { type FormEvent, forwardRef, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import GeneratedView from "../components/console/ConsolePanels";
+import { SageBlocks } from "../components/console/SageAnswer";
 import IngestModal from "../components/ingest/IngestModal";
 import { BrandMark } from "../components/nav";
 import { classifyPrompt, type Intent, SUGGESTIONS } from "../lib/console/intents";
@@ -324,24 +325,11 @@ function SageAnswerCard({
                 <span className="mt-0.5 shrink-0 text-coral">
                     <SparkIcon />
                 </span>
-                <p className="min-w-0 text-[0.9375rem] leading-relaxed text-slate-200">
-                    {answer.answer}
-                </p>
+                {/* Sage composes its own shape — a paragraph, tiles, a table of
+                    the rows a query returned — so the card lays out blocks
+                    rather than assuming prose. */}
+                <SageBlocks answer={answer} />
             </div>
-
-            {answer.highlights && answer.highlights.length > 0 && (
-                <div className="mt-4 grid gap-2.5 sm:grid-cols-3">
-                    {answer.highlights.slice(0, 3).map((h) => (
-                        <div key={h.label} className="rounded-xl bg-slate-950 px-4 py-3">
-                            <div className="text-xs text-slate-500">{h.label}</div>
-                            <div className="mt-1 text-lg font-extrabold tnum text-slate-100 [overflow-wrap:anywhere]">
-                                {h.value}
-                            </div>
-                            {h.hint && <div className="mt-0.5 text-xs text-slate-500">{h.hint}</div>}
-                        </div>
-                    ))}
-                </div>
-            )}
 
             {answer.followups && answer.followups.length > 0 && (
                 <div className="mt-4 flex flex-wrap gap-2">

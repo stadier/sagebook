@@ -39,6 +39,8 @@ export const IMPORT_MAX_ROWS = 10_000;
 export const SNAPSHOT_LIMIT = 365;
 /** Rows in the dashboard's "recent activity" list. */
 export const RECENT_TRANSACTION_LIMIT = 6;
+/** Unfiled entries offered in the Categories rail before it says "and more". */
+export const UNCATEGORIZED_LIMIT = 8;
 
 /* --- Email ingestion -------------------------------------------------------- */
 

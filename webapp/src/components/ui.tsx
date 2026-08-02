@@ -10,7 +10,7 @@ import type { InputHTMLAttributes, ReactNode, TextareaHTMLAttributes } from "rea
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { findOption, type Option } from "../lib/options";
-import { CHART_COLORS, TINT_STYLES, type Tint } from "../lib/theme";
+import { CHART_COLORS, TINT_STYLES, type Tint, tintStyle } from "../lib/theme";
 import { usePalette } from "./CommandPalette";
 import { ChevronDownIcon, CloseIcon } from "./icons";
 
@@ -195,13 +195,12 @@ export function Pill({ tint = "neutral", children }: { tint?: Tint; children: Re
 
 /**
  * Badge tinted by a colour the database supplied (a category's own colour),
- * falling back to the neutral chip. Kept here so the 12%-alpha fill recipe
- * lives in one place.
+ * falling back to the neutral chip when the row has none.
  */
 export function ColorPill({ color, children }: { color?: string | null; children: ReactNode }) {
     if (!color) return <Pill>{children}</Pill>;
     return (
-        <span className="sb-pill" style={{ backgroundColor: `${color}1f`, color }}>
+        <span className="sb-pill" style={tintStyle(color)}>
             {children}
         </span>
     );
@@ -464,6 +463,75 @@ export function Field({
             {children}
             {hint && <span className="text-xs text-slate-500">{hint}</span>}
         </label>
+    );
+}
+
+/* --- Donut ----------------------------------------------------------------
+   Composition as arcs on one ring, drawn with `stroke-dasharray` exactly as the
+   design does. The centre label is HTML rather than `<text>` so it inherits the
+   theme's text colour and the tabular figures. */
+
+export function Donut({
+    slices,
+    total,
+    size = 120,
+    label,
+    caption,
+}: {
+    slices: Array<{ value: number; color: string }>;
+    total: number;
+    size?: number;
+    label?: ReactNode;
+    caption?: ReactNode;
+}) {
+    const radius = 46;
+    const circumference = 2 * Math.PI * radius;
+    let offset = 0;
+
+    return (
+        <div className="relative shrink-0" style={{ width: size, height: size }}>
+            <svg width={size} height={size} viewBox="0 0 120 120" aria-hidden>
+                <circle
+                    cx="60"
+                    cy="60"
+                    r={radius}
+                    fill="none"
+                    stroke={CHART_COLORS.track}
+                    strokeWidth="20"
+                />
+                {slices.map((s, i) => {
+                    const len = total > 0 ? (s.value / total) * circumference : 0;
+                    const arc = (
+                        <circle
+                            key={i}
+                            cx="60"
+                            cy="60"
+                            r={radius}
+                            fill="none"
+                            stroke={s.color}
+                            strokeWidth="20"
+                            strokeDasharray={`${len} ${circumference - len}`}
+                            strokeDashoffset={-offset}
+                            transform="rotate(-90 60 60)"
+                        />
+                    );
+                    offset += len;
+                    return arc;
+                })}
+            </svg>
+            {label && (
+                <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-0.5 px-3 text-center">
+                    <span className="max-w-full truncate text-[0.8125rem] font-extrabold text-slate-100 tnum">
+                        {label}
+                    </span>
+                    {caption && (
+                        <span className="max-w-full truncate text-[0.6875rem] font-semibold text-slate-500">
+                            {caption}
+                        </span>
+                    )}
+                </div>
+            )}
+        </div>
     );
 }
 

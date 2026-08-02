@@ -31,6 +31,20 @@ export function fmtDate(iso: string): string {
     });
 }
 
+/**
+ * "Jul 25" — the compact form for dense lists, where the year is noise until
+ * it isn't the current one. Parsed as local midnight rather than through
+ * `Date(iso)`, which reads a bare date as UTC and can render the day before.
+ */
+export function fmtDateShort(iso: string): string {
+    const date = new Date(`${iso.slice(0, 10)}T00:00:00`);
+    return date.toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+        ...(date.getFullYear() === new Date().getFullYear() ? {} : { year: "numeric" }),
+    });
+}
+
 export function fmtDateTime(iso: string): string {
     return new Date(iso).toLocaleString(undefined, {
         year: "numeric",

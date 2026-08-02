@@ -18,7 +18,15 @@ export async function fetchTaxonomy(): Promise<GroupWithCategories[]> {
     const groups = (groupsRes.data ?? []) as CategoryGroup[];
     const cats = (catsRes.data ?? []) as Category[];
 
-    const orderWithinGroup = (list: Category[]) => {
+    /* The board's drag writes `sort_order`, so that leads; the name breaks ties
+       and carries lists on a database that predates the column. Sorting happens
+       here rather than in the query because a `.order("sort_order")` would be a
+       hard error against that older schema, not a graceful fallback. */
+    const byPosition = (a: Category, b: Category) =>
+        (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.name.localeCompare(b.name);
+
+    const orderWithinGroup = (input: Category[]) => {
+        const list = [...input].sort(byPosition);
         const parents = list.filter((c) => !c.parent_id);
         const ordered: Category[] = [];
         for (const p of parents) {

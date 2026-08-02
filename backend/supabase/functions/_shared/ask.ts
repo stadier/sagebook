@@ -20,6 +20,12 @@
 // The DSL is the security boundary. A model that emits `{"select":"total",
 // "kind":"expense"}` can only ever produce a sum of that user's expenses; there
 // is no phrasing of a question that turns it into a different table.
+//
+// The same split governs how the answer looks. Step 3 returns *blocks* — prose,
+// stat tiles, a table — and a table block holds no rows, only the id of a query
+// from step 2. The model chooses the presentation; the app owns the data. So
+// "list every waterfront payment" comes back as an actual table without ever
+// giving the model a chance to retype a figure it had already been handed.
 // =============================================================================
 
 import type { SupabaseClient } from "./deps.ts";
@@ -29,8 +35,14 @@ import { generateJson, safeParse } from "./extract.ts";
 const MAX_QUERIES = 5;
 /** Rows any single query may read. Aggregation happens over these. */
 const MAX_ROWS = 5000;
-/** Transactions a "list" query may hand back to the model. */
-const MAX_LIST = 25;
+/** Transactions a "list" query may hand back to the client. */
+const MAX_LIST = 100;
+/**
+ * Rows of a list the *model* sees. It never transcribes a list — it points at
+ * one with a table block — so it needs only enough to describe the shape. The
+ * client gets all `MAX_LIST` of them regardless.
+ */
+const MODEL_LIST_SAMPLE = 8;
 
 /* --- The query DSL --------------------------------------------------------- */
 
@@ -108,6 +120,8 @@ const PLAN_SYSTEM = `You plan data queries for a personal finance ledger. You ne
 
 Return one to ${MAX_QUERIES} queries. Guidance:
 - "total" sums amounts; "count" counts rows; "breakdown" needs groupBy; "list" returns individual transactions; "balances" returns current account balances and ignores every other filter.
+- Whenever the question asks to see, list, show or find transactions, emit a "list" query. Its rows are rendered as a real table, so a list is never wasted. Leave "limit" unset to return everything that matches, up to ${MAX_LIST}; set it only when the user asked for a specific number ("my last 5…").
+- A list pairs well with a total: emit both when the question is "show me X" and a sum is the obvious next thing to know.
 - Set "kind" whenever the question implies direction. Spending is kind=expense. Income and earnings are kind=income. Transfers move money between the user's own accounts and are neither.
 - Dates are inclusive ISO (YYYY-MM-DD). Resolve relative periods ("last month", "Q2", "this year") against today's date, given below.
 - Use category and account names exactly as listed in the context. If none fits, leave them out and use textContains instead.
@@ -117,6 +131,7 @@ Return one to ${MAX_QUERIES} queries. Guidance:
 /* --- Step 2: execution ----------------------------------------------------- */
 
 interface TxRow {
+    id: string;
     amount: number;
     currency: string;
     kind: string;
@@ -178,6 +193,10 @@ function monthOf(iso: string): string {
     return iso.slice(0, 7);
 }
 
+function accountNames(ctx: LedgerContext): Map<string, string> {
+    return new Map(ctx.accounts.map((a) => [a.id, a.name]));
+}
+
 async function runQuery(
     admin: SupabaseClient,
     userId: string,
@@ -203,7 +222,7 @@ async function runQuery(
     let q = admin
         .from("transactions")
         .select(
-            "amount, currency, kind, occurred_at, summary, payee, memo, account_id, categories(name)",
+            "id, amount, currency, kind, occurred_at, summary, payee, memo, account_id, categories(name)",
         )
         .eq("user_id", userId)
         .eq("review_status", "accepted");
@@ -250,11 +269,14 @@ async function runQuery(
     if (query.select === "count") return { ...base, data: { count: rows.length } };
 
     if (query.select === "list") {
+        const named = accountNames(ctx);
         return {
             ...base,
-            data: rows.slice(0, Math.min(query.limit ?? 10, MAX_LIST)).map((r) => ({
+            data: rows.slice(0, Math.min(query.limit ?? MAX_LIST, MAX_LIST)).map((r) => ({
+                id: r.id,
                 date: r.occurred_at.slice(0, 10),
                 description: r.summary ?? r.payee ?? "",
+                account: (r.account_id && named.get(r.account_id)) || null,
                 category: r.categories?.name ?? null,
                 kind: r.kind,
                 amount: Number(r.amount),
@@ -265,7 +287,7 @@ async function runQuery(
 
     if (query.select === "breakdown") {
         const groups = new Map<string, TxRow[]>();
-        const accountName = new Map(ctx.accounts.map((a) => [a.id, a.name]));
+        const accountName = accountNames(ctx);
         for (const r of rows) {
             const key =
                 query.groupBy === "month"
@@ -297,10 +319,51 @@ async function runQuery(
 
 /* --- Step 3: the answer ---------------------------------------------------- */
 
+/* Blocks are how the answer chooses its own shape. The one rule that makes
+   them safe: a block never carries data. A table block names a query by id and
+   the client renders that query's rows — the ones it already has, unaltered.
+   The model decides what the answer looks like; it never gets to decide what a
+   figure is. That is why "list all my waterfront payments" can come back as an
+   actual table without reopening the door to a mistyped total.
+
+   The shape is flat rather than a discriminated union: `type` selects which of
+   the optional fields matter. Gemini's responseSchema and OpenAI's strict
+   json_schema both handle a flat object reliably; neither handles oneOf well. */
+const BLOCK_TYPES = ["prose", "stats", "table"] as const;
+
 const ANSWER_SCHEMA = {
     type: "object",
     properties: {
         answer: { type: "string" },
+        blocks: {
+            type: "array",
+            items: {
+                type: "object",
+                properties: {
+                    type: { type: "string", enum: BLOCK_TYPES },
+                    /** prose: markdown-lite paragraph. */
+                    text: { type: "string" },
+                    /** table/stats: optional heading above the block. */
+                    title: { type: "string" },
+                    /** table: which query's rows to render. Never the rows themselves. */
+                    queryId: { type: "string" },
+                    /** stats: the tiles. */
+                    items: {
+                        type: "array",
+                        items: {
+                            type: "object",
+                            properties: {
+                                label: { type: "string" },
+                                value: { type: "string" },
+                                hint: { type: "string" },
+                            },
+                            required: ["label", "value"],
+                        },
+                    },
+                },
+                required: ["type"],
+            },
+        },
         highlights: {
             type: "array",
             items: {
@@ -320,21 +383,103 @@ const ANSWER_SCHEMA = {
 
 const ANSWER_SYSTEM = `You are Sage, the voice of a personal finance app. You are answering from real figures that were just queried out of the user's own ledger.
 
+Compose the reply as "blocks", in the order they should appear. Block types:
+- {"type":"prose","text":"…"} — a short paragraph. Markdown is allowed for emphasis and bullets, but NEVER for tables.
+- {"type":"stats","items":[{"label","value","hint"}]} — up to three headline figures as tiles.
+- {"type":"table","queryId":"…","title":"…"} — renders the rows of that query. It carries NO data: name the query id and the app draws its rows itself.
+
 Rules:
+- If the user asked to see, list, or show transactions, you MUST emit a table block for the "list" query that answered them. Do not summarise a list into prose or tiles, and never retype rows into the text — you would only introduce errors into figures the app already holds.
+- A list result may be shown to you as a sample of the full set. That is not a limit on what the user sees: the table block renders every row that was fetched. Never describe the sample as though it were all of them.
 - Use only the numbers given. Never estimate, extrapolate, or invent a figure. If the data does not answer the question, say so plainly and say what would.
 - Keep currencies separate. Never add one currency to another.
 - Format money with its currency, and lead with the number that answers the question.
-- Two to four sentences. Plain language, no preamble, no restating the question.
+- Prose is one or two sentences when a table or stats block follows, up to four when it stands alone. Plain language, no preamble, no restating the question.
 - If a result is marked truncated, say the figure is a floor rather than a total.
-- "highlights" holds at most three figures worth showing as tiles. "followups" holds at most three short questions the user might ask next.`;
+- Also set "answer" to the plain-text gist in one or two sentences, for places that show a single line.
+- "followups" holds at most three short questions the user might ask next.`;
+
+export type SageBlock =
+    | { type: "prose"; text: string }
+    | { type: "stats"; title?: string; items: Array<{ label: string; value: string; hint?: string }> }
+    | { type: "table"; title?: string; queryId: string };
 
 export interface SageAnswer {
     answer: string;
+    /** The composed reply. `answer`/`highlights` remain the single-line fallback. */
+    blocks?: SageBlock[];
     highlights?: Array<{ label: string; value: string; hint?: string }>;
     followups?: string[];
-    /** Echoed back so the UI can show its work. */
+    /** Echoed back so the UI can render tables and show its work. */
     queries: QueryResult[];
     model: string;
+}
+
+/** Selects whose result is a set of rows, and so can back a table block. */
+const TABULAR = new Set(["list", "breakdown", "balances"]);
+
+/**
+ * What the model sees of the results. Long lists are cut to a sample: the model
+ * only ever points at a list, so the other ninety rows buy nothing but tokens
+ * and the temptation to transcribe them. The client still receives every row.
+ */
+function promptView(results: QueryResult[]): unknown {
+    return results.map((r) => {
+        if (r.select !== "list" || !Array.isArray(r.data) || r.data.length <= MODEL_LIST_SAMPLE) {
+            return r;
+        }
+        return {
+            ...r,
+            data: r.data.slice(0, MODEL_LIST_SAMPLE),
+            note:
+                `sample only — ${r.data.length} rows were fetched. Render them with ` +
+                `{"type":"table","queryId":"${r.id}"} rather than listing any of them yourself.`,
+        };
+    });
+}
+
+/** Rows a table block would actually draw, so an empty one can be dropped. */
+function rowCount(result: QueryResult): number {
+    return Array.isArray(result.data) ? result.data.length : 0;
+}
+
+/**
+ * Keep the blocks that mean something: prose with text, stats with tiles, and
+ * tables that name a query which really ran and really has rows. A hallucinated
+ * query id is the one way this shape can go wrong, and it fails closed here.
+ *
+ * The safety net at the end matters as much as the filtering: if a list query
+ * came back and no block shows it, the user asked to see rows and would
+ * otherwise get prose about them. Append the table.
+ */
+function normaliseBlocks(
+    blocks: SageBlock[] | undefined,
+    results: QueryResult[],
+): SageBlock[] | undefined {
+    if (!blocks?.length) return undefined;
+    const byId = new Map(results.map((r) => [r.id, r]));
+
+    const kept: SageBlock[] = [];
+    for (const block of blocks) {
+        if (block.type === "prose") {
+            if (block.text?.trim()) kept.push({ type: "prose", text: block.text.trim() });
+        } else if (block.type === "stats") {
+            const items = (block.items ?? []).filter((i) => i?.label && i?.value).slice(0, 3);
+            if (items.length) kept.push({ ...block, items });
+        } else if (block.type === "table") {
+            const result = byId.get(block.queryId);
+            if (result && TABULAR.has(result.select) && rowCount(result) > 0) kept.push(block);
+        }
+    }
+
+    const shown = new Set(kept.flatMap((b) => (b.type === "table" ? [b.queryId] : [])));
+    for (const r of results) {
+        if (r.select === "list" && rowCount(r) > 0 && !shown.has(r.id)) {
+            kept.push({ type: "table", queryId: r.id, title: r.purpose });
+        }
+    }
+
+    return kept.length ? kept : undefined;
 }
 
 /**
@@ -388,7 +533,7 @@ export async function askLedger(
         user: [
             contextBlock,
             `\nQuestion: ${question}`,
-            `\nQuery results:\n${JSON.stringify(results, null, 1)}`,
+            `\nQuery results:\n${JSON.stringify(promptView(results), null, 1)}`,
         ].join("\n"),
         schema: ANSWER_SCHEMA as unknown as Record<string, unknown>,
         schemaName: "sage_answer",
@@ -400,6 +545,7 @@ export async function askLedger(
         answer:
             parsed?.answer ??
             "I couldn't put that together from your ledger. Try narrowing it to a period or a category.",
+        blocks: normaliseBlocks(parsed?.blocks, results),
         highlights: parsed?.highlights,
         followups: parsed?.followups,
         queries: results,

@@ -13,6 +13,10 @@ export interface Category {
     color: string | null;
     parent_id: string | null;
     group_id: string | null;
+    /** Hand-arranged position within the group — what the board's drag writes.
+     *  Optional so the app still renders against a database that predates the
+     *  column; ordering then falls back to the name. */
+    sort_order?: number;
 }
 
 export type AccountType =

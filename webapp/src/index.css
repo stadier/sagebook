@@ -720,6 +720,53 @@
         cursor: not-allowed;
     }
 
+    /* Board drag -------------------------------------------------------------
+       The card in the air. Pinned to the viewport and driven by inline
+       left/top, so it tracks the pointer exactly; the tilt and the deeper
+       shadow are what sell it as picked up rather than merely moved. */
+    .sb-lift {
+        position: fixed;
+        z-index: 90;
+        pointer-events: none;
+        transform: rotate(1.6deg) scale(1.03);
+        transform-origin: 50% 50%;
+        filter: drop-shadow(0 18px 30px rgba(25, 29, 36, 0.28));
+        animation: sb-pickup 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+    :root.dark .sb-lift {
+        filter: drop-shadow(0 18px 30px rgba(0, 0, 0, 0.55));
+    }
+    @keyframes sb-pickup {
+        from {
+            transform: rotate(0deg) scale(1);
+        }
+    }
+
+    /* The hole the card will drop into. Real layout, not a hint: the cards
+       around it have genuinely moved aside to make this space. */
+    .sb-slot {
+        border-radius: var(--radius-2xl);
+        border: 1.5px dashed color-mix(in oklab, var(--color-coral) 55%, transparent);
+        background-color: color-mix(in oklab, var(--color-coral) 7%, transparent);
+        animation: sb-slot-in 140ms ease-out;
+    }
+    @keyframes sb-slot-in {
+        from {
+            opacity: 0;
+        }
+    }
+
+    /* While something is in the air, nothing else on the page should look
+       selectable or take a text cursor. */
+    body.sb-dragging {
+        cursor: grabbing;
+        user-select: none;
+        -webkit-user-select: none;
+    }
+    body.sb-dragging * {
+        cursor: grabbing !important;
+    }
+
     /* Loading placeholder bar. ----------------------------------------------- */
     .sb-skeleton {
         border-radius: 9999px;
@@ -793,10 +840,15 @@
         [data-rail="collapsed"] .sb-rail-toggle {
             margin-left: 0;
         }
+        /* Collapsed, the active pill should read as a badge on the icon rather
+           than a full-width bar: size it to the icon and centre it in the rail. */
         [data-rail="collapsed"] .sb-rail-item {
             justify-content: center;
-            padding-left: 0;
-            padding-right: 0;
+            width: 2.375rem;
+            height: 2.375rem;
+            margin-left: auto;
+            margin-right: auto;
+            padding: 0;
         }
     }
 }

@@ -12,7 +12,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
-import { RECENT_TRANSACTION_LIMIT, SNAPSHOT_LIMIT } from "./constants";
+import { RECENT_TRANSACTION_LIMIT, SNAPSHOT_LIMIT, UNCATEGORIZED_LIMIT } from "./constants";
 import { currentMonthStart } from "./format";
 import { accountOptions, categoryOptions } from "./options";
 import { requireSupabase } from "./supabase";
@@ -42,6 +42,7 @@ export const QK = {
     pendingReview: ["pending-review"] as const,
     netWorth: ["net-worth"] as const,
     recentTransactions: ["recent-transactions"] as const,
+    uncategorized: ["uncategorized"] as const,
     rules: ["rules"] as const,
     budgets: ["budgets"] as const,
     scheduled: ["scheduled"] as const,
@@ -207,6 +208,27 @@ export function useRecentTransactions(limit: number = RECENT_TRANSACTION_LIMIT) 
                     .from("transactions")
                     .select(RECENT_COLUMNS)
                     .eq("review_status", "accepted")
+                    .order("occurred_at", { ascending: false })
+                    .limit(limit),
+            ),
+    });
+}
+
+/**
+ * Accepted entries still carrying no category — the queue the Categories board
+ * files from. Deliberately capped: this is a "clear a few now" rail, and the
+ * ledger is where you go to work through a backlog.
+ */
+export function useUncategorized(limit: number = UNCATEGORIZED_LIMIT) {
+    return useQuery({
+        queryKey: [...QK.uncategorized, limit],
+        queryFn: () =>
+            rows<RecentTransaction>((sb) =>
+                sb
+                    .from("transactions")
+                    .select(RECENT_COLUMNS)
+                    .eq("review_status", "accepted")
+                    .is("category_id", null)
                     .order("occurred_at", { ascending: false })
                     .limit(limit),
             ),

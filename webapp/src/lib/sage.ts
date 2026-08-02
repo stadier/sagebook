@@ -28,8 +28,40 @@ export interface SageQueryResult {
     data: unknown;
 }
 
+/** One transaction from a `list` query. */
+export interface SageListRow {
+    id: string;
+    date: string;
+    description: string;
+    account: string | null;
+    category: string | null;
+    kind: string;
+    amount: number;
+    currency: string;
+}
+
+/** One row of a `breakdown` query — a group and its per-currency totals. */
+export interface SageBreakdownRow {
+    group: string;
+    count: number;
+    totals: Record<string, number>;
+}
+
+/**
+ * How Sage composes a reply. A `table` block carries no data — only the id of a
+ * query in `queries`, whose rows the client renders itself. That is deliberate:
+ * the figures reaching the screen are the ones the ledger returned, never a
+ * copy the model retyped on the way past.
+ */
+export type SageBlock =
+    | { type: "prose"; text: string }
+    | { type: "stats"; title?: string; items: SageHighlight[] }
+    | { type: "table"; title?: string; queryId: string };
+
 export interface SageAnswer {
     answer: string;
+    /** Absent on older answers, which fall back to `answer` + `highlights`. */
+    blocks?: SageBlock[];
     highlights?: SageHighlight[];
     followups?: string[];
     queries: SageQueryResult[];

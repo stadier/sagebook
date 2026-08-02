@@ -288,6 +288,36 @@ export function SendIcon({ size = 16, className }: IconProps) {
     );
 }
 
+/** Jump a recurrence past one occurrence without posting it. */
+export function SkipIcon({ size = 16, className }: IconProps) {
+    return (
+        <Stroke size={size} className={className}>
+            <path d="M5 6.5v11l8-5.5z" />
+            <path d="M17 6v12" />
+        </Stroke>
+    );
+}
+
+/* --- Direction --------------------------------------------------------------
+   Money in falls into the ledger, money out climbs away from it. The pair is
+   only ever used together, so they read as opposites rather than as up/down. */
+
+export function ArrowDownIcon({ size = 16, className }: IconProps) {
+    return (
+        <Stroke size={size} width={2} className={className}>
+            <path d="M12 5v14M6 13l6 6 6-6" />
+        </Stroke>
+    );
+}
+
+export function ArrowUpIcon({ size = 16, className }: IconProps) {
+    return (
+        <Stroke size={size} width={2} className={className}>
+            <path d="M12 19V5M6 11l6-6 6 6" />
+        </Stroke>
+    );
+}
+
 /** Re-run something over history — a rule against past transactions. */
 export function ReplayIcon({ size = 16, className }: IconProps) {
     return (
