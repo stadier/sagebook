@@ -19,6 +19,7 @@ import type { Account, ParsedTransaction, PendingTransaction } from "../lib/type
 type ReviewAction = "accept" | "reject" | "edit" | "merge" | "unlink";
 
 const LAST_ACCOUNT_KEY = STORAGE_KEYS.lastAccount;
+const BULK_REVIEW_CHUNK_SIZE = 100;
 
 export default function Inbox() {
     const qc = useQueryClient();
@@ -52,11 +53,18 @@ export default function Inbox() {
     });
 
     const bulk = useMutation({
-        mutationFn: (args: { ids: string[]; action: "accept" | "reject" }) =>
-            invokeFn("review-transaction/bulk", {
-                transactionIds: args.ids,
-                action: args.action,
-            }),
+        mutationFn: async (args: { ids: string[]; action: "accept" | "reject" }) => {
+            let updated = 0;
+            for (let i = 0; i < args.ids.length; i += BULK_REVIEW_CHUNK_SIZE) {
+                const chunk = args.ids.slice(i, i + BULK_REVIEW_CHUNK_SIZE);
+                const result = await invokeFn<{ updated: number }>("review-transaction/bulk", {
+                    transactionIds: chunk,
+                    action: args.action,
+                });
+                updated += result.updated ?? chunk.length;
+            }
+            return { updated };
+        },
         onSuccess: () => {
             setSelected(new Set());
             invalidate();

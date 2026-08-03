@@ -11,6 +11,7 @@ import {
     type ImportTx,
     loadTemplate,
     looksLikeOfx,
+    type NormalizeResult,
     normalizeCsv,
     parseCsv,
     parseOfx,
@@ -240,7 +241,7 @@ export default function ImportFlow({
         },
     });
 
-    const normalized: { txs: ImportTx[]; errors: string[] } | null =
+    const normalized: NormalizeResult | null =
         fileKind === "ofx"
             ? ofxResult
             : fileKind === "csv" && mapping
@@ -402,6 +403,7 @@ export default function ImportFlow({
                 <PreviewPane
                     txs={normalized.txs}
                     errors={normalized.errors}
+                    ignoredRows={normalized.ignoredRows}
                     busy={begin.isPending}
                     onImport={() => begin.mutate()}
                 />
@@ -559,11 +561,13 @@ function MappingEditor({
 function PreviewPane({
     txs,
     errors,
+    ignoredRows,
     busy,
     onImport,
 }: {
     txs: ImportTx[];
     errors: string[];
+    ignoredRows: number;
     busy: boolean;
     onImport: () => void;
 }) {
@@ -582,6 +586,14 @@ function PreviewPane({
                 {errors.length > 0 && (
                     <span className="text-amber-400" title={errors.slice(0, 10).join("\n")}>
                         ⚠ {errors.length} row{errors.length === 1 ? "" : "s"} skipped (hover for detail)
+                    </span>
+                )}
+                {ignoredRows > 0 && (
+                    <span
+                        className="text-slate-500"
+                        title="Ignored as non-transaction rows (summary/blank continuation lines)."
+                    >
+                        {ignoredRows} non-transaction row{ignoredRows === 1 ? "" : "s"} ignored
                     </span>
                 )}
             </div>
