@@ -257,6 +257,7 @@ export default function AppShell() {
 					onClose={closeIngest}
 					initialText={ingestText}
 					initialFiles={ingestFiles}
+					dockWidth={sage.open ? sage.width : 0}
 				/>
 
 				{/* Persistent background-import progress, visible on every page. */}
