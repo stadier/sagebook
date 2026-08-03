@@ -12,10 +12,13 @@ export default function IngestModal({
     open,
     onClose,
     initialText = "",
+    initialFiles,
 }: {
     open: boolean;
     onClose: () => void;
     initialText?: string;
+    /** Files the modal was opened *with* — a drop on the window, a pasted image. */
+    initialFiles?: File[];
 }) {
     // `render` keeps the panel mounted through the close animation; `visible`
     // drives the transition (flipped a frame after mount so it animates in).
@@ -94,6 +97,7 @@ export default function IngestModal({
                         ) : (
                             <UnifiedEntry
                                 initialText={initialText}
+                                initialFiles={initialFiles}
                                 onStructuredFile={setStructuredFile}
                                 onClose={onClose}
                             />

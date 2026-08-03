@@ -214,6 +214,14 @@
     body {
         background-color: var(--color-paper);
         color: var(--color-ink);
+        /* The shell owns the app's scrolling — one column, one scrollbar. The
+           document itself must never scroll sideways: a stray pixel of
+           horizontal overflow costs 15px of viewport height, which puts the
+           shell's `h-screen` over the edge and hands the page a second vertical
+           scrollbar next to the one it already has. `clip` refuses the scroll
+           without becoming a scroll container, so vertical scrolling on the
+           pages that own it — Welcome, the console — is untouched. */
+        overflow-x: clip;
     }
 
     body {

@@ -19,6 +19,10 @@ export const STORAGE_KEYS = {
     importTemplates: "sagebook.webapp.importTemplates",
     /** "1" while the desktop sidebar is collapsed to its icon rail. */
     sidebarCollapsed: "sagebook.webapp.sidebarCollapsed",
+    /** "1" while Sage's right-hand dock is open. */
+    sageDockOpen: "sagebook.webapp.sageDockOpen",
+    /** Dock width in pixels, as last dragged. */
+    sageDockWidth: "sagebook.webapp.sageDockWidth",
 } as const;
 
 /* --- Money -----------------------------------------------------------------

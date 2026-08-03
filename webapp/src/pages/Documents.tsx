@@ -11,6 +11,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
 import DataTable, { type Column } from "../components/DataTable";
+import { DownloadIcon } from "../components/icons";
 import {
 	Field,
 	PageHeader,
@@ -21,7 +22,7 @@ import {
 import { fmtBytes, fmtDateTime } from "../lib/format";
 import { pairOptions } from "../lib/options";
 import { QK, useDocuments, type DocumentRow } from "../lib/queries";
-import { signedUrlFor } from "../lib/storage";
+import { downloadFromIngest, signedUrlFor } from "../lib/storage";
 import { invokeFn } from "../lib/supabase";
 
 type StatusFilter =
@@ -137,6 +138,11 @@ export default function Documents() {
 	const qc = useQueryClient();
 	const [status, setStatus] = useState<StatusFilter>("all");
 	const [kind, setKind] = useState<KindFilter>("all");
+	/* Which file is being fetched, and anything the archive said about why it
+	   couldn't be. A download is the one verb here with no visible result on
+	   the page, so both are surfaced rather than left to the console. */
+	const [saving, setSaving] = useState<string | null>(null);
+	const [saveError, setSaveError] = useState<Error | null>(null);
 
 	const docs = useDocuments();
 
@@ -150,6 +156,16 @@ export default function Documents() {
 			qc.invalidateQueries({ queryKey: ["activity"] });
 		},
 	});
+
+	/** Pull the original off the archive and hand it to the browser to save. */
+	function saveOriginal(doc: DocumentRow) {
+		if (!doc.storage_path) return;
+		setSaving(doc.id);
+		setSaveError(null);
+		void downloadFromIngest(doc.storage_path, fileNameOf(doc))
+			.catch((err) => setSaveError(err as Error))
+			.finally(() => setSaving(null));
+	}
 
 	const all = docs.data ?? [];
 	const rows = all.filter(
@@ -209,7 +225,13 @@ export default function Documents() {
 				<div className="flex min-w-0 items-center gap-2.5">
 					<KindGlyph kind={d.media_kind} />
 					<div className="min-w-0">
-						<div className="break-words font-medium text-slate-200">
+						{/* An uploader's file name is one unbroken token — bank
+						    exports run to sixty characters with never a space.
+						    `break-words` alone lets it wrap but does not shrink
+						    the column's min-content width, so the table stays
+						    wide and scrolls sideways instead; `anywhere` does
+						    both. */}
+						<div className="font-medium text-slate-200 [overflow-wrap:anywhere]">
 							{fileNameOf(d)}
 						</div>
 						<div className="text-[0.6875rem] text-slate-500">
@@ -313,6 +335,7 @@ export default function Documents() {
 
 			<QueryError error={docs.error} />
 			<QueryError error={retry.error} />
+			<QueryError error={saveError} />
 
 			<div className="grid gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
 				<StatCard
@@ -384,6 +407,13 @@ export default function Documents() {
 						onSelect: () => void openOriginal(d),
 					},
 					{
+						label: saving === d.id ? "Downloading…" : "Download file",
+						hint: d.bytes ? fmtBytes(d.bytes) : undefined,
+						hidden: !d.storage_path,
+						disabled: saving === d.id,
+						onSelect: () => saveOriginal(d),
+					},
+					{
 						label: "Retry extraction",
 						hint: "runs process-media again",
 						hidden: d.status !== "failed" || !d.storage_path,
@@ -397,6 +427,8 @@ export default function Documents() {
 						doc={d}
 						retrying={retry.isPending}
 						onRetry={() => retry.mutate(d)}
+						saving={saving === d.id}
+						onDownload={() => saveOriginal(d)}
 					/>
 				)}
 				emptyTitle="No documents yet"
@@ -422,10 +454,14 @@ function DocumentDetail({
 	doc,
 	retrying,
 	onRetry,
+	saving,
+	onDownload,
 }: {
 	doc: DocumentRow;
 	retrying: boolean;
 	onRetry: () => void;
+	saving: boolean;
+	onDownload: () => void;
 }) {
 	const media = useQuery({
 		queryKey: ["document-url", doc.id],
@@ -469,6 +505,17 @@ function DocumentDetail({
 			)}
 
 			{url && doc.storage_path && <Media url={url} doc={doc} />}
+
+			{doc.storage_path && (
+				<button
+					className="sb-tbtn self-start"
+					disabled={saving}
+					onClick={onDownload}
+				>
+					<DownloadIcon size={14} />
+					{saving ? "Downloading…" : `Download ${fmtBytes(doc.bytes)}`}
+				</button>
+			)}
 
 			<dl className="mt-1 grid gap-x-4 gap-y-1 sm:grid-cols-[7rem_1fr]">
 				{doc.prompt_hint && (

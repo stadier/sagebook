@@ -62,10 +62,25 @@ microphone, not just the keyboard.
    invitation. Sagebook is a tool you trust with money; it should feel composed,
    never busy or loud.
 
-## 3. The console — where the voice lives
+## 3. Where the voice lives
 
-The clearest expression of this idea is the **Console** (`/console` in the web
-app): a calm, focused workspace built around Sage.
+Sage has two windows onto **one conversation**, and which one you are looking
+through is a matter of how much room you want, never of losing your place.
+
+- **The dock.** A resizable panel on the right of every page, on `⌘J`. It
+  *pushes* the app rather than covering it, so you can read the ledger and ask
+  about the ledger at once — and because it knows which screen you are on, "why
+  is this uncategorised?" has something to refer to.
+- **The console** (`/console`). The same thread, full-screen: history gets a
+  permanent rail, answers get their generated dashboard panels underneath, and
+  the query traces open up. "Dock to the side" hands it back mid-sentence.
+
+Conversations are remembered, so a follow-up lands in the light of what came
+before, and an earlier question can be **asked a different way** without losing
+the first — both versions stay, and a ‹1/2› switcher picks which one the
+conversation continues from.
+
+The console is the calm, focused expression of the idea:
 
 ```
 ┌───────────┬─────────────────────────────────────────────┐
@@ -84,9 +99,8 @@ app): a calm, focused workspace built around Sage.
 └───────────┴─────────────────────────────────────────────┘
 ```
 
-- **Left rail.** Quiet, vertical. Brand at the top, a "New" action, the history
-  of what you've asked this session, and you at the bottom. It gets out of the
-  way.
+- **Left rail.** Quiet, vertical. Brand at the top, a "New" action, every
+  conversation you've had, and you at the bottom. It gets out of the way.
 - **Right canvas.** Mostly empty on purpose. One hero prompt, a few suggestion
   chips to show what Sage can do, and ambient calm. When you submit, a
   **generated dashboard** appears inline — the answer to your question, drawn
@@ -95,10 +109,10 @@ app): a calm, focused workspace built around Sage.
   "Received…"), Sage routes it into capture. If it reads like a question
   ("Show…", "How much…", "Summarize…"), Sage renders a dashboard. Same prompt.
 
-The Console does not replace the classic dashboard and detail pages — those
-stay as the structured, browsable surface. The Console is the **front door for
-the financial voice**: the fastest path from a thought about money to either
-recording it or seeing it.
+Neither window replaces the classic dashboard and detail pages — those stay as
+the structured, browsable surface, which is exactly what the dock sits beside.
+Sage is the **front door for the financial voice**: the fastest path from a
+thought about money to either recording it or seeing it.
 
 ## 4. How the voice maps to the machinery
 
