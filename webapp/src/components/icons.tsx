@@ -418,6 +418,25 @@ export function MicIcon({ size = 18, className }: IconProps) {
 	);
 }
 
+/** Sends the docked conversation to the full-screen console, and back. */
+export function ExpandIcon({ size = 16, className }: IconProps) {
+	return (
+		<Stroke size={size} className={className}>
+			<path d="M14 4h6v6M20 4l-7 7M10 20H4v-6M4 20l7-7" />
+		</Stroke>
+	);
+}
+
+/** Earlier conversations. */
+export function HistoryIcon({ size = 16, className }: IconProps) {
+	return (
+		<Stroke size={size} className={className}>
+			<path d="M4 12a8 8 0 1 0 2.5-5.8L4 8.5" />
+			<path d="M4 4v4.5h4.5M12 8v4.5l3 1.8" />
+		</Stroke>
+	);
+}
+
 export function GridIcon({ size = 16, className }: IconProps) {
 	return (
 		<Stroke size={size} width={1.8} className={className}>

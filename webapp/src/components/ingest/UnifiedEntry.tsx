@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { type DragEvent, type FormEvent, useRef, useState } from "react";
+import { type DragEvent, type FormEvent, useEffect, useRef, useState } from "react";
 import { classifyFile, classifyFileAsync, runProcessMedia } from "../../lib/ingest";
 import { logEvent } from "../../lib/logger";
 import { QK } from "../../lib/queries";
@@ -15,10 +15,13 @@ interface MultiResult {
 
 export default function UnifiedEntry({
     initialText = "",
+    initialFiles,
     onStructuredFile,
     onClose,
 }: {
     initialText?: string;
+    /** Files the surface was opened with — a window drop, a pasted screenshot. */
+    initialFiles?: File[];
     onStructuredFile: (file: File) => void;
     onClose: () => void;
 }) {
@@ -125,8 +128,30 @@ export default function UnifiedEntry({
         if (fileInput.current) fileInput.current.value = "";
     }
 
+    /* The surface stays mounted between openings, so what it was opened *with*
+       arrives as changing props rather than as fresh initial state. Each new
+       drop, share or composer hand-off is a new array/string identity, which is
+       the signal to take it on board.
+
+       Text only overwrites an empty box: someone mid-sentence when a share
+       target fires should not lose what they were typing. */
+    useEffect(() => {
+        if (!initialFiles?.length) return;
+        void addFiles(initialFiles);
+        // addFiles is stable in effect but not in identity; the files are the trigger.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [initialFiles]);
+
+    useEffect(() => {
+        if (!initialText) return;
+        setText((prev) => (prev.trim() ? prev : initialText));
+    }, [initialText]);
+
     function onDrop(e: DragEvent) {
         e.preventDefault();
+        // The window listens for drops too (`useGlobalCapture`). Stopping here
+        // is what keeps a file dropped *on this box* from being added twice.
+        e.stopPropagation();
         setDragOver(false);
         const dropped = Array.from(e.dataTransfer.files ?? []);
         if (dropped.length > 0) void addFiles(dropped);

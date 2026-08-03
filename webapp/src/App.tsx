@@ -5,6 +5,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-route
 import AppShell from "./components/AppShell";
 import { PaletteProvider } from "./components/CommandPalette";
 import { ConfirmProvider } from "./components/Confirm";
+import { SageProvider } from "./components/sage/SageProvider";
 import { getSupabase } from "./lib/supabase";
 import Accounts from "./pages/Accounts";
 import Activity from "./pages/Activity";
@@ -74,6 +75,10 @@ export default function App() {
                 {/* Likewise one confirmation dialog — nothing destructive in the
                     app happens without passing through it. */}
                 <ConfirmProvider>
+                    {/* Which conversation Sage is on outlives both the dock and
+                        the console route, so it sits above the router — walking
+                        between them is changing window, not changing subject. */}
+                    <SageProvider>
                     <BrowserRouter
                         future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
                     >
@@ -117,6 +122,7 @@ export default function App() {
                             </Routes>
                         )}
                     </BrowserRouter>
+                    </SageProvider>
                 </ConfirmProvider>
             </PaletteProvider>
         </QueryClientProvider>

@@ -1,24 +1,36 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { STORAGE_KEYS } from "../lib/constants";
 import { usePendingReview } from "../lib/queries";
 import { requireSupabase } from "../lib/supabase";
 import { useTheme } from "../lib/useTheme";
 import { GlobalSearchProvider } from "./GlobalSearch";
-import { LogoutIcon, MenuIcon, PanelToggleIcon, PlusIcon, ThemeIcon } from "./icons";
-import { BrandMark, Icon, NAV, NAV_GROUPS } from "./nav";
+import { LogoutIcon, MenuIcon, PanelToggleIcon, PlusIcon, SparkIcon, ThemeIcon } from "./icons";
+import { BrandMark, Icon, NAV, NAV_GROUPS, navItem } from "./nav";
 import IngestModal from "./ingest/IngestModal";
 import ImportProgress from "./ingest/ImportProgress";
+import { useGlobalCapture } from "./ingest/useGlobalCapture";
+import { SageDock } from "./sage/SageDock";
+import { useSageSession } from "./sage/SageProvider";
 
-/* The shell is a fixed dark rail plus a single scrolling column, exactly as in
-   the design: the sidebar never scrolls with the page, and it stays navy in
-   both themes so the app always has one constant anchor. Below `lg` the rail
-   becomes a slide-over drawer behind a sticky mobile top bar.
+/* The shell is a fixed dark rail, a scrolling column, and — when you call for
+   it — Sage docked to the right. The sidebar never scrolls with the page, and
+   it stays navy in both themes so the app always has one constant anchor. Below
+   `lg` the rail becomes a slide-over drawer behind a sticky mobile top bar.
 
    From `lg` up the rail collapses to an icon strip. That is a desktop
    affordance only — the drawer already dismisses via its backdrop — so the
    collapsed state is expressed through `lg:` variants rather than by dropping
-   labels from the tree, and the drawer stays fully labelled on a phone. */
+   labels from the tree, and the drawer stays fully labelled on a phone.
+
+   Getting things *in* has three doors, and they are deliberately not the same
+   door in three places:
+   - **Add**, pinned under the brand. Fixed position, never over content. It
+     stands down while Sage is docked, because Sage's composer is already the
+     one box for both telling and asking.
+   - **Drop or paste anywhere.** No aiming required; see `useGlobalCapture`.
+   - **The "+" bubble**, kept for phones, where there is no visible sidebar to
+     pin anything to. */
 
 export default function AppShell() {
     const navigate = useNavigate();
@@ -32,10 +44,24 @@ export default function AppShell() {
     const [email, setEmail] = useState<string | null>(null);
     const [ingestOpen, setIngestOpen] = useState(false);
     const [ingestText, setIngestText] = useState("");
+    const [ingestFiles, setIngestFiles] = useState<File[] | undefined>();
     const [menuOpen, setMenuOpen] = useState(false);
+    const sage = useSageSession();
 
     const pending = usePendingReview();
     const pendingCount = pending.data?.length ?? 0;
+
+    // A file dropped or pasted anywhere in the app opens capture already holding
+    // it — the shortest path there is from "I have a receipt" to it being filed.
+    const captureFiles = useCallback((files: File[]) => {
+        setIngestText("");
+        setIngestFiles(files);
+        setIngestOpen(true);
+    }, []);
+    const { dragging } = useGlobalCapture(captureFiles);
+
+    /** What the user is looking at, so Sage knows what "this" refers to. */
+    const viewing = navItem(location.pathname)?.label;
 
     // Close the drawer + the account menu whenever the route changes.
     useEffect(() => {
@@ -64,13 +90,15 @@ export default function AppShell() {
             .catch(() => {});
     }, []);
 
-    function openIngest() {
-        setIngestText("");
+    function openIngest(text = "") {
+        setIngestText(text);
+        setIngestFiles(undefined);
         setIngestOpen(true);
     }
 
     function closeIngest() {
         setIngestOpen(false);
+        setIngestFiles(undefined);
         // Leave the /capture|/import URL so the effect above doesn't re-open it.
         if (location.pathname === "/capture" || location.pathname === "/import") {
             navigate("/", { replace: true });
@@ -100,6 +128,10 @@ export default function AppShell() {
             <Sidebar
                 open={drawerOpen}
                 collapsed={collapsed}
+                onAdd={() => openIngest()}
+                showAdd={!sage.open}
+                sageOpen={sage.open}
+                onToggleSage={sage.toggle}
                 onToggleCollapsed={() => {
                     const next = !collapsed;
                     setCollapsed(next);
@@ -134,9 +166,16 @@ export default function AppShell() {
                         <span className="text-[0.9375rem] font-extrabold tracking-tight">Sagebook</span>
                     </Link>
                     <button
+                        aria-label="Ask Sage"
+                        onClick={sage.toggle}
+                        className="ml-auto grid h-[34px] w-[34px] place-items-center rounded-lg bg-chip text-coral"
+                    >
+                        <SparkIcon size={17} />
+                    </button>
+                    <button
                         aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
                         onClick={toggleTheme}
-                        className="ml-auto grid h-[34px] w-[34px] place-items-center rounded-lg bg-chip text-slate-200"
+                        className="grid h-[34px] w-[34px] place-items-center rounded-lg bg-chip text-slate-200"
                     >
                         <ThemeIcon theme={theme} />
                     </button>
@@ -147,16 +186,44 @@ export default function AppShell() {
                 </div>
             </main>
 
-            {/* Floating "+" — the single entry point for all ingestion */}
-            <button
-                aria-label="Add"
-                onClick={openIngest}
-                className="fixed bottom-6 right-6 z-40 grid h-14 w-14 place-items-center rounded-full bg-coral text-coral-fg shadow-pop transition-transform hover:scale-105 hover:bg-coral-600 active:scale-95"
-            >
-                <PlusIcon size={24} />
-            </button>
+            <SageDock onCapture={(text) => openIngest(text)} viewing={viewing} />
 
-            <IngestModal open={ingestOpen} onClose={closeIngest} initialText={ingestText} />
+            {/* Floating "+" — phones only, where the rail's Add button is behind
+                the drawer and there is nothing else pinned to reach for. */}
+            {!sage.open && (
+                <button
+                    aria-label="Add"
+                    onClick={() => openIngest()}
+                    className="fixed bottom-6 right-6 z-40 grid h-14 w-14 place-items-center rounded-full bg-coral text-coral-fg shadow-pop transition-transform hover:scale-105 hover:bg-coral-600 active:scale-95 lg:hidden"
+                >
+                    <PlusIcon size={24} />
+                </button>
+            )}
+
+            {/* Drop anything, anywhere. The overlay is the only thing that has to
+                say so, since the drop target is the whole window. */}
+            {dragging && !ingestOpen && (
+                <div className="pointer-events-none fixed inset-0 z-[80] grid place-items-center bg-black/50 backdrop-blur-sm">
+                    <div className="rounded-3xl border-2 border-dashed border-coral bg-paper px-8 py-7 text-center shadow-pop">
+                        <span className="mx-auto grid h-11 w-11 place-items-center rounded-2xl bg-coral text-coral-fg">
+                            <PlusIcon size={22} />
+                        </span>
+                        <p className="mt-3 text-base font-bold text-slate-100">
+                            Drop it anywhere
+                        </p>
+                        <p className="mt-1 text-sm text-slate-400">
+                            Receipts, statements, voice notes — Sagebook will read it.
+                        </p>
+                    </div>
+                </div>
+            )}
+
+            <IngestModal
+                open={ingestOpen}
+                onClose={closeIngest}
+                initialText={ingestText}
+                initialFiles={ingestFiles}
+            />
 
             {/* Persistent background-import progress, visible on every page. */}
             <ImportProgress />
@@ -173,6 +240,10 @@ function Sidebar({
     open,
     collapsed,
     onToggleCollapsed,
+    onAdd,
+    showAdd,
+    sageOpen,
+    onToggleSage,
     pendingCount,
     name,
     initial,
@@ -185,6 +256,11 @@ function Sidebar({
     open: boolean;
     collapsed: boolean;
     onToggleCollapsed: () => void;
+    onAdd: () => void;
+    /** Stands down while Sage is docked — its composer already captures. */
+    showAdd: boolean;
+    sageOpen: boolean;
+    onToggleSage: () => void;
     pendingCount: number;
     name: string;
     initial: string;
@@ -203,7 +279,7 @@ function Sidebar({
         >
             {/* Brand + the collapse control, which sits to the right of the
                 wordmark and drops beneath the mark once the rail is narrow. */}
-            <div className="sb-rail-brand flex items-center gap-2.5 px-2.5 pb-6">
+            <div className="sb-rail-brand flex items-center gap-2.5 px-2.5 pb-4">
                 <Link to="/" className="flex min-w-0 items-center gap-2.5">
                     <span className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-[10px] bg-coral text-coral-fg">
                         <BrandMark />
@@ -220,6 +296,40 @@ function Sidebar({
                     className="sb-rail-toggle ml-auto hidden h-[30px] w-[30px] shrink-0 place-items-center rounded-[9px] text-[#9aa0ad] transition-colors hover:bg-white/[0.08] hover:text-[#eef0f4] lg:grid"
                 >
                     <PanelToggleIcon collapsed={collapsed} />
+                </button>
+            </div>
+
+            {/* Add and Ask — the two things you come to the app to do, in the one
+                place that never moves. Add steps aside when Sage is open rather
+                than offering the same job twice. */}
+            <div className="flex flex-col gap-1.5 pb-4">
+                {showAdd && (
+                    <button
+                        onClick={onAdd}
+                        title="Add to Sagebook"
+                        className="sb-rail-item flex items-center gap-[11px] rounded-xl bg-coral px-3.5 py-2.5 text-sm font-bold text-coral-fg transition-colors hover:bg-coral-600"
+                    >
+                        <PlusIcon size={17} />
+                        <span className="sb-rail-label whitespace-nowrap">Add</span>
+                    </button>
+                )}
+                <button
+                    onClick={onToggleSage}
+                    aria-pressed={sageOpen}
+                    title="Ask Sage  (⌘J)"
+                    className={`sb-rail-item flex items-center gap-[11px] rounded-xl px-3.5 py-2.5 text-sm font-medium transition-colors ${
+                        sageOpen
+                            ? "bg-white/[0.12] text-[#eef0f4]"
+                            : "text-[#9aa0ad] hover:bg-white/[0.06] hover:text-[#eef0f4]"
+                    }`}
+                >
+                    <span className="text-coral">
+                        <SparkIcon size={17} />
+                    </span>
+                    <span className="sb-rail-label whitespace-nowrap">Ask Sage</span>
+                    <span className="sb-rail-label ml-auto text-[0.6875rem] text-[#767d8c]">
+                        ⌘J
+                    </span>
                 </button>
             </div>
 

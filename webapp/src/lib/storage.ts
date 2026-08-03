@@ -78,3 +78,46 @@ export async function signedUrlFor(storagePath: string): Promise<string> {
     if (signed.error) throw new Error(signed.error.message);
     return signed.data.signedUrl;
 }
+
+/**
+ * Save an archived capture to the user's machine under `filename`.
+ *
+ * A signed URL points at another origin, and `<a download>` is ignored
+ * cross-origin — the browser navigates to the file instead of saving it. So the
+ * bytes are fetched and handed to the anchor as a same-origin blob. If the
+ * fetch is refused (a bucket serving no CORS headers), the signed link is
+ * opened instead; Supabase's own URLs carry `Content-Disposition: attachment`
+ * from the `download` option, so that fallback still saves rather than
+ * navigates.
+ */
+export async function downloadFromIngest(storagePath: string, filename: string): Promise<void> {
+    const sb = requireSupabase();
+    let url: string;
+    if (storagePath.startsWith("b2:")) {
+        url = await signedUrlFor(storagePath);
+    } else {
+        const signed = await sb.storage
+            .from("ingest")
+            .createSignedUrl(storagePath, 3600, { download: filename });
+        if (signed.error) throw new Error(signed.error.message);
+        url = signed.data.signedUrl;
+    }
+
+    let href = url;
+    let objectUrl: string | null = null;
+    try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+        objectUrl = URL.createObjectURL(await res.blob());
+        href = objectUrl;
+    } catch (err) {
+        console.warn("[storage] falling back to the signed link:", err);
+    }
+
+    const a = document.createElement("a");
+    a.href = href;
+    a.download = filename;
+    a.rel = "noopener";
+    a.click();
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
+}

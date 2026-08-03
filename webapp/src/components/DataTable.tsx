@@ -1171,7 +1171,18 @@ export function DataTable<T>({
                             flexible column and shrinks the checkbox gutter to
                             its stated 1%. A cell clamps itself instead — see
                             the note on `Column.cell`. */}
-						<div className="hidden overflow-x-auto md:block">
+						{/* `relative` is load-bearing, not decoration. An absolutely
+                            positioned descendant — the `sr-only` label on the
+                            actions header below is one — resolves against the
+                            nearest positioned ancestor, and without one here that
+                            is the viewport: it then escapes both this scroller and
+                            the card's `overflow: hidden`, and parks itself at the
+                            far edge of a wide table. The document grows a
+                            horizontal scrollbar for a 1px label, which steals
+                            15px of height, which pushes the shell's `h-screen`
+                            past the viewport and grows a *second* vertical
+                            scrollbar beside the one `main` already owns. */}
+						<div className="relative hidden overflow-x-auto md:block">
 							<table
 								className="w-full border-collapse text-sm"
 								style={{ minWidth }}

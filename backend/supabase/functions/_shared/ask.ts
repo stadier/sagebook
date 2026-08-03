@@ -26,6 +26,12 @@
 // from step 2. The model chooses the presentation; the app owns the data. So
 // "list every waterfront payment" comes back as an actual table without ever
 // giving the model a chance to retype a figure it had already been handed.
+//
+// Both model steps also see the conversation so far, because "and what about
+// last year?" is only answerable in the light of what came before. The history
+// changes what gets *asked for*, never what the figures are: step 2 still runs
+// against the ledger every time, so an earlier turn can influence which query
+// is planned but can never leak a stale number into a new answer.
 // =============================================================================
 
 import type { SupabaseClient } from "./deps.ts";
@@ -43,6 +49,14 @@ const MAX_LIST = 100;
  * client gets all `MAX_LIST` of them regardless.
  */
 const MODEL_LIST_SAMPLE = 8;
+/**
+ * Turns of the conversation the model is shown. Enough to carry a thread of
+ * follow-ups; short enough that an afternoon's session doesn't crowd out the
+ * question actually being asked.
+ */
+const MAX_HISTORY_TURNS = 12;
+/** Characters of any single earlier turn kept in the transcript. */
+const MAX_HISTORY_CHARS = 600;
 
 /* --- The query DSL --------------------------------------------------------- */
 
@@ -126,7 +140,8 @@ Return one to ${MAX_QUERIES} queries. Guidance:
 - Dates are inclusive ISO (YYYY-MM-DD). Resolve relative periods ("last month", "Q2", "this year") against today's date, given below.
 - Use category and account names exactly as listed in the context. If none fits, leave them out and use textContains instead.
 - To compare two periods, emit one query per period with distinct ids.
-- Prefer few, precise queries over many broad ones.`;
+- Prefer few, precise queries over many broad ones.
+- A conversation so far may be given. Resolve anything the question leans on it for — "that transaction", "the same period", "and last year?" — into explicit filters here. Never reuse an earlier answer's figures; re-query for them.`;
 
 /* --- Step 2: execution ----------------------------------------------------- */
 
@@ -397,7 +412,8 @@ Rules:
 - Prose is one or two sentences when a table or stats block follows, up to four when it stands alone. Plain language, no preamble, no restating the question.
 - If a result is marked truncated, say the figure is a floor rather than a total.
 - Also set "answer" to the plain-text gist in one or two sentences, for places that show a single line.
-- "followups" holds at most three short questions the user might ask next.`;
+- "followups" holds at most three short questions the user might ask next.
+- A conversation so far may be given. Answer as its continuation: don't reintroduce what you both already know, and read references like "that one" or "the same period" against it. The query results below are the only figures you may state — an earlier turn's numbers are history, not evidence for this one.`;
 
 export type SageBlock =
     | { type: "prose"; text: string }
@@ -482,15 +498,50 @@ function normaliseBlocks(
     return kept.length ? kept : undefined;
 }
 
+/* --- The conversation so far ----------------------------------------------- */
+
+/** One earlier turn, as the caller stored it. */
+export interface HistoryTurn {
+    role: "user" | "sage";
+    /** The question as typed, or Sage's own one-line gist of its reply. */
+    content: string;
+}
+
+/**
+ * The thread as plain dialogue. Only the gist of each turn survives: what an
+ * earlier answer is *for* here is resolving a reference ("that plot", "the same
+ * months"), and the full block payload — tables, tiles, every row a query
+ * returned — buys nothing towards that at considerable cost. The figures for
+ * this question come from this question's own queries.
+ */
+function transcript(history: HistoryTurn[]): string | null {
+    const turns = history.slice(-MAX_HISTORY_TURNS).filter((t) => t.content.trim());
+    if (!turns.length) return null;
+    const lines = turns.map((t) => {
+        const text = t.content.trim();
+        const clipped =
+            text.length > MAX_HISTORY_CHARS ? `${text.slice(0, MAX_HISTORY_CHARS)}…` : text;
+        return `${t.role === "user" ? "User" : "Sage"}: ${clipped}`;
+    });
+    return `Conversation so far:\n${lines.join("\n")}`;
+}
+
 /**
  * Plan → execute → answer. Throws only if the model is unreachable; a query
  * that fails is reported to the model as an error so the answer can account
  * for it rather than the whole request collapsing.
+ *
+ * `history` is the thread this question continues, oldest first, excluding the
+ * question itself. `viewing` is the screen the question was asked from, which
+ * is the difference between "why is this uncategorised?" being answerable and
+ * being a shrug.
  */
 export async function askLedger(
     admin: SupabaseClient,
     userId: string,
     question: string,
+    history: HistoryTurn[] = [],
+    viewing?: string,
 ): Promise<SageAnswer> {
     const ctx = await loadContext(admin, userId);
 
@@ -501,11 +552,18 @@ export async function askLedger(
             ? `Accounts: ${ctx.accounts.map((a) => `${a.name} (${a.currency})`).join(", ")}.`
             : "No accounts yet.",
         ctx.categories.length ? `Categories: ${ctx.categories.join(", ")}.` : "No categories yet.",
-    ].join("\n");
+        viewing ? `The user is looking at the ${viewing} screen as they ask.` : null,
+    ]
+        .filter(Boolean)
+        .join("\n");
+
+    const dialogue = transcript(history);
 
     const planned = await generateJson({
         system: PLAN_SYSTEM,
-        user: `${contextBlock}\n\nQuestion: ${question}`,
+        user: [contextBlock, dialogue, `Question: ${question}`]
+            .filter(Boolean)
+            .join("\n\n"),
         schema: PLAN_SCHEMA as unknown as Record<string, unknown>,
         schemaName: "ledger_query_plan",
     });
@@ -532,9 +590,12 @@ export async function askLedger(
         system: ANSWER_SYSTEM,
         user: [
             contextBlock,
-            `\nQuestion: ${question}`,
-            `\nQuery results:\n${JSON.stringify(promptView(results), null, 1)}`,
-        ].join("\n"),
+            dialogue,
+            `Question: ${question}`,
+            `Query results:\n${JSON.stringify(promptView(results), null, 1)}`,
+        ]
+            .filter(Boolean)
+            .join("\n\n"),
         schema: ANSWER_SCHEMA as unknown as Record<string, unknown>,
         schemaName: "sage_answer",
     });
