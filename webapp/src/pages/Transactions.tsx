@@ -10,7 +10,7 @@ import { useConfirm } from "../components/Confirm";
 import DataTable, { type Column } from "../components/DataTable";
 import LedgerTabs from "../components/LedgerTabs";
 import { usePalette } from "../components/CommandPalette";
-import { ChevronDownIcon } from "../components/icons";
+import { ChevronDownIcon, CloseIcon } from "../components/icons";
 import {
 	ColorPill,
 	Field,
@@ -576,6 +576,7 @@ export default function Transactions() {
 			<QueryError error={bulkUpdate.error ?? bulkDelete.error} />
 
 			<LedgerTotalsPanel
+				key={accountId || "all"}
 				totals={totals.data}
 				loading={totals.isLoading}
 				fallbackCurrency={rows[0]?.currency ?? DEFAULT_CURRENCY}
@@ -586,6 +587,7 @@ export default function Transactions() {
 							? `in ${accountName.get(accountId) ?? "this account"}`
 							: "across your whole ledger"
 				}
+				dismissKey={accountId || "all"}
 			/>
 
 			{missingSummaries > 0 && (
@@ -778,12 +780,23 @@ function LedgerTotalsPanel({
 	loading,
 	fallbackCurrency,
 	scope,
+	dismissKey,
 }: {
 	totals: LedgerTotals | undefined;
 	loading: boolean;
 	fallbackCurrency: string;
 	scope: string;
+	/** Account scope for the excluded-note dismissal; omit to always show it. */
+	dismissKey?: string;
 }) {
+	// The "transfers excluded" line explains itself once; each account keeps its
+	// own dismissal so switching scope shows it again if it's still relevant.
+	const [noteDismissed, setNoteDismissed] = usePersisted<boolean>(
+		dismissKey
+			? `sagebook.webapp.ledger.excludedNote.${dismissKey}`
+			: undefined,
+		false,
+	);
 	if (loading && !totals) {
 		return (
 			<div className="grid gap-3.5 sm:grid-cols-3">
@@ -854,13 +867,24 @@ function LedgerTotalsPanel({
 					</div>
 				);
 			})}
-			{totals.neutralCount > 0 && (
-				<p className="text-xs text-slate-500">
-					{totals.neutralCount} transfer
-					{totals.neutralCount === 1 ? "" : "s"} / adjustment
-					{totals.neutralCount === 1 ? "" : "s"} excluded — they move money
-					between your own accounts rather than in or out.
-				</p>
+			{totals.neutralCount > 0 && !noteDismissed && (
+				<div className="flex items-start gap-2 text-xs text-slate-500">
+					<p className="min-w-0 flex-1">
+						{totals.neutralCount} transfer
+						{totals.neutralCount === 1 ? "" : "s"} / adjustment
+						{totals.neutralCount === 1 ? "" : "s"} excluded — they move money
+						between your own accounts rather than in or out.
+					</p>
+					<button
+						type="button"
+						className="-m-1 shrink-0 rounded p-1 text-slate-400 hover:text-slate-200"
+						title="Hide this note"
+						aria-label="Hide this note"
+						onClick={() => setNoteDismissed(true)}
+					>
+						<CloseIcon size={13} />
+					</button>
+				</div>
 			)}
 		</div>
 	);
