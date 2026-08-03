@@ -2,27 +2,32 @@
    hard-code — a storage key, a page size, an enum's display labels — belongs
    here so the two places that use it can never drift apart. */
 
-import type { AccountType, BudgetLineKind, BudgetPeriod, Transaction } from "./types";
+import type {
+	AccountType,
+	BudgetLineKind,
+	BudgetPeriod,
+	Transaction,
+} from "./types";
 
 /* --- Browser storage -------------------------------------------------------
    One namespace so a stray key is obvious in devtools, and clearing Sagebook's
    state is a single prefix scan. */
 
 export const STORAGE_KEYS = {
-    /** Supabase URL + anon key from the one-time connect screen. */
-    config: "sagebook.webapp.config",
-    /** "light" | "dark" — read before first paint in useTheme. */
-    theme: "sb-theme",
-    /** Account id the last accepted capture was filed under. */
-    lastAccount: "sagebook.webapp.lastAccount",
-    /** Saved column mappings, keyed by statement header signature. */
-    importTemplates: "sagebook.webapp.importTemplates",
-    /** "1" while the desktop sidebar is collapsed to its icon rail. */
-    sidebarCollapsed: "sagebook.webapp.sidebarCollapsed",
-    /** "1" while Sage's right-hand dock is open. */
-    sageDockOpen: "sagebook.webapp.sageDockOpen",
-    /** Dock width in pixels, as last dragged. */
-    sageDockWidth: "sagebook.webapp.sageDockWidth",
+	/** Supabase URL + anon key from the one-time connect screen. */
+	config: "sagebook.webapp.config",
+	/** "light" | "dark" — read before first paint in useTheme. */
+	theme: "sb-theme",
+	/** Account id the last accepted capture was filed under. */
+	lastAccount: "sagebook.webapp.lastAccount",
+	/** Saved column mappings, keyed by statement header signature. */
+	importTemplates: "sagebook.webapp.importTemplates",
+	/** "1" while the desktop sidebar is collapsed to its icon rail. */
+	sidebarCollapsed: "sagebook.webapp.sidebarCollapsed",
+	/** "1" while Sage's right-hand dock is open. */
+	sageDockOpen: "sagebook.webapp.sageDockOpen",
+	/** Dock width in pixels, as last dragged. */
+	sageDockWidth: "sagebook.webapp.sageDockWidth",
 } as const;
 
 /* --- Money -----------------------------------------------------------------
@@ -39,6 +44,15 @@ export const TRANSACTION_PAGE_SIZE = 200;
 export const EXPORT_ROW_LIMIT = 10_000;
 /** Sanity ceiling on a single statement import (the backend batches beneath it). */
 export const IMPORT_MAX_ROWS = 10_000;
+/**
+ * Ceiling on how many pending rows the inbox will load for review. PostgREST
+ * caps a single request at 1000 rows, so the inbox pages through the view in
+ * chunks until it has everything — but never more than this (imports are
+ * themselves capped at IMPORT_MAX_ROWS, so this covers the worst case).
+ */
+export const PENDING_REVIEW_LIMIT = 10_000;
+/** Rows fetched per page while paging through the pending-review view. */
+export const PENDING_REVIEW_PAGE = 1000;
 /** Net-worth snapshots loaded for a trend line — roughly a year of dailies. */
 export const SNAPSHOT_LIMIT = 365;
 /** Rows in the dashboard's "recent activity" list. */
@@ -56,51 +70,55 @@ export const INGEST_DOMAIN = "ingest.sagebook.app";
 export type TransactionKind = Transaction["kind"];
 
 export const TRANSACTION_KINDS: TransactionKind[] = [
-    "income",
-    "expense",
-    "transfer",
-    "adjustment",
+	"income",
+	"expense",
+	"transfer",
+	"adjustment",
 ];
 
 export const ACCOUNT_TYPES: Array<{ value: AccountType; label: string }> = [
-    { value: "cash", label: "Cash" },
-    { value: "checking", label: "Checking" },
-    { value: "savings", label: "Savings" },
-    { value: "credit_card", label: "Credit card" },
-    { value: "loan", label: "Loan" },
-    { value: "investment", label: "Investment" },
-    { value: "retirement", label: "Retirement" },
-    { value: "real_estate", label: "Real estate" },
-    { value: "vehicle", label: "Vehicle" },
-    { value: "crypto", label: "Crypto" },
-    { value: "other_asset", label: "Other asset" },
-    { value: "other_liability", label: "Other liability" },
+	{ value: "cash", label: "Cash" },
+	{ value: "checking", label: "Checking" },
+	{ value: "savings", label: "Savings" },
+	{ value: "credit_card", label: "Credit card" },
+	{ value: "loan", label: "Loan" },
+	{ value: "investment", label: "Investment" },
+	{ value: "retirement", label: "Retirement" },
+	{ value: "real_estate", label: "Real estate" },
+	{ value: "vehicle", label: "Vehicle" },
+	{ value: "crypto", label: "Crypto" },
+	{ value: "other_asset", label: "Other asset" },
+	{ value: "other_liability", label: "Other liability" },
 ];
 
 export function accountTypeLabel(type: AccountType | string): string {
-    return ACCOUNT_TYPES.find((t) => t.value === type)?.label ?? String(type).replace(/_/g, " ");
+	return (
+		ACCOUNT_TYPES.find((t) => t.value === type)?.label ??
+		String(type).replace(/_/g, " ")
+	);
 }
 
 /** Asset classes, in the order Accounts and the dashboard stack them. */
-export const ACCOUNT_SECTIONS: Array<{ label: string; types: AccountType[] }> = [
-    { label: "Cash", types: ["cash", "checking", "savings"] },
-    { label: "Investments", types: ["investment", "retirement", "crypto"] },
-    { label: "Property", types: ["real_estate", "vehicle"] },
-    { label: "Credit", types: ["credit_card"] },
-    { label: "Loans", types: ["loan", "other_liability"] },
-    { label: "Other", types: ["other_asset"] },
-];
+export const ACCOUNT_SECTIONS: Array<{ label: string; types: AccountType[] }> =
+	[
+		{ label: "Cash", types: ["cash", "checking", "savings"] },
+		{ label: "Investments", types: ["investment", "retirement", "crypto"] },
+		{ label: "Property", types: ["real_estate", "vehicle"] },
+		{ label: "Credit", types: ["credit_card"] },
+		{ label: "Loans", types: ["loan", "other_liability"] },
+		{ label: "Other", types: ["other_asset"] },
+	];
 
 export const BUDGET_KIND_LABELS: Record<BudgetLineKind, string> = {
-    income: "Income",
-    expense: "Expense",
-    saving: "Saving",
-    transfer: "Transfer",
+	income: "Income",
+	expense: "Expense",
+	saving: "Saving",
+	transfer: "Transfer",
 };
 
 export const BUDGET_PERIODS: Array<{ value: BudgetPeriod; label: string }> = [
-    { value: "monthly", label: "Monthly" },
-    { value: "quarterly", label: "Quarterly" },
-    { value: "yearly", label: "Yearly" },
-    { value: "custom", label: "Custom" },
+	{ value: "monthly", label: "Monthly" },
+	{ value: "quarterly", label: "Quarterly" },
+	{ value: "yearly", label: "Yearly" },
+	{ value: "custom", label: "Custom" },
 ];

@@ -12,23 +12,30 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
-import { RECENT_TRANSACTION_LIMIT, SNAPSHOT_LIMIT, UNCATEGORIZED_LIMIT } from "./constants";
+import {
+	PENDING_REVIEW_LIMIT,
+	RECENT_TRANSACTION_LIMIT,
+	SNAPSHOT_LIMIT,
+	UNCATEGORIZED_LIMIT,
+} from "./constants";
 import { currentMonthStart } from "./format";
 import { accountOptions, categoryOptions } from "./options";
 import { requireSupabase } from "./supabase";
 import { fetchAccounts, fetchTaxonomy } from "./taxonomy";
 import type {
-    AccountWithBalance,
-    Budget,
-    BudgetProgress,
-    Category,
-    CategorySummaryRow,
-    MonthlySummaryRow,
-    NetWorthSnapshot,
-    PendingTransaction,
-    Rule,
-    ScheduledTransaction,
-    Transaction,
+	AccountWithBalance,
+	Budget,
+	BudgetProgress,
+	Category,
+	CategorySummaryRow,
+	DedupGroup,
+	DuplicateGroupRow,
+	MonthlySummaryRow,
+	NetWorthSnapshot,
+	PendingTransaction,
+	Rule,
+	ScheduledTransaction,
+	Transaction,
 } from "./types";
 
 /* --- Query keys ------------------------------------------------------------
@@ -36,83 +43,87 @@ import type {
    compile error rather than a stale panel. */
 
 export const QK = {
-    accounts: ["accounts"] as const,
-    accountBalances: ["account-balances"] as const,
-    taxonomy: ["taxonomy"] as const,
-    pendingReview: ["pending-review"] as const,
-    netWorth: ["net-worth"] as const,
-    recentTransactions: ["recent-transactions"] as const,
-    uncategorized: ["uncategorized"] as const,
-    rules: ["rules"] as const,
-    budgets: ["budgets"] as const,
-    scheduled: ["scheduled"] as const,
-    documents: ["documents"] as const,
-    monthlySummary: (month: string) => ["monthly-summary", month] as const,
-    monthlySummaryAll: ["monthly-summary-all"] as const,
-    categorySummary: (month: string) => ["category-summary", month] as const,
-    budgetProgress: (budgetId: string | undefined) => ["budget-progress", budgetId] as const,
+	accounts: ["accounts"] as const,
+	accountBalances: ["account-balances"] as const,
+	taxonomy: ["taxonomy"] as const,
+	pendingReview: ["pending-review"] as const,
+	netWorth: ["net-worth"] as const,
+	recentTransactions: ["recent-transactions"] as const,
+	uncategorized: ["uncategorized"] as const,
+	rules: ["rules"] as const,
+	budgets: ["budgets"] as const,
+	scheduled: ["scheduled"] as const,
+	documents: ["documents"] as const,
+	duplicates: ["duplicates"] as const,
+	monthlySummary: (month: string) => ["monthly-summary", month] as const,
+	monthlySummaryAll: ["monthly-summary-all"] as const,
+	categorySummary: (month: string) => ["category-summary", month] as const,
+	budgetProgress: (budgetId: string | undefined) =>
+		["budget-progress", budgetId] as const,
 };
 
 /** The dashboard's slice of a transaction — no payload columns. */
 export type RecentTransaction = Pick<
-    Transaction,
-    "id" | "kind" | "occurred_at" | "amount" | "currency" | "payee"
+	Transaction,
+	"id" | "kind" | "occurred_at" | "amount" | "currency" | "payee"
 >;
 
 /** A row of the documents view — one uploaded capture/import. */
 export type DocumentRow = {
-    id: string;
-    created_at: string;
-    updated_at: string;
-    status: "pending" | "processing" | "parsed" | "failed" | "applied";
-    media_kind: string;
-    mime_type: string;
-    bytes: number | null;
-    model: string | null;
-    prompt_hint: string | null;
-    error: string | null;
-    storage_path: string | null;
-    parsed_payload: {
-        summary?: string;
-        confidence?: number;
-        transcript?: string;
-        transactions?: unknown[];
-    } | null;
-    transactions: Array<{ count: number }>;
+	id: string;
+	created_at: string;
+	updated_at: string;
+	status: "pending" | "processing" | "parsed" | "failed" | "applied";
+	media_kind: string;
+	mime_type: string;
+	bytes: number | null;
+	model: string | null;
+	prompt_hint: string | null;
+	error: string | null;
+	storage_path: string | null;
+	parsed_payload: {
+		summary?: string;
+		confidence?: number;
+		transcript?: string;
+		transactions?: unknown[];
+	} | null;
+	transactions: Array<{ count: number }>;
 };
 
 const RECENT_COLUMNS = "id, kind, occurred_at, amount, currency, payee";
 
 /** Unwrap a PostgREST result, turning its error into a thrown Error. */
 async function rows<T>(
-    build: (sb: ReturnType<typeof requireSupabase>) => PromiseLike<{ data: unknown; error: { message: string } | null }>,
+	build: (
+		sb: ReturnType<typeof requireSupabase>,
+	) => PromiseLike<{ data: unknown; error: { message: string } | null }>,
 ): Promise<T[]> {
-    const { data, error } = await build(requireSupabase());
-    if (error) throw new Error(error.message);
-    return (data ?? []) as T[];
+	const { data, error } = await build(requireSupabase());
+	if (error) throw new Error(error.message);
+	return (data ?? []) as T[];
 }
 
 /* --- Accounts + taxonomy ---------------------------------------------------- */
 
 /** Accounts as stored, without derived balances. Cheap; use for pickers. */
 export function useAccounts() {
-    return useQuery({ queryKey: QK.accounts, queryFn: fetchAccounts });
+	return useQuery({ queryKey: QK.accounts, queryFn: fetchAccounts });
 }
 
 /** Accounts with their derived current balance, for anything showing money. */
 export function useAccountBalances() {
-    return useQuery({
-        queryKey: QK.accountBalances,
-        queryFn: () =>
-            rows<AccountWithBalance>((sb) =>
-                sb.from("v_account_balances").select("*").order("created_at"),
-            ),
-    });
+	return useQuery({
+		queryKey: QK.accountBalances,
+		queryFn: () =>
+			rows<AccountWithBalance>((sb) =>
+				sb.from("v_account_balances").select("*").order("created_at"),
+			),
+	});
 }
 
 /** Category groups with their categories, parents before children. */
 export function useTaxonomy() {
-    return useQuery({ queryKey: QK.taxonomy, queryFn: fetchTaxonomy });
+	return useQuery({ queryKey: QK.taxonomy, queryFn: fetchTaxonomy });
 }
 
 /* --- Picker options ---------------------------------------------------------
@@ -121,45 +132,74 @@ export function useTaxonomy() {
    and a screen that wants an account picker writes one line. */
 
 /** Live accounts as `<Picker>` options. */
-export function useAccountOptions(opts?: { includeArchived?: boolean; showCurrency?: boolean }) {
-    const accounts = useAccounts();
-    const includeArchived = opts?.includeArchived ?? false;
-    const showCurrency = opts?.showCurrency ?? false;
-    return useMemo(
-        () => accountOptions(accounts.data, { includeArchived, showCurrency }),
-        [accounts.data, includeArchived, showCurrency],
-    );
+export function useAccountOptions(opts?: {
+	includeArchived?: boolean;
+	showCurrency?: boolean;
+}) {
+	const accounts = useAccounts();
+	const includeArchived = opts?.includeArchived ?? false;
+	const showCurrency = opts?.showCurrency ?? false;
+	return useMemo(
+		() => accountOptions(accounts.data, { includeArchived, showCurrency }),
+		[accounts.data, includeArchived, showCurrency],
+	);
 }
 
 /** The whole taxonomy as `<Picker>` options, keyed by category id. */
 export function useCategoryOptions() {
-    const taxonomy = useTaxonomy();
-    return useMemo(() => categoryOptions(taxonomy.data), [taxonomy.data]);
+	const taxonomy = useTaxonomy();
+	return useMemo(() => categoryOptions(taxonomy.data), [taxonomy.data]);
 }
 
 /** Every category by id, for screens that store a reference and render a name. */
 export function useCategoryById(): Map<string, Category> {
-    const taxonomy = useTaxonomy();
-    return useMemo(() => {
-        const byId = new Map<string, Category>();
-        for (const group of taxonomy.data ?? []) {
-            for (const category of group.categories) byId.set(category.id, category);
-        }
-        return byId;
-    }, [taxonomy.data]);
+	const taxonomy = useTaxonomy();
+	return useMemo(() => {
+		const byId = new Map<string, Category>();
+		for (const group of taxonomy.data ?? []) {
+			for (const category of group.categories) byId.set(category.id, category);
+		}
+		return byId;
+	}, [taxonomy.data]);
 }
 
 /* --- Inbox ------------------------------------------------------------------ */
 
+/** Pending rows the inbox pages through, per request. */
+const PENDING_REVIEW_PAGE = 1000;
+
+/**
+ * Fetch every row still awaiting review. PostgREST clamps a single request to
+ * 1000 rows — even an explicit `.limit()` — so this walks `Range` pages until
+ * the view is exhausted. "Select all" in the inbox can then genuinely mean all.
+ */
+async function fetchAllPendingReview(): Promise<PendingTransaction[]> {
+	const sb = requireSupabase();
+	const out: PendingTransaction[] = [];
+	for (let from = 0; ; from += PENDING_REVIEW_PAGE) {
+		const { data, error } = await sb
+			.from("v_pending_review")
+			.select("*")
+			.order("occurred_at", { ascending: false })
+			// Stable tiebreaker — offset paging would otherwise skip or repeat
+			// rows when several share the same occurred_at.
+			.order("id", { ascending: true })
+			.range(from, from + PENDING_REVIEW_PAGE - 1);
+		if (error) throw new Error(error.message);
+		const page = (data ?? []) as PendingTransaction[];
+		out.push(...page);
+		if (page.length < PENDING_REVIEW_PAGE) break;
+		if (out.length >= PENDING_REVIEW_LIMIT) break;
+	}
+	return out.slice(0, PENDING_REVIEW_LIMIT);
+}
+
 /** Captures awaiting review — also drives the sidebar's count badge. */
 export function usePendingReview() {
-    return useQuery({
-        queryKey: QK.pendingReview,
-        queryFn: () =>
-            rows<PendingTransaction>((sb) =>
-                sb.from("v_pending_review").select("*").order("occurred_at", { ascending: false }),
-            ),
-    });
+	return useQuery({
+		queryKey: QK.pendingReview,
+		queryFn: fetchAllPendingReview,
+	});
 }
 
 /* --- Documents ----------------------------------------------------------------
@@ -169,37 +209,37 @@ export function usePendingReview() {
    is aggregated server-side. */
 
 const DOCUMENT_COLUMNS =
-    "id, created_at, updated_at, status, media_kind, mime_type, bytes, model, prompt_hint, error, storage_path, parsed_payload, transactions(count)";
+	"id, created_at, updated_at, status, media_kind, mime_type, bytes, model, prompt_hint, error, storage_path, parsed_payload, transactions(count)";
 
 export function useDocuments() {
-    return useQuery({
-        queryKey: QK.documents,
-        queryFn: () =>
-            rows<DocumentRow>((sb) =>
-                sb
-                    .from("media_ingestions")
-                    .select(DOCUMENT_COLUMNS)
-                    .order("created_at", { ascending: false })
-                    .limit(200),
-            ),
-    });
+	return useQuery({
+		queryKey: QK.documents,
+		queryFn: () =>
+			rows<DocumentRow>((sb) =>
+				sb
+					.from("media_ingestions")
+					.select(DOCUMENT_COLUMNS)
+					.order("created_at", { ascending: false })
+					.limit(200),
+			),
+	});
 }
 
 /* --- Net worth --------------------------------------------------------------- */
 
 /** Daily snapshots, oldest first so a chart can plot them directly. */
 export function useNetWorthSnapshots() {
-    return useQuery({
-        queryKey: QK.netWorth,
-        queryFn: () =>
-            rows<NetWorthSnapshot>((sb) =>
-                sb
-                    .from("net_worth_snapshots")
-                    .select("*")
-                    .order("as_of", { ascending: true })
-                    .limit(SNAPSHOT_LIMIT),
-            ),
-    });
+	return useQuery({
+		queryKey: QK.netWorth,
+		queryFn: () =>
+			rows<NetWorthSnapshot>((sb) =>
+				sb
+					.from("net_worth_snapshots")
+					.select("*")
+					.order("as_of", { ascending: true })
+					.limit(SNAPSHOT_LIMIT),
+			),
+	});
 }
 
 /* --- Summaries ---------------------------------------------------------------
@@ -207,57 +247,62 @@ export function useNetWorthSnapshots() {
    which keeps the cache key shared with the dashboard. */
 
 export function useMonthlySummary(month: string = currentMonthStart()) {
-    return useQuery({
-        queryKey: QK.monthlySummary(month),
-        queryFn: () =>
-            rows<MonthlySummaryRow>((sb) =>
-                sb.from("v_monthly_summary").select("*").eq("month", month),
-            ),
-    });
+	return useQuery({
+		queryKey: QK.monthlySummary(month),
+		queryFn: () =>
+			rows<MonthlySummaryRow>((sb) =>
+				sb.from("v_monthly_summary").select("*").eq("month", month),
+			),
+	});
 }
 
 /** Every month on record, oldest first — the income-vs-expenses columns. */
 export function useMonthlySummaryHistory() {
-    return useQuery({
-        queryKey: QK.monthlySummaryAll,
-        queryFn: () =>
-            rows<MonthlySummaryRow>((sb) =>
-                sb.from("v_monthly_summary").select("*").order("month", { ascending: true }),
-            ),
-    });
+	return useQuery({
+		queryKey: QK.monthlySummaryAll,
+		queryFn: () =>
+			rows<MonthlySummaryRow>((sb) =>
+				sb
+					.from("v_monthly_summary")
+					.select("*")
+					.order("month", { ascending: true }),
+			),
+	});
 }
 
 /** One month's spend by category, largest first. */
 export function useCategorySummary(month: string = currentMonthStart()) {
-    return useQuery({
-        queryKey: QK.categorySummary(month),
-        queryFn: () =>
-            rows<CategorySummaryRow>((sb) =>
-                sb
-                    .from("v_category_summary")
-                    .select("*")
-                    .eq("month", month)
-                    .order("total_amount", { ascending: false }),
-            ),
-    });
+	return useQuery({
+		queryKey: QK.categorySummary(month),
+		queryFn: () =>
+			rows<CategorySummaryRow>((sb) =>
+				sb
+					.from("v_category_summary")
+					.select("*")
+					.eq("month", month)
+					.order("total_amount", { ascending: false }),
+			),
+	});
 }
 
 /* --- Ledger ------------------------------------------------------------------ */
 
 /** The newest accepted entries, for "recent activity" strips. */
-export function useRecentTransactions(limit: number = RECENT_TRANSACTION_LIMIT) {
-    return useQuery({
-        queryKey: [...QK.recentTransactions, limit],
-        queryFn: () =>
-            rows<RecentTransaction>((sb) =>
-                sb
-                    .from("transactions")
-                    .select(RECENT_COLUMNS)
-                    .eq("review_status", "accepted")
-                    .order("occurred_at", { ascending: false })
-                    .limit(limit),
-            ),
-    });
+export function useRecentTransactions(
+	limit: number = RECENT_TRANSACTION_LIMIT,
+) {
+	return useQuery({
+		queryKey: [...QK.recentTransactions, limit],
+		queryFn: () =>
+			rows<RecentTransaction>((sb) =>
+				sb
+					.from("transactions")
+					.select(RECENT_COLUMNS)
+					.eq("review_status", "accepted")
+					.order("occurred_at", { ascending: false })
+					.limit(limit),
+			),
+	});
 }
 
 /**
@@ -266,83 +311,149 @@ export function useRecentTransactions(limit: number = RECENT_TRANSACTION_LIMIT) 
  * ledger is where you go to work through a backlog.
  */
 export function useUncategorized(limit: number = UNCATEGORIZED_LIMIT) {
-    return useQuery({
-        queryKey: [...QK.uncategorized, limit],
-        queryFn: () =>
-            rows<RecentTransaction>((sb) =>
-                sb
-                    .from("transactions")
-                    .select(RECENT_COLUMNS)
-                    .eq("review_status", "accepted")
-                    .is("category_id", null)
-                    .order("occurred_at", { ascending: false })
-                    .limit(limit),
-            ),
-    });
+	return useQuery({
+		queryKey: [...QK.uncategorized, limit],
+		queryFn: () =>
+			rows<RecentTransaction>((sb) =>
+				sb
+					.from("transactions")
+					.select(RECENT_COLUMNS)
+					.eq("review_status", "accepted")
+					.is("category_id", null)
+					.order("occurred_at", { ascending: false })
+					.limit(limit),
+			),
+	});
+}
+
+/* --- Duplicates ---------------------------------------------------------------
+   The ledger dedup scan: groups of accepted rows where day + amount + payee +
+   currency + account + kind all match exactly. Rows come back flat from the
+   RPC (newest day first) and are bucketed by their shared dup_key here, so the
+   page only ever thinks in groups. */
+
+/** The caller's IANA timezone, so "same day" is the user's calendar day. */
+function localTimezone(): string {
+	try {
+		return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+	} catch {
+		return "UTC";
+	}
+}
+
+export function useDuplicateGroups() {
+	return useQuery({
+		queryKey: QK.duplicates,
+		queryFn: async () => {
+			const { data, error } = await requireSupabase().rpc(
+				"find_duplicate_groups",
+				{ p_tz: localTimezone() },
+			);
+			if (error) throw new Error(error.message);
+			const rows = (data ?? []) as DuplicateGroupRow[];
+
+			const groups = new Map<string, DedupGroup>();
+			for (const row of rows) {
+				let group = groups.get(row.dup_key);
+				if (!group) {
+					group = {
+						dupKey: row.dup_key,
+						// Rows are ordered newest-day first, so the group's
+						// headline fields can come from any member — they all
+						// match by construction.
+						day: row.occurred_at.slice(0, 10),
+						amount: Number(row.amount),
+						currency: row.currency,
+						payee: row.payee,
+						accountName: row.account_name,
+						kind: row.kind,
+						reason: row.match_reason,
+						members: [],
+					};
+					groups.set(row.dup_key, group);
+				}
+				group.members.push(row);
+			}
+			return [...groups.values()];
+		},
+	});
 }
 
 /* --- Rules -------------------------------------------------------------------- */
 
 /** Extraction rules, highest priority first — first match wins. */
 export function useRules() {
-    return useQuery({
-        queryKey: QK.rules,
-        queryFn: () =>
-            rows<Rule>((sb) =>
-                sb.from("rules").select("*").order("priority", { ascending: false }),
-            ),
-    });
+	return useQuery({
+		queryKey: QK.rules,
+		queryFn: () =>
+			rows<Rule>((sb) =>
+				sb.from("rules").select("*").order("priority", { ascending: false }),
+			),
+	});
 }
 
 /* --- Scheduled ----------------------------------------------------------------- */
 
 /** Scheduled money, soonest due first. Pass `activeOnly` for the dashboard. */
-export function useScheduled(options: { activeOnly?: boolean; limit?: number } = {}) {
-    const { activeOnly = false, limit } = options;
-    return useQuery({
-        queryKey: [...QK.scheduled, { activeOnly, limit: limit ?? null }],
-        queryFn: () =>
-            rows<ScheduledTransaction>((sb) => {
-                let q = sb.from("scheduled_transactions").select("*");
-                if (activeOnly) q = q.eq("active", true);
-                q = q.order("next_due", { ascending: true });
-                return limit ? q.limit(limit) : q;
-            }),
-    });
+export function useScheduled(
+	options: { activeOnly?: boolean; limit?: number } = {},
+) {
+	const { activeOnly = false, limit } = options;
+	return useQuery({
+		queryKey: [...QK.scheduled, { activeOnly, limit: limit ?? null }],
+		queryFn: () =>
+			rows<ScheduledTransaction>((sb) => {
+				let q = sb.from("scheduled_transactions").select("*");
+				if (activeOnly) q = q.eq("active", true);
+				q = q.order("next_due", { ascending: true });
+				return limit ? q.limit(limit) : q;
+			}),
+	});
 }
 
 /* --- Budgets -------------------------------------------------------------------- */
 
 /** All budgets, newest period first. */
 export function useBudgets() {
-    return useQuery({
-        queryKey: QK.budgets,
-        queryFn: () =>
-            rows<Budget>((sb) =>
-                sb.from("budgets").select("*").order("starts_on", { ascending: false }),
-            ),
-    });
+	return useQuery({
+		queryKey: QK.budgets,
+		queryFn: () =>
+			rows<Budget>((sb) =>
+				sb.from("budgets").select("*").order("starts_on", { ascending: false }),
+			),
+	});
 }
 
 /** Planned-vs-actual lines for one budget. Idle until an id is known. */
-export function useBudgetProgress(budgetId: string | undefined, enabled = true) {
-    return useQuery({
-        queryKey: QK.budgetProgress(budgetId),
-        enabled: enabled && !!budgetId,
-        queryFn: () =>
-            rows<BudgetProgress>((sb) =>
-                sb.from("v_budget_progress").select("*").eq("budget_id", budgetId!).order("sort_order"),
-            ),
-    });
+export function useBudgetProgress(
+	budgetId: string | undefined,
+	enabled = true,
+) {
+	return useQuery({
+		queryKey: QK.budgetProgress(budgetId),
+		enabled: enabled && !!budgetId,
+		queryFn: () =>
+			rows<BudgetProgress>((sb) =>
+				sb
+					.from("v_budget_progress")
+					.select("*")
+					.eq("budget_id", budgetId!)
+					.order("sort_order"),
+			),
+	});
 }
 
 /** The budget whose period covers today, else the most recent real one. */
-export function currentBudget(budgets: Budget[] | undefined): Budget | undefined {
-    if (!budgets?.length) return undefined;
-    const today = new Date().toISOString().slice(0, 10);
-    return (
-        budgets.find((b) => !b.is_template && b.starts_on <= today && b.ends_on >= today) ??
-        budgets.find((b) => !b.is_template) ??
-        budgets[0]
-    );
+export function currentBudget(
+	budgets: Budget[] | undefined,
+): Budget | undefined {
+	if (!budgets?.length) return undefined;
+	const today = new Date().toISOString().slice(0, 10);
+	return (
+		budgets.find(
+			(b) => !b.is_template && b.starts_on <= today && b.ends_on >= today,
+		) ??
+		budgets.find((b) => !b.is_template) ??
+		budgets[0]
+	);
 }

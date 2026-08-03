@@ -45,6 +45,7 @@ export interface CsvMapping {
 export interface StatementMeta {
 	accountName?: string;
 	accountNumber?: string;
+	institution?: string;
 	currency?: string;
 	openingBalance?: number;
 }
@@ -159,6 +160,10 @@ export function guessHeaderRow(rows: string[][]): number {
 }
 
 /** Lift account name / number / currency / opening balance from the preamble. */
+/** Bank names that often appear bare in a statement header ("ZENITH BANK PLC"). */
+const KNOWN_BANK_RE =
+	/(access bank|zenith bank|guaranty trust|gtbank|gtb\b|united bank for africa|\buba\b|first bank|fidelity bank|sterling bank|union bank|stanbic|ecobank|first city monument|fcmb|wema bank|polaris bank|keystone bank|providus bank|jaiz bank|suntrust|lotus bank|moniepoint|opay|palmpay|kuda\b|wema|alat|taj bank|parallex|globus bank|titan trust bank|paystack|flutterwave)/i;
+
 export function detectStatementMeta(
 	rows: string[][],
 	headerRow: number,
@@ -190,6 +195,11 @@ export function detectStatementMeta(
 				!meta.accountNumber
 			) {
 				meta.accountNumber = value().replace(/\s+/g, "");
+			} else if (
+				/(bank\s*name|institution|financial\s+institution)/.test(label) &&
+				!meta.institution
+			) {
+				meta.institution = value();
 			} else if (/^\s*currency/.test(label) && !meta.currency) {
 				meta.currency = value().toUpperCase().slice(0, 3);
 			} else if (
@@ -200,6 +210,29 @@ export function detectStatementMeta(
 				if (v !== null) meta.openingBalance = v;
 			}
 		});
+	}
+	// Many PDF statements print the bank's name alone on the header line
+	// ("ZENITH BANK PLC" with no label). Sweep the preamble for a known bank.
+	if (!meta.institution) {
+		for (const row of rows.slice(0, headerRow)) {
+			for (const cell of row) {
+				const t = String(cell).trim();
+				const m = KNOWN_BANK_RE.exec(t);
+				if (m) {
+					// Prefer a bare bank-name line over a sentence that merely
+					// mentions a bank (e.g. "Transfer from Access Bank").
+					const bare = t.length <= 40 && !/^\d/.test(t);
+					if (bare || /bank\s*$/i.test(t)) {
+						// When the bank name leads the cell keep the whole line
+						// ("ZENITH BANK PLC"); otherwise keep just the matched
+						// phrase ("Access Bank" from a longer sentence).
+						meta.institution = (m.index === 0 ? t : m[0]).slice(0, 60);
+						break;
+					}
+				}
+			}
+			if (meta.institution) break;
+		}
 	}
 	return meta;
 }

@@ -64,9 +64,14 @@ export function advanceBulkReview(processed: number) {
 	set({ processed });
 }
 
-export function finishBulkReview() {
+/**
+ * Mark the job done. `processed` is the server-confirmed count when known, so
+ * the final card shows what actually changed rather than assuming every
+ * requested row was touched.
+ */
+export function finishBulkReview(processed?: number) {
 	if (state.status !== "running") return;
-	set({ status: "done", processed: state.total });
+	set({ status: "done", processed: processed ?? state.total });
 }
 
 export function failBulkReview(error: string) {

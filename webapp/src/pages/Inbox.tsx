@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { PageHeader, Picker, QueryError } from "../components/ui";
-import { STORAGE_KEYS } from "../lib/constants";
+import { PENDING_REVIEW_LIMIT, STORAGE_KEYS } from "../lib/constants";
 import { fmtDateTime, fmtMoney } from "../lib/format";
 import { logEvent } from "../lib/logger";
 import { accountOptions } from "../lib/options";
@@ -87,10 +87,12 @@ export default function Inbox() {
 						action: args.action,
 					},
 				);
+				// Advance by what the server actually confirmed, not by the
+				// chunk size — the bar should never outrun the database.
 				updated += result.updated ?? chunk.length;
-				advanceBulkReview(Math.min(i + chunk.length, args.ids.length));
+				advanceBulkReview(updated);
 			}
-			finishBulkReview();
+			finishBulkReview(updated);
 			return { updated };
 		},
 		onSuccess: () => {
@@ -242,6 +244,13 @@ export default function Inbox() {
 								Bulk accept keeps each item's current account/category.
 							</span>
 						</>
+					)}
+					{rows.length >= PENDING_REVIEW_LIMIT && (
+						<p className="w-full text-xs text-amber-400/90">
+							Showing the newest {PENDING_REVIEW_LIMIT.toLocaleString()} pending
+							rows; the inbox may hold more. Accept these, then the rest will
+							load for another pass.
+						</p>
 					)}
 				</div>
 			)}

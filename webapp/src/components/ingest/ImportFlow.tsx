@@ -187,15 +187,26 @@ export default function ImportFlow({
 		if (acct) setCurrency(acct.currency);
 	}
 
-	// Does the statement's account already exist? Match on the number (which we
-	// store masked) or an exact name, so a re-import files under the same ledger.
+	// Does the statement's account already exist? The masked account number is
+	// the strongest signal — statements print the holder's legal name, which is
+	// identical across every bank, so a name match alone can silently file a
+	// new bank's statement under an old account. When the statement reveals a
+	// number, match on that only; fall back to name (+institution) matching
+	// only when the statement carries no number at all.
 	const last4 = meta?.accountNumber?.slice(-4);
-	const existingMatch = activeAccounts.find(
-		(a) =>
-			(last4 && a.metadata?.number_masked?.includes(last4)) ||
-			(meta?.accountName &&
-				a.name.toLowerCase() === meta.accountName.toLowerCase()),
-	);
+	const statementName = meta?.accountName?.toLowerCase();
+	const statementInstitution = meta?.institution?.toLowerCase();
+	const existingMatch = last4
+		? activeAccounts.find((a) => a.metadata?.number_masked?.includes(last4))
+		: statementName
+			? activeAccounts.find(
+					(a) =>
+						a.name.toLowerCase() === statementName &&
+						(!statementInstitution ||
+							!a.institution ||
+							a.institution.toLowerCase() === statementInstitution),
+				)
+			: undefined;
 
 	// Auto-select an existing matching account once, so the user needn't pick it.
 	useEffect(() => {
@@ -207,7 +218,10 @@ export default function ImportFlow({
 	}, [existingMatch?.id]);
 
 	// Whether the statement revealed an account we could create.
-	const canCreateAccount = !!(meta && (meta.accountName || meta.accountNumber));
+	const canCreateAccount = !!(
+		meta &&
+		(meta.accountName || meta.accountNumber || meta.institution)
+	);
 
 	// Create the account detected in the statement header. Shared by the
 	// explicit "Create now" button and the auto-create-on-import path.
@@ -219,13 +233,23 @@ export default function ImportFlow({
 		const sb = requireSupabase();
 		const { data: u } = await sb.auth.getUser();
 		if (!u.user) throw new Error("not signed in");
+		// Prefer a name that includes the bank when we have one; fall back to
+		// the holder name the statement prints. The last four digits disambiguate
+		// accounts that share a bank and a holder name.
+		const last4 = meta.accountNumber?.slice(-4);
+		const accountName = (
+			meta.institution
+				? `${meta.institution}${last4 ? ` ••••${last4}` : ""}`
+				: meta.accountName || "Imported account"
+		).slice(0, 80);
 		const { data: created, error } = await sb
 			.from("accounts")
 			.insert({
 				user_id: u.user.id,
-				name: (meta.accountName || "Imported account").slice(0, 80),
+				name: accountName,
 				type: "checking",
 				currency: (meta.currency || currency).toUpperCase().slice(0, 3),
+				institution: meta.institution ?? null,
 				// The statement's opening balance is authoritative, so this is
 				// a real (not inferred) opening balance.
 				opening_balance: meta.openingBalance ?? 0,
@@ -331,15 +355,17 @@ export default function ImportFlow({
 				</button>
 			</div>
 
-			{meta && (meta.accountName || meta.accountNumber) && (
+			{meta && (meta.accountName || meta.accountNumber || meta.institution) && (
 				<div className="mb-4 rounded-xl border border-sky-900/50 bg-sky-950/20 p-3 text-xs">
 					<div className="mb-1 text-sky-300/80">
 						Detected account on this statement:
 					</div>
 					<div className="text-slate-300">
-						{meta.accountName && (
-							<span className="font-medium">{meta.accountName}</span>
+						{meta.institution && (
+							<span className="font-medium">{meta.institution}</span>
 						)}
+						{meta.accountName &&
+							`${meta.institution ? " · " : ""}${meta.accountName}`}
 						{meta.accountNumber && ` · ${meta.accountNumber}`}
 						{meta.currency && ` · ${meta.currency}`}
 						{meta.openingBalance !== undefined &&
