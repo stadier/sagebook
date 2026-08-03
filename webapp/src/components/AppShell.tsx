@@ -40,12 +40,10 @@ import { useSageSession } from "./sage/SageProvider";
 
    Getting things *in* has three doors, and they are deliberately not the same
    door in three places:
-   - **Add**, pinned under the brand. Fixed position, never over content. It
-     stands down while Sage is docked, because Sage's composer is already the
-     one box for both telling and asking.
+   - **Add**, the floating "+" bubble, pinned bottom-right on every screen. It
+     stays up even while Sage is docked — adding and asking are different jobs.
    - **Drop or paste anywhere.** No aiming required; see `useGlobalCapture`.
-   - **The "+" bubble**, kept for phones, where there is no visible sidebar to
-     pin anything to. */
+   - **Ask Sage**, the rail entry for the docked composer. */
 
 export default function AppShell() {
 	const navigate = useNavigate();
@@ -147,8 +145,6 @@ export default function AppShell() {
 				<Sidebar
 					open={drawerOpen}
 					collapsed={collapsed}
-					onAdd={() => openIngest()}
-					showAdd={!sage.open}
 					sageOpen={sage.open}
 					onToggleSage={sage.toggle}
 					onToggleCollapsed={() => {
@@ -216,17 +212,27 @@ export default function AppShell() {
 
 				<SageDock onCapture={(text) => openIngest(text)} viewing={viewing} />
 
-				{/* Floating "+" — phones only, where the rail's Add button is behind
-					the drawer and there is nothing else pinned to reach for. */}
-				{!sage.open && (
-					<button
-						aria-label="Add"
-						onClick={() => openIngest()}
-						className="fixed bottom-6 right-6 z-40 grid h-14 w-14 place-items-center rounded-full bg-coral text-coral-fg shadow-pop transition-transform hover:scale-105 hover:bg-coral-600 active:scale-95 lg:hidden"
-					>
-						<PlusIcon size={24} />
-					</button>
-				)}
+				{/* Floating "+" — the single entry point for all ingestion. It
+					stays up even while Sage is docked: adding and asking are
+					different jobs. On `lg` the dock pushes the page, so the
+					bubble shifts with it to stay over the page, clear of the
+					panel; below `lg` the dock is a covering sheet, and the
+					bubble keeps its corner. The var is always set (0 when
+					closed) because an undefined var would make the calc invalid
+					at computed-value time and drop the button to a static
+					position. */}
+				<button
+					aria-label="Add"
+					onClick={() => openIngest()}
+					style={
+						{
+							"--sb-dock-w": sage.open ? `${sage.width}px` : "0px",
+						} as React.CSSProperties
+					}
+					className="fixed bottom-6 right-6 z-40 grid h-14 w-14 place-items-center rounded-full bg-coral text-coral-fg shadow-pop transition-transform hover:scale-105 hover:bg-coral-600 active:scale-95 lg:right-[calc(var(--sb-dock-w)_+_1.5rem)]"
+				>
+					<PlusIcon size={24} />
+				</button>
 
 				{/* Drop anything, anywhere. The overlay is the only thing that has to
 					say so, since the drop target is the whole window. */}
@@ -270,8 +276,6 @@ function Sidebar({
 	open,
 	collapsed,
 	onToggleCollapsed,
-	onAdd,
-	showAdd,
 	sageOpen,
 	onToggleSage,
 	pendingCount,
@@ -286,9 +290,6 @@ function Sidebar({
 	open: boolean;
 	collapsed: boolean;
 	onToggleCollapsed: () => void;
-	onAdd: () => void;
-	/** Stands down while Sage is docked — its composer already captures. */
-	showAdd: boolean;
 	sageOpen: boolean;
 	onToggleSage: () => void;
 	pendingCount: number;
@@ -331,20 +332,9 @@ function Sidebar({
 				</button>
 			</div>
 
-			{/* Add and Ask — the two things you come to the app to do, in the one
-				place that never moves. Add steps aside when Sage is open rather
-				than offering the same job twice. */}
+			{/* Ask — the one thing you come to the app to do in the place that
+				never moves. Add lives in the floating "+" bubble instead. */}
 			<div className="flex flex-col gap-1.5 pb-4">
-				{showAdd && (
-					<button
-						onClick={onAdd}
-						title="Add to Sagebook"
-						className="sb-rail-item flex items-center gap-[11px] rounded-xl bg-coral px-3.5 py-2.5 text-sm font-bold text-coral-fg transition-colors hover:bg-coral-600"
-					>
-						<PlusIcon size={17} />
-						<span className="sb-rail-label whitespace-nowrap">Add</span>
-					</button>
-				)}
 				<button
 					onClick={onToggleSage}
 					aria-pressed={sageOpen}

@@ -8,6 +8,8 @@ import {
 } from "react";
 import { useConfirm } from "../components/Confirm";
 import DataTable, { type Column } from "../components/DataTable";
+import { usePalette } from "../components/CommandPalette";
+import { ChevronDownIcon } from "../components/icons";
 import {
 	ColorPill,
 	Field,
@@ -25,7 +27,8 @@ import {
 	TRANSACTION_KINDS,
 } from "../lib/constants";
 import { fmtDate, fmtMoney } from "../lib/format";
-import { enumOptions } from "../lib/options";
+import { enumOptions, type Option } from "../lib/options";
+import { usePersisted } from "../lib/persist";
 import {
 	useAccountOptions,
 	useAccounts,
@@ -38,7 +41,7 @@ import {
 	useSummaryJob,
 } from "../lib/summaryJob";
 import { requireSupabase } from "../lib/supabase";
-import type { Transaction } from "../lib/types";
+import type { Account, Transaction } from "../lib/types";
 
 interface TxRow extends Transaction {
 	categories: {
@@ -63,6 +66,13 @@ const EMPTY_FILTERS: Filters = {
 	categoryId: "",
 	kind: "",
 };
+
+/**
+ * Sentinel for the ledger's account scope meaning "every account". Real ids
+ * are UUIDs, so this can never collide; `""` in filters means "not chosen",
+ * which resolves to the first live account as a stand-in for a primary one.
+ */
+const ALL_ACCOUNTS = "__all__";
 
 /** The four kinds, as picker rows. Fixed, so it never needs re-deriving. */
 const KIND_OPTIONS = enumOptions(TRANSACTION_KINDS);
@@ -175,21 +185,43 @@ function summarize(
 
 export default function Transactions() {
 	const qc = useQueryClient();
-	const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
+	/* Filters persist, so the ledger reloads exactly as it was left. */
+	const [filters, setFilters] = usePersisted<Filters>(
+		"sagebook.webapp.filter.transactions",
+		EMPTY_FILTERS,
+	);
 	const [limit, setLimit] = useState(PAGE_SIZE);
 
 	const accounts = useAccounts();
-	const accountOpts = useAccountOptions();
 	const categoryOpts = useCategoryOptions();
 
+	// Live accounts drive the scope's default and the header switcher's list.
+	const liveAccounts = useMemo(
+		() => (accounts.data ?? []).filter((a) => !a.is_archived),
+		[accounts.data],
+	);
+
+	// The ledger's subject. A real id pins it to one account; ALL_ACCOUNTS
+	// shows the whole thing; "" (never picked) resolves to the first live
+	// account, standing in for a primary one. Kept apart from the other
+	// filters so the Filter panel counts and clears only what a user would
+	// think of as filters — the account is the view's subject, not a
+	// refinement of it.
+	const accountId = useMemo(() => {
+		if (filters.accountId === ALL_ACCOUNTS) return "";
+		if (filters.accountId) return filters.accountId;
+		return liveAccounts[0]?.id ?? "";
+	}, [filters.accountId, liveAccounts]);
+	const effectiveFilters: Filters = { ...filters, accountId };
+
 	const txs = useQuery({
-		queryKey: ["transactions", filters, limit],
+		queryKey: ["transactions", effectiveFilters, limit],
 		queryFn: async () => {
 			const q = applyFilters(
 				requireSupabase()
 					.from("transactions")
 					.select("*, categories(name, icon, color)"),
-				filters,
+				effectiveFilters,
 			);
 			const { data, error } = await q
 				.order("occurred_at", { ascending: false })
@@ -203,11 +235,11 @@ export default function Transactions() {
 	// Only three columns come back, which keeps this cheap next to the table's
 	// own query.
 	const totals = useQuery({
-		queryKey: ["transaction-totals", filters],
+		queryKey: ["transaction-totals", effectiveFilters],
 		queryFn: async () => {
 			const q = applyFilters(
 				requireSupabase().from("transactions").select("kind, amount, currency"),
-				filters,
+				effectiveFilters,
 			);
 			const { data, error } = await q.limit(EXPORT_ROW_LIMIT);
 			if (error) throw new Error(error.message);
@@ -221,7 +253,11 @@ export default function Transactions() {
 	const rows = txs.data ?? [];
 	const missingSummaries = rows.filter((t) => !t.summary).length;
 	const maybeMore = rows.length === limit;
-	const activeFilterCount = Object.values(filters).filter(Boolean).length;
+	// The account scope isn't a filter: it survives Clear filters and never
+	// counts toward the Filter button's badge.
+	const activeFilterCount = (
+		["from", "to", "categoryId", "kind"] as const
+	).filter((k) => Boolean(filters[k])).length;
 
 	const accountName = useMemo(
 		() => new Map((accounts.data ?? []).map((a) => [a.id, a.name])),
@@ -238,7 +274,7 @@ export default function Transactions() {
 		mutationFn: async (format: "csv" | "json") => {
 			const q = applyFilters(
 				requireSupabase().from("transactions").select("*, categories(name)"),
-				filters,
+				effectiveFilters,
 			);
 			const { data, error } = await q
 				.order("occurred_at", { ascending: false })
@@ -490,7 +526,17 @@ export default function Transactions() {
 				subtitle={`${rows.length}${maybeMore ? "+" : ""} accepted entr${
 					rows.length === 1 ? "y" : "ies"
 				} loaded`}
-			/>
+			>
+				{/* The ledger's subject, right beside its title: one account or
+                    all of them, switched here instead of inside the filter panel. */}
+				<AccountSwitcher
+					accounts={accounts.data ?? []}
+					value={accountId}
+					onChange={(id) =>
+						setFilter("accountId", id === "" ? ALL_ACCOUNTS : id)
+					}
+				/>
+			</PageHeader>
 			{/* Exporting lives in the table's own Export menu, next to the
                 controls that decide what would be exported. */}
 
@@ -506,7 +552,9 @@ export default function Transactions() {
 				scope={
 					activeFilterCount > 0
 						? "matching your filters"
-						: "across your whole ledger"
+						: accountId
+							? `in ${accountName.get(accountId) ?? "this account"}`
+							: "across your whole ledger"
 				}
 			/>
 
@@ -538,11 +586,13 @@ export default function Transactions() {
 				initialSort={{ columnId: "date", direction: "desc" }}
 				activeFilterCount={activeFilterCount}
 				onClearFilters={() => {
-					setFilters(EMPTY_FILTERS);
+					// The account scope stays: it lives in the header, and clearing
+					// the filters shouldn't drag the ledger's subject along with them.
+					setFilters((f) => ({ ...EMPTY_FILTERS, accountId: f.accountId }));
 					setLimit(PAGE_SIZE);
 				}}
 				filters={
-					<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+					<div className="grid gap-3 sm:grid-cols-2">
 						<Field label="From">
 							<Input
 								type="date"
@@ -555,15 +605,6 @@ export default function Transactions() {
 								type="date"
 								value={filters.to}
 								onChange={(e) => setFilter("to", e.target.value)}
-							/>
-						</Field>
-						<Field label="Account">
-							<Picker
-								options={accountOpts}
-								value={filters.accountId}
-								onChange={(v) => setFilter("accountId", v)}
-								placeholder="All accounts"
-								clearable
 							/>
 						</Field>
 						<Field label="Category">
@@ -602,16 +643,98 @@ export default function Transactions() {
 				loadingMore={txs.isFetching}
 				onLoadMore={() => setLimit((l) => l + PAGE_SIZE)}
 				emptyTitle={
-					activeFilterCount > 0 ? "No matches" : "No accepted transactions yet"
+					activeFilterCount > 0
+						? "No matches"
+						: accountId
+							? "No accepted transactions in this account"
+							: "No accepted transactions yet"
 				}
 				emptyBody={
 					activeFilterCount > 0
 						? "Nothing matches the current filters. Clear one and try again."
-						: "Capture something or review your inbox — accepted entries land here."
+						: accountId
+							? "Switch accounts in the header, or choose All accounts to see the whole ledger."
+							: "Capture something or review your inbox — accepted entries land here."
 				}
 				footNote="Click a row for the original narration, reference, and source capture."
 			/>
 		</>
+	);
+}
+
+/**
+ * The ledger's subject, right beside its title. Shows the chosen account —
+ * name bold, masked number beneath — or "All accounts"; clicking opens the
+ * account palette, whose top row steps back to the whole ledger. Deliberately
+ * not a filter: it never counts toward the Filter badge or clears with them.
+ */
+function AccountSwitcher({
+	accounts,
+	value,
+	onChange,
+}: {
+	accounts: Account[];
+	/** The effective scope: an account id, or "" for every account. */
+	value: string;
+	onChange: (accountId: string) => void;
+}) {
+	const palette = usePalette();
+	const selected = accounts.find((a) => a.id === value);
+
+	const options: Option[] = [
+		{
+			value: "",
+			label: "All accounts",
+			hint: `${accounts.length} ${accounts.length === 1 ? "account" : "accounts"}`,
+		},
+		...accounts
+			.filter((a) => !a.is_archived)
+			.map((a) => ({
+				value: a.id,
+				label: a.name,
+				hint: a.metadata?.number_masked ?? a.currency,
+				keywords: [a.institution, a.currency, a.metadata?.number_masked]
+					.filter(Boolean)
+					.join(" "),
+			})),
+	];
+
+	return (
+		<button
+			type="button"
+			aria-haspopup="listbox"
+			aria-label={
+				selected ? `Account: ${selected.name}` : "Showing all accounts"
+			}
+			title={selected ? selected.name : undefined}
+			className={`sb-account-switch ${selected ? "is-scoped" : ""}`}
+			onClick={() =>
+				palette.open({
+					title: "Account",
+					subtitle: "Scope the ledger to one account, or show them all",
+					options,
+					value,
+					onSelect: onChange,
+					searchPlaceholder: "Search accounts…",
+				})
+			}
+		>
+			<span className="sb-account-switch__text">
+				<span className="sb-account-switch__name">
+					{selected?.name ?? "All accounts"}
+				</span>
+				<span className="sb-account-switch__meta">
+					{selected
+						? [selected.metadata?.number_masked, selected.currency]
+								.filter(Boolean)
+								.join(" · ")
+						: `${accounts.length} ${accounts.length === 1 ? "account" : "accounts"}`}
+				</span>
+			</span>
+			<span className="sb-account-switch__chevron">
+				<ChevronDownIcon size={15} />
+			</span>
+		</button>
 	);
 }
 

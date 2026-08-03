@@ -1,34 +1,34 @@
 export function fmtMoney(amount: number, currency: string): string {
-    try {
-        return new Intl.NumberFormat(undefined, {
-            style: "currency",
-            currency,
-            maximumFractionDigits: 2,
-        }).format(amount);
-    } catch {
-        return `${amount.toFixed(2)} ${currency}`;
-    }
+	try {
+		return new Intl.NumberFormat(undefined, {
+			style: "currency",
+			currency,
+			maximumFractionDigits: 2,
+		}).format(amount);
+	} catch {
+		return `${amount.toFixed(2)} ${currency}`;
+	}
 }
 
 export function fmtMoneyCompact(amount: number, currency: string): string {
-    try {
-        return new Intl.NumberFormat(undefined, {
-            style: "currency",
-            currency,
-            notation: "compact",
-            maximumFractionDigits: 1,
-        }).format(amount);
-    } catch {
-        return `${amount.toFixed(0)} ${currency}`;
-    }
+	try {
+		return new Intl.NumberFormat(undefined, {
+			style: "currency",
+			currency,
+			notation: "compact",
+			maximumFractionDigits: 1,
+		}).format(amount);
+	} catch {
+		return `${amount.toFixed(0)} ${currency}`;
+	}
 }
 
 export function fmtDate(iso: string): string {
-    return new Date(iso).toLocaleDateString(undefined, {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-    });
+	return new Date(iso).toLocaleDateString(undefined, {
+		year: "numeric",
+		month: "short",
+		day: "numeric",
+	});
 }
 
 /**
@@ -37,41 +37,59 @@ export function fmtDate(iso: string): string {
  * `Date(iso)`, which reads a bare date as UTC and can render the day before.
  */
 export function fmtDateShort(iso: string): string {
-    const date = new Date(`${iso.slice(0, 10)}T00:00:00`);
-    return date.toLocaleDateString(undefined, {
-        month: "short",
-        day: "numeric",
-        ...(date.getFullYear() === new Date().getFullYear() ? {} : { year: "numeric" }),
-    });
+	const date = new Date(`${iso.slice(0, 10)}T00:00:00`);
+	return date.toLocaleDateString(undefined, {
+		month: "short",
+		day: "numeric",
+		...(date.getFullYear() === new Date().getFullYear()
+			? {}
+			: { year: "numeric" }),
+	});
 }
 
 export function fmtDateTime(iso: string): string {
-    return new Date(iso).toLocaleString(undefined, {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-    });
+	return new Date(iso).toLocaleString(undefined, {
+		year: "numeric",
+		month: "short",
+		day: "numeric",
+		hour: "2-digit",
+		minute: "2-digit",
+	});
 }
 
 /** "1.4 MB" — human file size for the documents view. Null → "—". */
 export function fmtBytes(bytes: number | null | undefined): string {
-    if (bytes === null || bytes === undefined || bytes < 0) return "—";
-    if (bytes < 1024) return `${bytes} B`;
-    const units = ["KB", "MB", "GB"];
-    let value = bytes;
-    let unit = "B";
-    for (const u of units) {
-        value /= 1024;
-        unit = u;
-        if (value < 1024) break;
-    }
-    return `${value >= 100 ? value.toFixed(0) : value.toFixed(1)} ${unit}`;
+	if (bytes === null || bytes === undefined || bytes < 0) return "—";
+	if (bytes < 1024) return `${bytes} B`;
+	const units = ["KB", "MB", "GB"];
+	let value = bytes;
+	let unit = "B";
+	for (const u of units) {
+		value /= 1024;
+		unit = u;
+		if (value < 1024) break;
+	}
+	return `${value >= 100 ? value.toFixed(0) : value.toFixed(1)} ${unit}`;
+}
+
+/**
+ * The readable file name from a storage path — the last segment with the
+ * UUID prefix the uploader adds ("<uid>/<uuid>-receipt.jpg" → "receipt.jpg").
+ * `null` (an inline capture) → "inline capture".
+ */
+export function fileNameOf(storagePath: string | null): string {
+	if (!storagePath) return "inline capture";
+	const path = storagePath.startsWith("b2:")
+		? storagePath.slice(3)
+		: storagePath;
+	const base = path.split("/").pop() ?? path;
+	return base.replace(/^[0-9a-f-]{36}-/, "") || base;
 }
 
 /** ISO date of the first day of the current month, e.g. "2026-07-01". */
 export function currentMonthStart(): string {
-    const now = new Date();
-    return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+	const now = new Date();
+	return new Date(now.getFullYear(), now.getMonth(), 1)
+		.toISOString()
+		.slice(0, 10);
 }

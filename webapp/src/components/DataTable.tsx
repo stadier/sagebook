@@ -18,6 +18,7 @@ import {
 	useMemo,
 	useRef,
 	useState,
+	type PointerEvent as ReactPointerEvent,
 	type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
@@ -37,6 +38,7 @@ import {
 	SortIcon,
 } from "./icons";
 import { Picker } from "./ui";
+import { usePersisted } from "../lib/persist";
 
 /* --- Column model ---------------------------------------------------------- */
 
@@ -215,34 +217,6 @@ export interface DataTableProps<T> {
 const DEFAULT_PAGE_SIZES = [10, 25, 50, 100];
 
 /* --- Small helpers ---------------------------------------------------------- */
-
-/** Session-persisted state, falling back to `initial` when storage is unusable. */
-function usePersisted<S>(
-	key: string | undefined,
-	initial: S,
-): [S, (v: S) => void] {
-	const [value, setValue] = useState<S>(() => {
-		if (!key) return initial;
-		try {
-			const raw = localStorage.getItem(key);
-			return raw
-				? ({ ...(initial as object), ...JSON.parse(raw) } as S)
-				: initial;
-		} catch {
-			return initial;
-		}
-	});
-	function set(next: S) {
-		setValue(next);
-		if (!key) return;
-		try {
-			localStorage.setItem(key, JSON.stringify(next));
-		} catch {
-			/* private mode / quota — the table just won't remember */
-		}
-	}
-	return [value, set];
-}
 
 /** Closes a popover on an outside click or Escape. */
 function useDismiss(open: boolean, close: () => void) {
@@ -484,6 +458,14 @@ export function DataTable<T>({
 			pageSize: defaultPageSize,
 			/** Expense display, set from the Settings menu (see `Column.amount`). */
 			amounts: { negativeExpenses: true, redExpenses: false },
+			/** Pixel widths set by dragging a header edge. Empty means the
+			    browser's auto layout sizes every column. */
+			widths: {} as Record<string, number>,
+			/** The user's column sort — `null` once they clear it, `undefined`
+			    until they sort once, so the page's `initialSort` is the fallback. */
+			sort: undefined as SortState | null | undefined,
+			/** The search box text, so a reload comes back mid-search. */
+			search: "",
 		},
 	);
 
@@ -493,8 +475,10 @@ export function DataTable<T>({
 		[pageSizeOptions],
 	);
 
-	const [search, setSearch] = useState("");
-	const [sort, setSort] = useState<SortState | null>(initialSort ?? null);
+	const [search, setSearch] = useState(prefs.search ?? "");
+	const [sort, setSort] = useState<SortState | null>(
+		prefs.sort !== undefined ? prefs.sort : (initialSort ?? null),
+	);
 	const [page, setPage] = useState(1);
 	const [selected, setSelected] = useState<Set<string>>(new Set());
 	const [ownExpanded, setOwnExpanded] = useState<string[]>([]);
@@ -524,6 +508,86 @@ export function DataTable<T>({
 	const settingsRef = useDismiss(menu === "settings", closeMenu);
 
 	const hiddenIds = useMemo(() => new Set(prefs.hidden), [prefs.hidden]);
+
+	/* Column resize. Committed widths live in `prefs.widths` (saved on release,
+       so they survive reloads); `dragWidths` is the transient state while a
+       handle is held, so a pointermove never writes localStorage per frame. */
+	const thRefs = useRef(new Map<string, HTMLTableCellElement>());
+	const [dragWidths, setDragWidths] = useState<Record<string, number> | null>(
+		null,
+	);
+	const renderWidths = dragWidths ?? prefs.widths;
+	/* Fixed layout once the user has sized anything: auto layout is the better
+       default, but honouring a width the user set is the whole point. */
+	const fixedLayout = Object.keys(renderWidths).length > 0;
+	const resizing = dragWidths !== null;
+
+	const MIN_COL_WIDTH = 48;
+
+	function setThRef(key: string) {
+		return (el: HTMLTableCellElement | null) => {
+			if (el) thRefs.current.set(key, el);
+			else thRefs.current.delete(key);
+		};
+	}
+
+	/* The active drag's cleanup, so a new drag can disarm a previous one whose
+       pointerup was missed (e.g. the pointer left the window mid-drag). */
+	const resizeDrag = useRef<{ finish: () => void } | null>(null);
+
+	/**
+	 * Begin dragging a header edge. The first drag of a session snapshots every
+	 * visible column's rendered width, so switching from auto to fixed layout
+	 * reflows nothing — from then on the widths are real pixels the user owns.
+	 *
+	 * Move/up listeners go on `window` rather than a captured pointer: a resize
+	 * is exactly the gesture where the cursor may outrun the handle.
+	 */
+	function startResize(id: string, e: ReactPointerEvent<HTMLSpanElement>) {
+		e.preventDefault();
+		e.stopPropagation();
+		resizeDrag.current?.finish();
+
+		const snapshot: Record<string, number> = {};
+		thRefs.current.forEach((el, key) => {
+			snapshot[key] = el.getBoundingClientRect().width;
+		});
+		const base = { ...snapshot, ...prefs.widths };
+		const startX = e.clientX;
+		const startWidth = base[id] ?? snapshot[id] ?? 160;
+		let current = base;
+		let moved = false;
+
+		function move(ev: PointerEvent) {
+			if (Math.abs(ev.clientX - startX) < 2) return;
+			moved = true;
+			current = {
+				...base,
+				[id]: Math.max(MIN_COL_WIDTH, startWidth + ev.clientX - startX),
+			};
+			setDragWidths(current);
+		}
+		function finish() {
+			window.removeEventListener("pointermove", move);
+			window.removeEventListener("pointerup", finish);
+			window.removeEventListener("pointercancel", finish);
+			resizeDrag.current = null;
+			// A plain click on the handle is a no-op — only an actual drag
+			// should make widths stick (so double-click reset is clean).
+			if (moved) setPrefs({ ...prefs, widths: current });
+			setDragWidths(null);
+		}
+		resizeDrag.current = { finish };
+		window.addEventListener("pointermove", move);
+		window.addEventListener("pointerup", finish);
+		window.addEventListener("pointercancel", finish);
+	}
+
+	/** Double-click a header edge to hand that column back to auto layout. */
+	function resetWidth(id: string) {
+		const { [id]: _dropped, ...rest } = prefs.widths;
+		setPrefs({ ...prefs, widths: rest });
+	}
 
 	/* The user's left-to-right order, if they've set one. A column the page has
        added since then isn't in the stored list, so it keeps its declared
@@ -657,13 +721,17 @@ export function DataTable<T>({
 		else setOwnExpanded(next);
 	}
 
-	/** asc → desc → unsorted, so a header click is always reversible. */
+	/** asc → desc → unsorted, so a header click is always reversible. The
+	    result is persisted, so the table reloads with the same view. */
 	function cycleSort(columnId: string) {
-		setSort((prev) => {
-			if (prev?.columnId !== columnId) return { columnId, direction: "asc" };
-			if (prev.direction === "asc") return { columnId, direction: "desc" };
-			return null;
-		});
+		const next: SortState | null =
+			sort?.columnId !== columnId
+				? { columnId, direction: "asc" }
+				: sort.direction === "asc"
+					? { columnId, direction: "desc" }
+					: null;
+		setSort(next);
+		setPrefs({ ...prefs, sort: next });
 	}
 
 	function toggleColumn(id: string) {
@@ -755,13 +823,19 @@ export function DataTable<T>({
 							className="sb-input !py-[0.4375rem] !pl-9 !pr-8 text-[0.8125rem]"
 							placeholder={searchPlaceholder}
 							value={search}
-							onChange={(e) => setSearch(e.target.value)}
+							onChange={(e) => {
+								setSearch(e.target.value);
+								setPrefs({ ...prefs, search: e.target.value });
+							}}
 							aria-label={searchPlaceholder}
 						/>
 						{search && (
 							<button
 								aria-label="Clear search"
-								onClick={() => setSearch("")}
+								onClick={() => {
+									setSearch("");
+									setPrefs({ ...prefs, search: "" });
+								}}
 								className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-600 hover:text-slate-300"
 							>
 								<CloseIcon size={14} />
@@ -820,7 +894,10 @@ export function DataTable<T>({
 								{sort && (
 									<button
 										className="sb-menu-item text-slate-500"
-										onClick={() => setSort(null)}
+										onClick={() => {
+											setSort(null);
+											setPrefs({ ...prefs, sort: null });
+										}}
 									>
 										<CloseIcon size={14} />
 										Clear sort
@@ -991,7 +1068,7 @@ export function DataTable<T>({
 						{menu === "columns" && (
 							<div className="sb-menu right-0 top-[calc(100%+0.375rem)]">
 								<div className="px-2 pb-1 pt-1 text-[0.6875rem] font-bold uppercase tracking-[0.06em] text-slate-500">
-									Columns · use the arrows to reorder
+									Columns · drag a header edge to resize
 								</div>
 								{orderedColumns.map((c) => {
 									const locked = c.hideable === false;
@@ -1063,10 +1140,12 @@ export function DataTable<T>({
 										</span>
 										Compact rows
 									</button>
-									{(prefs.hidden.length > 0 || prefs.order.length > 0) && (
+									{(prefs.hidden.length > 0 ||
+										prefs.order.length > 0 ||
+										Object.keys(prefs.widths).length > 0) && (
 										<button
 											className="sb-menu-item text-slate-500"
-											title="Back to this page's own columns and order"
+											title="Back to this page's own columns, order and widths"
 											onClick={() =>
 												setPrefs({
 													...prefs,
@@ -1077,6 +1156,7 @@ export function DataTable<T>({
 														.filter((c) => c.defaultHidden)
 														.map((c) => c.id),
 													order: [],
+													widths: {},
 												})
 											}
 										>
@@ -1182,9 +1262,15 @@ export function DataTable<T>({
                             15px of height, which pushes the shell's `h-screen`
                             past the viewport and grows a *second* vertical
                             scrollbar beside the one `main` already owns. */}
-						<div className="relative hidden overflow-x-auto md:block">
+						<div
+							className={`relative hidden overflow-x-auto md:block ${
+								resizing ? "cursor-col-resize select-none" : ""
+							}`}
+						>
 							<table
-								className="w-full border-collapse text-sm"
+								className={`w-full border-collapse text-sm ${
+									fixedLayout ? "table-fixed" : ""
+								}`}
 								style={{ minWidth }}
 							>
 								<thead className="sb-thead">
@@ -1192,8 +1278,13 @@ export function DataTable<T>({
 										{selectionOn && (
 											<th
 												scope="col"
+												ref={setThRef("__check")}
 												className="sb-th sb-col-pin bg-slate-950 !px-4"
-												style={{ width: "1%" }}
+												style={{
+													width: fixedLayout
+														? (renderWidths.__check ?? "3rem")
+														: "1%",
+												}}
 											>
 												<input
 													ref={headCheckRef}
@@ -1210,12 +1301,20 @@ export function DataTable<T>({
 										{visibleColumns.map((c) => {
 											const active = sort?.columnId === c.id;
 											const direction = active ? sort!.direction : null;
+											const w = renderWidths[c.id];
 											return (
 												<th
 													key={c.id}
 													scope="col"
+													ref={setThRef(c.id)}
 													className={`sb-th ${alignClass[c.align ?? "left"]}`}
-													style={c.width ? { width: c.width } : undefined}
+													style={
+														w
+															? { width: w }
+															: c.width
+																? { width: c.width }
+																: undefined
+													}
 													aria-sort={
 														active
 															? direction === "asc"
@@ -1242,14 +1341,26 @@ export function DataTable<T>({
 															{c.header ?? c.label}
 														</span>
 													)}
+													<span
+														aria-hidden="true"
+														className="sb-col-resize"
+														title="Drag to resize · double-click to reset"
+														onPointerDown={(e) => startResize(c.id, e)}
+														onDoubleClick={() => resetWidth(c.id)}
+													/>
 												</th>
 											);
 										})}
 										{rowActions && (
 											<th
 												scope="col"
+												ref={setThRef("__actions")}
 												className="sb-th text-right"
-												style={{ width: "1%" }}
+												style={{
+													width: fixedLayout
+														? (renderWidths.__actions ?? "3rem")
+														: "1%",
+												}}
 											>
 												<span className="sr-only">Actions</span>
 											</th>
@@ -1265,6 +1376,7 @@ export function DataTable<T>({
 										return (
 											<Fragment key={id}>
 												<tr
+													data-row-id={id}
 													className={`sb-row ${
 														isSelected ? "is-selected" : ""
 													} ${clickable ? "cursor-pointer" : ""} ${
@@ -1336,25 +1448,26 @@ export function DataTable<T>({
 						{/* Mobile: the same rows, stacked. */}
 						<div className="md:hidden">
 							{pageRows.map((row) => (
-								<MobileRow
-									key={rowId(row)}
-									row={row}
-									columns={visibleColumns}
-									selectable={selectionOn}
-									selected={selected.has(rowId(row))}
-									onToggleSelect={() => toggleRow(rowId(row))}
-									expanded={expanded.has(rowId(row))}
-									onClick={() => {
-										if (renderExpanded) toggleExpanded(rowId(row));
-										onRowClick?.(row);
-									}}
-									renderExpanded={renderExpanded}
-									rowActions={rowActions}
-									rowLabel={rowLabel}
-									dense={dense}
-									amounts={prefs.amounts}
-									className={rowClassName?.(row) ?? ""}
-								/>
+								<div key={rowId(row)} data-row-id={rowId(row)}>
+									<MobileRow
+										row={row}
+										columns={visibleColumns}
+										selectable={selectionOn}
+										selected={selected.has(rowId(row))}
+										onToggleSelect={() => toggleRow(rowId(row))}
+										expanded={expanded.has(rowId(row))}
+										onClick={() => {
+											if (renderExpanded) toggleExpanded(rowId(row));
+											onRowClick?.(row);
+										}}
+										renderExpanded={renderExpanded}
+										rowActions={rowActions}
+										rowLabel={rowLabel}
+										dense={dense}
+										amounts={prefs.amounts}
+										className={rowClassName?.(row) ?? ""}
+									/>
+								</div>
 							))}
 						</div>
 					</>

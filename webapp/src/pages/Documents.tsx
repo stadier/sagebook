@@ -9,7 +9,8 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import DataTable, { type Column } from "../components/DataTable";
 import { DownloadIcon } from "../components/icons";
 import {
@@ -19,8 +20,9 @@ import {
 	QueryError,
 	StatCard,
 } from "../components/ui";
-import { fmtBytes, fmtDateTime } from "../lib/format";
+import { fileNameOf, fmtBytes, fmtDateTime } from "../lib/format";
 import { pairOptions } from "../lib/options";
+import { usePersisted } from "../lib/persist";
 import { QK, useDocuments, type DocumentRow } from "../lib/queries";
 import { downloadFromIngest, signedUrlFor } from "../lib/storage";
 import { invokeFn } from "../lib/supabase";
@@ -52,17 +54,6 @@ const STATUS_TONE: Record<string, string> = {
 	pending: "bg-chip text-slate-400",
 	processing: "bg-chip text-slate-400",
 };
-
-/** The readable file name — the storage path's last segment with the
- *  UUID prefix the uploader adds ("<uid>/<uuid>-receipt.jpg" → "receipt.jpg"). */
-function fileNameOf(doc: DocumentRow): string {
-	if (!doc.storage_path) return "inline capture";
-	const path = doc.storage_path.startsWith("b2:")
-		? doc.storage_path.slice(3)
-		: doc.storage_path;
-	const base = path.split("/").pop() ?? path;
-	return base.replace(/^[0-9a-f-]{36}-/, "") || base;
-}
 
 /** How many ledger/inbox entries a capture produced. */
 function producedCount(doc: DocumentRow): number {
@@ -136,15 +127,44 @@ function KindGlyph({ kind }: { kind: string }) {
 
 export default function Documents() {
 	const qc = useQueryClient();
-	const [status, setStatus] = useState<StatusFilter>("all");
-	const [kind, setKind] = useState<KindFilter>("all");
+	/* Deep link from global search (?doc=<id>): arrive with that row already
+	   expanded — the same state the searcher left it in. */
+	const [params, setParams] = useSearchParams();
+	const deepDoc = params.get("doc");
+	const [expandedId, setExpandedId] = useState<string | null>(deepDoc);
+
+	const [status, setStatus] = usePersisted<StatusFilter>(
+		"sagebook.webapp.filter.documents.status",
+		"all",
+	);
+	const [kind, setKind] = usePersisted<KindFilter>(
+		"sagebook.webapp.filter.documents.kind",
+		"all",
+	);
+
+	const docs = useDocuments();
+
+	/* A deep link must not be hidden by a stale persisted filter — drop the
+	   filters so the searched-for row is in the list. */
+	useEffect(() => {
+		if (!deepDoc) return;
+		setStatus("all");
+		setKind("all");
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [deepDoc]);
+
+	/* Bring the searched-for row into view once it actually renders (the
+	   filters above and the documents query both gate its presence). */
+	useEffect(() => {
+		if (!deepDoc) return;
+		const el = document.querySelector(`[data-row-id="${CSS.escape(deepDoc)}"]`);
+		el?.scrollIntoView({ block: "center" });
+	}, [deepDoc, status, kind, docs.data]);
 	/* Which file is being fetched, and anything the archive said about why it
 	   couldn't be. A download is the one verb here with no visible result on
 	   the page, so both are surfaced rather than left to the console. */
 	const [saving, setSaving] = useState<string | null>(null);
 	const [saveError, setSaveError] = useState<Error | null>(null);
-
-	const docs = useDocuments();
 
 	const retry = useMutation({
 		mutationFn: (doc: DocumentRow) =>
@@ -162,7 +182,7 @@ export default function Documents() {
 		if (!doc.storage_path) return;
 		setSaving(doc.id);
 		setSaveError(null);
-		void downloadFromIngest(doc.storage_path, fileNameOf(doc))
+		void downloadFromIngest(doc.storage_path, fileNameOf(doc.storage_path))
 			.catch((err) => setSaveError(err as Error))
 			.finally(() => setSaving(null));
 	}
@@ -211,10 +231,10 @@ export default function Documents() {
 			label: "Document",
 			hideable: false,
 			mobile: "title",
-			sortValue: (d) => fileNameOf(d).toLowerCase(),
+			sortValue: (d) => fileNameOf(d.storage_path).toLowerCase(),
 			searchValue: (d) =>
 				[
-					fileNameOf(d),
+					fileNameOf(d.storage_path),
 					d.media_kind,
 					d.mime_type,
 					d.parsed_payload?.summary ?? "",
@@ -232,7 +252,7 @@ export default function Documents() {
 						    wide and scrolls sideways instead; `anywhere` does
 						    both. */}
 						<div className="font-medium text-slate-200 [overflow-wrap:anywhere]">
-							{fileNameOf(d)}
+							{fileNameOf(d.storage_path)}
 						</div>
 						<div className="text-[0.6875rem] text-slate-500">
 							{d.media_kind}
@@ -371,6 +391,19 @@ export default function Documents() {
 				rowNoun="document"
 				searchPlaceholder="Search file name, kind, summary…"
 				initialSort={{ columnId: "added", direction: "desc" }}
+				/* A deep link has to land on its row even when the archive runs
+				   past a page — show everything until the link is resolved. */
+				paginated={deepDoc ? false : undefined}
+				expandedIds={expandedId ? [expandedId] : undefined}
+				onExpandedChange={(ids) => {
+					const next = ids[ids.length - 1] ?? null;
+					setExpandedId(next);
+					/* Keep the deep link honest: once the searched-for row is
+					   collapsed, drop ?doc= so a refresh doesn't re-open it. */
+					if (deepDoc && next !== deepDoc) {
+						setParams(next ? { doc: next } : {}, { replace: true });
+					}
+				}}
 				activeFilterCount={
 					(status !== "all" ? 1 : 0) + (kind !== "all" ? 1 : 0)
 				}
@@ -552,7 +585,7 @@ function Media({ url, doc }: { url: string; doc: DocumentRow }) {
 			<a href={url} target="_blank" rel="noreferrer" className="self-start">
 				<img
 					src={url}
-					alt={fileNameOf(doc)}
+					alt={fileNameOf(doc.storage_path)}
 					className="max-h-72 rounded-lg border border-slate-800"
 				/>
 			</a>

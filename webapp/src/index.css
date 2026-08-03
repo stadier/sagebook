@@ -18,806 +18,943 @@
    ========================================================================== */
 
 @theme {
-    /* Typography ----------------------------------------------------------- */
-    --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system,
-        "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+	/* Typography ----------------------------------------------------------- */
+	--font-sans:
+		"Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+		Roboto, "Helvetica Neue", Arial, sans-serif;
 
-    /* Corner radii — the design's soft, generous corners ------------------- */
-    --radius-sm: 0.375rem; /*  6px — tiny chips */
-    --radius-md: 0.5rem; /*  8px — inputs, small controls */
-    --radius-lg: 0.5625rem; /*  9px — icon buttons */
-    --radius-xl: 0.6875rem; /* 11px — buttons, avatars, nav rows */
-    --radius-2xl: 1.125rem; /* 18px — standard card */
-    --radius-3xl: 1.375rem; /* 22px — hero / feature card */
+	/* Corner radii — the design's soft, generous corners ------------------- */
+	--radius-sm: 0.375rem; /*  6px — tiny chips */
+	--radius-md: 0.5rem; /*  8px — inputs, small controls */
+	--radius-lg: 0.5625rem; /*  9px — icon buttons */
+	--radius-xl: 0.6875rem; /* 11px — buttons, avatars, nav rows */
+	--radius-2xl: 1.125rem; /* 18px — standard card */
+	--radius-3xl: 1.375rem; /* 22px — hero / feature card */
 
-    /* Neutral scale — remapped to the design's light surfaces + navy ink.
+	/* Neutral scale — remapped to the design's light surfaces + navy ink.
        Surfaces live at the top of the scale, text at the bottom. --------- */
-    --color-slate-50: #0f1115; /* darkest ink (rare) */
-    --color-slate-100: #191d24; /* headings */
-    --color-slate-200: #191d24; /* primary text */
-    --color-slate-300: #444a58; /* secondary text */
-    --color-slate-400: #6b7180; /* muted labels */
-    --color-slate-500: #8b91a0; /* faint text */
-    --color-slate-600: #a8aeba; /* icons / placeholders */
-    --color-slate-700: #dfe3ea; /* border (strong hairline) */
-    --color-slate-800: #f2f3f5; /* divider (hairline) / hover surface */
-    --color-slate-900: #ffffff; /* card surface */
-    --color-slate-950: #f7f8fa; /* nested / recessed surface */
+	--color-slate-50: #0f1115; /* darkest ink (rare) */
+	--color-slate-100: #191d24; /* headings */
+	--color-slate-200: #191d24; /* primary text */
+	--color-slate-300: #444a58; /* secondary text */
+	--color-slate-400: #6b7180; /* muted labels */
+	--color-slate-500: #8b91a0; /* faint text */
+	--color-slate-600: #a8aeba; /* icons / placeholders */
+	--color-slate-700: #dfe3ea; /* border (strong hairline) */
+	--color-slate-800: #f2f3f5; /* divider (hairline) / hover surface */
+	--color-slate-900: #ffffff; /* card surface */
+	--color-slate-950: #f7f8fa; /* nested / recessed surface */
 
-    /* Income + positive movement (emerald) -------------------------------- */
-    --color-emerald-300: #4fbe85;
-    --color-emerald-400: #2fa86a; /* the design's green */
-    --color-emerald-500: #2b9a61;
-    --color-emerald-600: #278c58; /* solid button */
-    --color-emerald-700: #1f7448;
+	/* Income + positive movement (emerald) -------------------------------- */
+	--color-emerald-300: #4fbe85;
+	--color-emerald-400: #2fa86a; /* the design's green */
+	--color-emerald-500: #2b9a61;
+	--color-emerald-600: #278c58; /* solid button */
+	--color-emerald-700: #1f7448;
 
-    /* Expense, over-budget + destructive (rose, pulled toward the coral) --- */
-    --color-rose-200: #b23a2a; /* text on a light red tint */
-    --color-rose-300: #e0503a;
-    --color-rose-400: #ef5a45; /* error text */
-    --color-rose-500: #e64f39;
-    --color-rose-600: #d6432e; /* destructive button */
-    --color-rose-900: #ff6a55; /* tint/border base (used with opacity) */
-    --color-rose-950: #ff8171;
+	/* Expense, over-budget + destructive (rose, pulled toward the coral) --- */
+	--color-rose-200: #b23a2a; /* text on a light red tint */
+	--color-rose-300: #e0503a;
+	--color-rose-400: #ef5a45; /* error text */
+	--color-rose-500: #e64f39;
+	--color-rose-600: #d6432e; /* destructive button */
+	--color-rose-900: #ff6a55; /* tint/border base (used with opacity) */
+	--color-rose-950: #ff8171;
 
-    /* Warning / amber ------------------------------------------------------ */
-    --color-amber-300: #d59524;
-    --color-amber-400: #c2801a; /* warning text (readable on light) */
-    --color-amber-500: #a96e12;
-    --color-amber-900: #ffb443; /* tint/border base (used with opacity) */
-    --color-amber-950: #ffc267;
+	/* Warning / amber ------------------------------------------------------ */
+	--color-amber-300: #d59524;
+	--color-amber-400: #c2801a; /* warning text (readable on light) */
+	--color-amber-500: #a96e12;
+	--color-amber-900: #ffb443; /* tint/border base (used with opacity) */
+	--color-amber-950: #ffc267;
 
-    /* Info / indigo — links, primary chart series (sky is remapped) -------- */
-    --color-sky-200: #4a41c9; /* text on an indigo tint */
-    --color-sky-300: #6c63ff; /* info text / links */
-    --color-sky-700: #6c63ff; /* tint base (used with opacity) */
-    --color-sky-800: #625ae8;
-    --color-sky-900: #5a52d6;
-    --color-sky-950: #8b84ff;
+	/* Info / indigo — links, primary chart series (sky is remapped) -------- */
+	--color-sky-200: #4a41c9; /* text on an indigo tint */
+	--color-sky-300: #6c63ff; /* info text / links */
+	--color-sky-700: #6c63ff; /* tint base (used with opacity) */
+	--color-sky-800: #625ae8;
+	--color-sky-900: #5a52d6;
+	--color-sky-950: #8b84ff;
 
-    /* Coral — brand + primary action -------------------------------------- */
-    --color-coral: #ff6a55;
-    --color-coral-600: #f2543d; /* hover / pressed */
-    --color-coral-500: #ff6a55;
-    --color-coral-400: #ff8a78;
-    --color-coral-soft: #ffece6; /* pale tint surface */
-    --color-coral-ink: #d9452c; /* readable text on a coral tint */
-    /* Coral buttons carry dark ink, not white — a signature of the design. */
-    --color-coral-fg: #191d24;
+	/* Coral — brand + primary action -------------------------------------- */
+	--color-coral: #ff6a55;
+	--color-coral-600: #f2543d; /* hover / pressed */
+	--color-coral-500: #ff6a55;
+	--color-coral-400: #ff8a78;
+	--color-coral-soft: #ffece6; /* pale tint surface */
+	--color-coral-ink: #d9452c; /* readable text on a coral tint */
+	/* Coral buttons carry dark ink, not white — a signature of the design. */
+	--color-coral-fg: #191d24;
 
-    /* Categorical chart palette — use these for series, never the text
+	/* Categorical chart palette — use these for series, never the text
        scales, so charts read the same in light and dark. ---------------- */
-    --color-chart-indigo: #6c63ff;
-    --color-chart-blue: #5ea8ff;
-    --color-chart-coral: #ff6a55;
-    --color-chart-amber: #ffb443;
-    --color-chart-green: #2fa86a;
-    --color-chart-violet: #8b6cff;
+	--color-chart-indigo: #6c63ff;
+	--color-chart-blue: #5ea8ff;
+	--color-chart-coral: #ff6a55;
+	--color-chart-amber: #ffb443;
+	--color-chart-green: #2fa86a;
+	--color-chart-violet: #8b6cff;
 
-    /* Soft tint surfaces behind avatars, category pills and badges -------- */
-    --color-tint-coral: #ffece6;
-    --color-tint-indigo: #ecebff;
-    --color-tint-green: #e6f7ee;
-    --color-tint-blue: #e8f2ff;
-    --color-tint-amber: #fff3e0;
-    --color-tint-violet: #f3ecff;
+	/* Soft tint surfaces behind avatars, category pills and badges -------- */
+	--color-tint-coral: #ffece6;
+	--color-tint-indigo: #ecebff;
+	--color-tint-green: #e6f7ee;
+	--color-tint-blue: #e8f2ff;
+	--color-tint-amber: #fff3e0;
+	--color-tint-violet: #f3ecff;
 
-    /* Signature surfaces --------------------------------------------------- */
-    --color-paper: #f7f8fa; /* page canvas */
-    --color-ink: #191d24; /* primary text */
-    --color-navy: #1b1f28; /* dark inset panel ("Sage noticed") */
-    --color-navy-ink: #eef0f4;
-    --color-sidebar: #1b1f28; /* stays dark in both themes */
-    --color-track: #eef0f4; /* progress / meter track */
-    --color-chip: #f1f2f5; /* segmented control + icon button bg */
-    --color-dashed: #eef1f5; /* dashed "add something" card fill */
+	/* Signature surfaces --------------------------------------------------- */
+	--color-paper: #f7f8fa; /* page canvas */
+	--color-ink: #191d24; /* primary text */
+	--color-navy: #1b1f28; /* dark inset panel ("Sage noticed") */
+	--color-navy-ink: #eef0f4;
+	--color-sidebar: #1b1f28; /* stays dark in both themes */
+	--color-track: #eef0f4; /* progress / meter track */
+	--color-chip: #f1f2f5; /* segmented control + icon button bg */
+	--color-dashed: #eef1f5; /* dashed "add something" card fill */
 
-    /* Legacy pastel aliases still referenced by a few tinted tiles -------- */
-    --color-sage: #e6f7ee;
-    --color-sage-ink: #23784c;
-    --color-gold: #fff3e0;
-    --color-gold-ink: #8a5b0c;
-    --color-violet: #f3ecff;
-    --color-violet-ink: #5a44c4;
+	/* Legacy pastel aliases still referenced by a few tinted tiles -------- */
+	--color-sage: #e6f7ee;
+	--color-sage-ink: #23784c;
+	--color-gold: #fff3e0;
+	--color-gold-ink: #8a5b0c;
+	--color-violet: #f3ecff;
+	--color-violet-ink: #5a44c4;
 
-    /* Two-tier elevation — a tight contact shadow plus a wide soft one ---- */
-    --shadow-card: 0 2px 4px rgba(25, 29, 36, 0.04);
-    --shadow-float: 0 2px 4px rgba(25, 29, 36, 0.04),
-        0 14px 34px -18px rgba(25, 29, 36, 0.14);
-    --shadow-pop: 0 12px 34px -10px rgba(25, 29, 36, 0.22);
+	/* Two-tier elevation — a tight contact shadow plus a wide soft one ---- */
+	--shadow-card: 0 2px 4px rgba(25, 29, 36, 0.04);
+	--shadow-float:
+		0 2px 4px rgba(25, 29, 36, 0.04), 0 14px 34px -18px rgba(25, 29, 36, 0.14);
+	--shadow-pop: 0 12px 34px -10px rgba(25, 29, 36, 0.22);
 }
 
 @layer base {
-    :root {
-        color-scheme: light;
-    }
-    :root.dark {
-        color-scheme: dark;
+	:root {
+		color-scheme: light;
+	}
+	:root.dark {
+		color-scheme: dark;
 
-        --color-slate-50: #ffffff;
-        --color-slate-100: #eef0f4;
-        --color-slate-200: #eef0f4;
-        --color-slate-300: #c7cbd4;
-        --color-slate-400: #9aa0ad;
-        --color-slate-500: #767d8c;
-        --color-slate-600: #5c6371;
-        --color-slate-700: #363b46;
-        --color-slate-800: #2a2e38;
-        --color-slate-900: #1c1f27;
-        --color-slate-950: #262a33;
+		--color-slate-50: #ffffff;
+		--color-slate-100: #eef0f4;
+		--color-slate-200: #eef0f4;
+		--color-slate-300: #c7cbd4;
+		--color-slate-400: #9aa0ad;
+		--color-slate-500: #767d8c;
+		--color-slate-600: #5c6371;
+		--color-slate-700: #363b46;
+		--color-slate-800: #2a2e38;
+		--color-slate-900: #1c1f27;
+		--color-slate-950: #262a33;
 
-        --color-emerald-300: #6ed3a0;
-        --color-emerald-400: #46c98a;
-        --color-emerald-500: #35b878;
-        --color-emerald-600: #2fa86a;
-        --color-emerald-700: #268a58;
+		--color-emerald-300: #6ed3a0;
+		--color-emerald-400: #46c98a;
+		--color-emerald-500: #35b878;
+		--color-emerald-600: #2fa86a;
+		--color-emerald-700: #268a58;
 
-        --color-rose-200: #ff9a8b;
-        --color-rose-300: #ff8171;
-        --color-rose-400: #ff6a55;
-        --color-rose-500: #f2543d;
-        --color-rose-600: #e04a34;
-        --color-rose-900: #3a231f;
-        --color-rose-950: #2e1b18;
+		--color-rose-200: #ff9a8b;
+		--color-rose-300: #ff8171;
+		--color-rose-400: #ff6a55;
+		--color-rose-500: #f2543d;
+		--color-rose-600: #e04a34;
+		--color-rose-900: #3a231f;
+		--color-rose-950: #2e1b18;
 
-        --color-amber-300: #ffc267;
-        --color-amber-400: #ffb443;
-        --color-amber-500: #eda32f;
-        --color-amber-900: #3a2c14;
-        --color-amber-950: #2e230f;
+		--color-amber-300: #ffc267;
+		--color-amber-400: #ffb443;
+		--color-amber-500: #eda32f;
+		--color-amber-900: #3a2c14;
+		--color-amber-950: #2e230f;
 
-        --color-sky-200: #a49dff;
-        --color-sky-300: #8b84ff;
-        --color-sky-700: #3a3676;
-        --color-sky-800: #322e66;
-        --color-sky-900: #2a2758;
-        --color-sky-950: #262a42;
+		--color-sky-200: #a49dff;
+		--color-sky-300: #8b84ff;
+		--color-sky-700: #3a3676;
+		--color-sky-800: #322e66;
+		--color-sky-900: #2a2758;
+		--color-sky-950: #262a42;
 
-        --color-coral: #ff6a55;
-        --color-coral-600: #f2543d;
-        --color-coral-500: #ff6a55;
-        --color-coral-400: #ff8a78;
-        --color-coral-soft: #3a231f;
-        --color-coral-ink: #ff9484;
-        --color-coral-fg: #191d24;
+		--color-coral: #ff6a55;
+		--color-coral-600: #f2543d;
+		--color-coral-500: #ff6a55;
+		--color-coral-400: #ff8a78;
+		--color-coral-soft: #3a231f;
+		--color-coral-ink: #ff9484;
+		--color-coral-fg: #191d24;
 
-        --color-tint-coral: #3a231f;
-        --color-tint-indigo: #262a42;
-        --color-tint-green: #173a29;
-        --color-tint-blue: #1c2e42;
-        --color-tint-amber: #3a2c14;
-        --color-tint-violet: #2a2242;
+		--color-tint-coral: #3a231f;
+		--color-tint-indigo: #262a42;
+		--color-tint-green: #173a29;
+		--color-tint-blue: #1c2e42;
+		--color-tint-amber: #3a2c14;
+		--color-tint-violet: #2a2242;
 
-        --color-paper: #12141a;
-        --color-ink: #eef0f4;
-        --color-navy: #232733;
-        --color-navy-ink: #eef0f4;
-        --color-sidebar: #171a21;
-        --color-track: #2a2e38;
-        --color-chip: #262a33;
-        --color-dashed: #1a1d24;
+		--color-paper: #12141a;
+		--color-ink: #eef0f4;
+		--color-navy: #232733;
+		--color-navy-ink: #eef0f4;
+		--color-sidebar: #171a21;
+		--color-track: #2a2e38;
+		--color-chip: #262a33;
+		--color-dashed: #1a1d24;
 
-        --color-sage: #173a29;
-        --color-sage-ink: #6ed3a0;
-        --color-gold: #3a2c14;
-        --color-gold-ink: #ffc267;
-        --color-violet: #2a2242;
-        --color-violet-ink: #a49dff;
+		--color-sage: #173a29;
+		--color-sage-ink: #6ed3a0;
+		--color-gold: #3a2c14;
+		--color-gold-ink: #ffc267;
+		--color-violet: #2a2242;
+		--color-violet-ink: #a49dff;
 
-        --shadow-card: 0 2px 4px rgba(0, 0, 0, 0.35);
-        --shadow-float: 0 2px 4px rgba(0, 0, 0, 0.35),
-            0 14px 34px -18px rgba(0, 0, 0, 0.55);
-        --shadow-pop: 0 14px 38px -12px rgba(0, 0, 0, 0.6);
-    }
+		--shadow-card: 0 2px 4px rgba(0, 0, 0, 0.35);
+		--shadow-float:
+			0 2px 4px rgba(0, 0, 0, 0.35), 0 14px 34px -18px rgba(0, 0, 0, 0.55);
+		--shadow-pop: 0 14px 38px -12px rgba(0, 0, 0, 0.6);
+	}
 
-    html,
-    body {
-        background-color: var(--color-paper);
-        color: var(--color-ink);
-        /* The shell owns the app's scrolling — one column, one scrollbar. The
+	html,
+	body {
+		background-color: var(--color-paper);
+		color: var(--color-ink);
+		/* The shell owns the app's scrolling — one column, one scrollbar. The
            document itself must never scroll sideways: a stray pixel of
            horizontal overflow costs 15px of viewport height, which puts the
            shell's `h-screen` over the edge and hands the page a second vertical
            scrollbar next to the one it already has. `clip` refuses the scroll
            without becoming a scroll container, so vertical scrolling on the
            pages that own it — Welcome, the console — is untouched. */
-        overflow-x: clip;
-    }
+		overflow-x: clip;
+	}
 
-    body {
-        font-family: var(--font-sans);
-        -webkit-font-smoothing: antialiased;
-        text-rendering: optimizeLegibility;
-    }
+	body {
+		font-family: var(--font-sans);
+		-webkit-font-smoothing: antialiased;
+		text-rendering: optimizeLegibility;
+	}
 
-    /* The design leans hard on tight display type for headings. */
-    h1,
-    h2,
-    h3 {
-        letter-spacing: -0.025em;
-    }
+	/* The design leans hard on tight display type for headings. */
+	h1,
+	h2,
+	h3 {
+		letter-spacing: -0.025em;
+	}
 
-    /* Unobtrusive scrollbars that read on either canvas. */
-    * {
-        scrollbar-color: var(--color-slate-700) transparent;
-    }
-    *::-webkit-scrollbar {
-        width: 10px;
-        height: 10px;
-    }
-    *::-webkit-scrollbar-thumb {
-        background-color: var(--color-slate-700);
-        border-radius: 9999px;
-        border: 2px solid transparent;
-        background-clip: content-box;
-    }
+	/* Unobtrusive scrollbars that read on either canvas. */
+	* {
+		scrollbar-color: var(--color-slate-700) transparent;
+	}
+	*::-webkit-scrollbar {
+		width: 10px;
+		height: 10px;
+	}
+	*::-webkit-scrollbar-thumb {
+		background-color: var(--color-slate-700);
+		border-radius: 9999px;
+		border: 2px solid transparent;
+		background-clip: content-box;
+	}
 }
 
 @layer components {
-    /* Borderless white card on a soft shadow — the default surface. --------- */
-    .sb-card {
-        background-color: var(--color-slate-900);
-        border-radius: var(--radius-2xl);
-        box-shadow: var(--shadow-card);
-        overflow: hidden;
-        min-width: 0;
-    }
+	/* Borderless white card on a soft shadow — the default surface. --------- */
+	.sb-card {
+		background-color: var(--color-slate-900);
+		border-radius: var(--radius-2xl);
+		box-shadow: var(--shadow-card);
+		overflow: hidden;
+		min-width: 0;
+	}
 
-    /* Hero / feature card: bigger corners, the wide floating shadow. -------- */
-    .sb-card-lg {
-        background-color: var(--color-slate-900);
-        border-radius: var(--radius-3xl);
-        box-shadow: var(--shadow-float);
-        min-width: 0;
-    }
+	/* Hero / feature card: bigger corners, the wide floating shadow. -------- */
+	.sb-card-lg {
+		background-color: var(--color-slate-900);
+		border-radius: var(--radius-3xl);
+		box-shadow: var(--shadow-float);
+		min-width: 0;
+	}
 
-    /* Dark inset panel — "Sage noticed", the net-worth stat, callouts.
+	/* Dark inset panel — "Sage noticed", the net-worth stat, callouts.
        Stays dark on both themes, so it always reads as a spotlight. ------- */
-    .sb-panel {
-        background-color: var(--color-navy);
-        color: var(--color-navy-ink);
-        border-radius: var(--radius-3xl);
-        min-width: 0;
-    }
+	.sb-panel {
+		background-color: var(--color-navy);
+		color: var(--color-navy-ink);
+		border-radius: var(--radius-3xl);
+		min-width: 0;
+	}
 
-    /* Dashed "there could be something here" card. -------------------------- */
-    .sb-dashed {
-        background-color: var(--color-dashed);
-        border: 1px dashed var(--color-slate-700);
-        border-radius: var(--radius-3xl);
-        min-width: 0;
-    }
+	/* Dashed "there could be something here" card. -------------------------- */
+	.sb-dashed {
+		background-color: var(--color-dashed);
+		border: 1px dashed var(--color-slate-700);
+		border-radius: var(--radius-3xl);
+		min-width: 0;
+	}
 
-    /* Recessed tile nested inside a card (account tiles, mini stats). ------- */
-    .sb-nested {
-        background-color: var(--color-slate-950);
-        border-radius: var(--radius-2xl);
-        min-width: 0;
-    }
+	/* Recessed tile nested inside a card (account tiles, mini stats). ------- */
+	.sb-nested {
+		background-color: var(--color-slate-950);
+		border-radius: var(--radius-2xl);
+		min-width: 0;
+	}
 
-    /* Rounded pill badge. --------------------------------------------------- */
-    .sb-pill {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.25rem;
-        border-radius: 9999px;
-        padding: 0.1875rem 0.625rem;
-        font-size: 0.75rem;
-        font-weight: 600;
-        line-height: 1.45;
-        white-space: nowrap;
-    }
+	/* Rounded pill badge. --------------------------------------------------- */
+	.sb-pill {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		border-radius: 9999px;
+		padding: 0.1875rem 0.625rem;
+		font-size: 0.75rem;
+		font-weight: 600;
+		line-height: 1.45;
+		white-space: nowrap;
+	}
 
-    /* Buttons -------------------------------------------------------------- */
-    .sb-btn {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        gap: 0.4375rem;
-        border-radius: var(--radius-xl);
-        padding: 0.5625rem 1rem;
-        font-size: 0.8125rem;
-        font-weight: 600;
-        line-height: 1.25;
-        white-space: nowrap;
-        cursor: pointer;
-        transition: background-color 0.15s ease, color 0.15s ease,
-            border-color 0.15s ease;
-    }
-    .sb-btn:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-    }
+	/* Buttons -------------------------------------------------------------- */
+	.sb-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.4375rem;
+		border-radius: var(--radius-xl);
+		padding: 0.5625rem 1rem;
+		font-size: 0.8125rem;
+		font-weight: 600;
+		line-height: 1.25;
+		white-space: nowrap;
+		cursor: pointer;
+		transition:
+			background-color 0.15s ease,
+			color 0.15s ease,
+			border-color 0.15s ease;
+	}
+	.sb-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
 
-    /* Primary: coral fill with dark ink, per the design. */
-    .sb-btn-primary {
-        background-color: var(--color-coral);
-        color: var(--color-coral-fg);
-        font-weight: 700;
-    }
-    .sb-btn-primary:hover:not(:disabled) {
-        background-color: var(--color-coral-600);
-    }
+	/* Primary: coral fill with dark ink, per the design. */
+	.sb-btn-primary {
+		background-color: var(--color-coral);
+		color: var(--color-coral-fg);
+		font-weight: 700;
+	}
+	.sb-btn-primary:hover:not(:disabled) {
+		background-color: var(--color-coral-600);
+	}
 
-    /* Secondary: the card surface on a hairline. */
-    .sb-btn-soft {
-        background-color: var(--color-slate-900);
-        color: var(--color-slate-300);
-        box-shadow: var(--shadow-card);
-    }
-    .sb-btn-soft:hover:not(:disabled) {
-        color: var(--color-slate-200);
-    }
+	/* Secondary: the card surface on a hairline. */
+	.sb-btn-soft {
+		background-color: var(--color-slate-900);
+		color: var(--color-slate-300);
+		box-shadow: var(--shadow-card);
+	}
+	.sb-btn-soft:hover:not(:disabled) {
+		color: var(--color-slate-200);
+	}
 
-    .sb-btn-ghost {
-        background-color: transparent;
-        color: var(--color-slate-300);
-        border: 1px solid var(--color-slate-700);
-    }
-    .sb-btn-ghost:hover:not(:disabled) {
-        background-color: var(--color-slate-800);
-        color: var(--color-slate-200);
-    }
+	.sb-btn-ghost {
+		background-color: transparent;
+		color: var(--color-slate-300);
+		border: 1px solid var(--color-slate-700);
+	}
+	.sb-btn-ghost:hover:not(:disabled) {
+		background-color: var(--color-slate-800);
+		color: var(--color-slate-200);
+	}
 
-    /* Destructive: outlined rather than filled, so it never reads as the
+	/* Destructive: outlined rather than filled, so it never reads as the
        default answer in a dialog that also offers a reversible one. */
-    .sb-btn-danger {
-        background-color: transparent;
-        color: var(--color-rose-400);
-        border: 1px solid color-mix(in oklab, var(--color-rose-400) 45%, transparent);
-    }
-    .sb-btn-danger:hover:not(:disabled) {
-        background-color: color-mix(in oklab, var(--color-rose-400) 14%, transparent);
-        color: var(--color-rose-300);
-    }
+	.sb-btn-danger {
+		background-color: transparent;
+		color: var(--color-rose-400);
+		border: 1px solid
+			color-mix(in oklab, var(--color-rose-400) 45%, transparent);
+	}
+	.sb-btn-danger:hover:not(:disabled) {
+		background-color: color-mix(
+			in oklab,
+			var(--color-rose-400) 14%,
+			transparent
+		);
+		color: var(--color-rose-300);
+	}
 
-    /* Form controls -------------------------------------------------------- */
-    .sb-input {
-        width: 100%;
-        background-color: var(--color-slate-950);
-        color: var(--color-slate-200);
-        border: 1px solid var(--color-slate-700);
-        border-radius: var(--radius-md);
-        padding: 0.5rem 0.75rem;
-        font-size: 0.875rem;
-        line-height: 1.4;
-    }
-    .sb-input::placeholder {
-        color: var(--color-slate-600);
-    }
-    .sb-input:focus {
-        outline: none;
-        border-color: var(--color-coral);
-        box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-coral) 20%, transparent);
-    }
+	/* Form controls -------------------------------------------------------- */
+	.sb-input {
+		width: 100%;
+		background-color: var(--color-slate-950);
+		color: var(--color-slate-200);
+		border: 1px solid var(--color-slate-700);
+		border-radius: var(--radius-md);
+		padding: 0.5rem 0.75rem;
+		font-size: 0.875rem;
+		line-height: 1.4;
+	}
+	.sb-input::placeholder {
+		color: var(--color-slate-600);
+	}
+	.sb-input:focus {
+		outline: none;
+		border-color: var(--color-coral);
+		box-shadow: 0 0 0 3px
+			color-mix(in oklab, var(--color-coral) 20%, transparent);
+	}
 
-    /* Checkbox --------------------------------------------------------------
+	/* Checkbox --------------------------------------------------------------
        The native control can't be tinted to the palette, so it is redrawn: a
        hairline square that fills coral and reveals a mask-drawn tick when
        checked. `:indeterminate` gets the dash for a partial header selection. */
-    .sb-check {
-        appearance: none;
-        -webkit-appearance: none;
-        flex: none;
-        width: 1.0625rem;
-        height: 1.0625rem;
-        border: 1.5px solid var(--color-slate-600);
-        border-radius: 0.3125rem;
-        background-color: var(--color-slate-900);
-        cursor: pointer;
-        transition: background-color 0.12s ease, border-color 0.12s ease;
-    }
-    .sb-check:hover:not(:disabled) {
-        border-color: var(--color-coral);
-    }
-    /* Each state carries its own complete `background`: the compiler collapses
+	.sb-check {
+		appearance: none;
+		-webkit-appearance: none;
+		flex: none;
+		width: 1.0625rem;
+		height: 1.0625rem;
+		border: 1.5px solid var(--color-slate-600);
+		border-radius: 0.3125rem;
+		background-color: var(--color-slate-900);
+		cursor: pointer;
+		transition:
+			background-color 0.12s ease,
+			border-color 0.12s ease;
+	}
+	.sb-check:hover:not(:disabled) {
+		border-color: var(--color-coral);
+	}
+	/* Each state carries its own complete `background`: the compiler collapses
        these longhands into the shorthand, and a shorthand in one rule would
        otherwise reset the colour set by another. */
-    .sb-check:checked {
-        background-color: var(--color-coral);
-        border-color: var(--color-coral);
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23191d24' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12.5 4.5 4.5L19 7'/%3E%3C/svg%3E");
-        background-repeat: no-repeat;
-        background-position: center;
-        background-size: 0.75rem;
-    }
-    .sb-check:indeterminate {
-        background-color: var(--color-coral);
-        border-color: var(--color-coral);
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23191d24' stroke-width='3.4' stroke-linecap='round'%3E%3Cpath d='M6 12h12'/%3E%3C/svg%3E");
-        background-repeat: no-repeat;
-        background-position: center;
-        background-size: 0.75rem;
-    }
-    .sb-check:focus-visible {
-        outline: none;
-        box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-coral) 25%, transparent);
-    }
-    .sb-check:disabled {
-        opacity: 0.45;
-        cursor: not-allowed;
-    }
+	.sb-check:checked {
+		background-color: var(--color-coral);
+		border-color: var(--color-coral);
+		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23191d24' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12.5 4.5 4.5L19 7'/%3E%3C/svg%3E");
+		background-repeat: no-repeat;
+		background-position: center;
+		background-size: 0.75rem;
+	}
+	.sb-check:indeterminate {
+		background-color: var(--color-coral);
+		border-color: var(--color-coral);
+		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23191d24' stroke-width='3.4' stroke-linecap='round'%3E%3Cpath d='M6 12h12'/%3E%3C/svg%3E");
+		background-repeat: no-repeat;
+		background-position: center;
+		background-size: 0.75rem;
+	}
+	.sb-check:focus-visible {
+		outline: none;
+		box-shadow: 0 0 0 3px
+			color-mix(in oklab, var(--color-coral) 25%, transparent);
+	}
+	.sb-check:disabled {
+		opacity: 0.45;
+		cursor: not-allowed;
+	}
 
-    /* Table toolbar controls -------------------------------------------------
+	/* Table toolbar controls -------------------------------------------------
        A quiet hairline chip. `is-on` is the state a filter/sort button takes
        while it is holding a value, so an active view is visible at a glance. */
-    .sb-tbtn {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.375rem;
-        border: 1px solid var(--color-slate-700);
-        border-radius: var(--radius-md);
-        background-color: var(--color-slate-900);
-        color: var(--color-slate-300);
-        padding: 0.4375rem 0.6875rem;
-        font-size: 0.8125rem;
-        font-weight: 600;
-        line-height: 1.25;
-        white-space: nowrap;
-        cursor: pointer;
-        transition: background-color 0.12s ease, border-color 0.12s ease,
-            color 0.12s ease;
-    }
-    .sb-tbtn:hover:not(:disabled) {
-        background-color: var(--color-slate-800);
-        color: var(--color-slate-200);
-    }
-    .sb-tbtn:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-    }
-    .sb-tbtn.is-on {
-        border-color: color-mix(in oklab, var(--color-coral) 55%, transparent);
-        background-color: var(--color-coral-soft);
-        color: var(--color-coral-ink);
-    }
-    /* Count bubble riding on a toolbar button. */
-    .sb-tbtn-count {
-        display: inline-grid;
-        place-items: center;
-        min-width: 1.125rem;
-        height: 1.125rem;
-        padding: 0 0.3125rem;
-        border-radius: 9999px;
-        background-color: var(--color-coral);
-        color: var(--color-coral-fg);
-        font-size: 0.6875rem;
-        font-weight: 800;
-    }
+	.sb-tbtn {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.375rem;
+		border: 1px solid var(--color-slate-700);
+		border-radius: var(--radius-md);
+		background-color: var(--color-slate-900);
+		color: var(--color-slate-300);
+		padding: 0.4375rem 0.6875rem;
+		font-size: 0.8125rem;
+		font-weight: 600;
+		line-height: 1.25;
+		white-space: nowrap;
+		cursor: pointer;
+		transition:
+			background-color 0.12s ease,
+			border-color 0.12s ease,
+			color 0.12s ease;
+	}
+	.sb-tbtn:hover:not(:disabled) {
+		background-color: var(--color-slate-800);
+		color: var(--color-slate-200);
+	}
+	.sb-tbtn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+	.sb-tbtn.is-on {
+		border-color: color-mix(in oklab, var(--color-coral) 55%, transparent);
+		background-color: var(--color-coral-soft);
+		color: var(--color-coral-ink);
+	}
+	/* Count bubble riding on a toolbar button. */
+	.sb-tbtn-count {
+		display: inline-grid;
+		place-items: center;
+		min-width: 1.125rem;
+		height: 1.125rem;
+		padding: 0 0.3125rem;
+		border-radius: 9999px;
+		background-color: var(--color-coral);
+		color: var(--color-coral-fg);
+		font-size: 0.6875rem;
+		font-weight: 800;
+	}
 
-    /* Popover panel (column menu, sort menu). ------------------------------- */
-    .sb-menu {
-        position: absolute;
-        z-index: 30;
-        min-width: 13rem;
-        border-radius: var(--radius-xl);
-        background-color: var(--color-slate-900);
-        border: 1px solid var(--color-slate-700);
-        box-shadow: var(--shadow-pop);
-        padding: 0.375rem;
-    }
-    .sb-menu-item {
-        display: flex;
-        width: 100%;
-        align-items: center;
-        gap: 0.5rem;
-        border-radius: var(--radius-md);
-        padding: 0.4375rem 0.5rem;
-        font-size: 0.8125rem;
-        color: var(--color-slate-300);
-        text-align: left;
-        cursor: pointer;
-    }
-    .sb-menu-item:hover {
-        background-color: var(--color-slate-800);
-        color: var(--color-slate-200);
-    }
-    .sb-menu-item:disabled {
-        opacity: 0.4;
-        cursor: not-allowed;
-    }
-    .sb-menu-item:disabled:hover {
-        background-color: transparent;
-    }
-    /* A menu entry that destroys something. Coloured from rest, not on hover —
+	/* Popover panel (column menu, sort menu). ------------------------------- */
+	.sb-menu {
+		position: absolute;
+		z-index: 30;
+		min-width: 13rem;
+		border-radius: var(--radius-xl);
+		background-color: var(--color-slate-900);
+		border: 1px solid var(--color-slate-700);
+		box-shadow: var(--shadow-pop);
+		padding: 0.375rem;
+	}
+	.sb-menu-item {
+		display: flex;
+		width: 100%;
+		align-items: center;
+		gap: 0.5rem;
+		border-radius: var(--radius-md);
+		padding: 0.4375rem 0.5rem;
+		font-size: 0.8125rem;
+		color: var(--color-slate-300);
+		text-align: left;
+		cursor: pointer;
+	}
+	.sb-menu-item:hover {
+		background-color: var(--color-slate-800);
+		color: var(--color-slate-200);
+	}
+	.sb-menu-item:disabled {
+		opacity: 0.4;
+		cursor: not-allowed;
+	}
+	.sb-menu-item:disabled:hover {
+		background-color: transparent;
+	}
+	/* A menu entry that destroys something. Coloured from rest, not on hover —
        the point is to be recognisable before the pointer arrives. */
-    .sb-menu-item.is-danger {
-        color: var(--color-rose-400);
-    }
-    .sb-menu-item.is-danger:hover {
-        background-color: color-mix(in oklab, var(--color-rose-400) 13%, transparent);
-        color: var(--color-rose-300);
-    }
-    /* Hairline above the destructive tail of a menu, so a stray click that
+	.sb-menu-item.is-danger {
+		color: var(--color-rose-400);
+	}
+	.sb-menu-item.is-danger:hover {
+		background-color: color-mix(
+			in oklab,
+			var(--color-rose-400) 13%,
+			transparent
+		);
+		color: var(--color-rose-300);
+	}
+	/* Hairline above the destructive tail of a menu, so a stray click that
        overshoots the list lands on nothing rather than on Delete. */
-    .sb-menu-sep {
-        margin: 0.25rem 0.25rem 0.1875rem;
-        border-top: 1px solid var(--color-slate-800);
-    }
+	.sb-menu-sep {
+		margin: 0.25rem 0.25rem 0.1875rem;
+		border-top: 1px solid var(--color-slate-800);
+	}
 
-    /* Picker trigger ---------------------------------------------------------
+	/* Picker trigger ---------------------------------------------------------
        Wears `.sb-input` so a row of a text field and a picker line up exactly,
        and adds what a button needs: left-aligned text, a chevron pinned right,
        and the focus ring on `:focus-visible` only (a mouse click opens the
        palette, which takes focus anyway — a ring on the trigger would flash). */
-    .sb-picker {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        text-align: left;
-        cursor: pointer;
-        transition: border-color 0.12s ease;
-    }
-    .sb-picker:hover:not(:disabled) {
-        border-color: var(--color-slate-600);
-    }
-    .sb-picker:focus-visible {
-        outline: none;
-        border-color: var(--color-coral);
-        box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-coral) 20%, transparent);
-    }
-    .sb-picker:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-    }
-    /* Nothing chosen yet — the label is standing in for a value. */
-    .sb-picker.is-empty {
-        color: var(--color-slate-600);
-    }
+	.sb-picker {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		text-align: left;
+		cursor: pointer;
+		transition: border-color 0.12s ease;
+	}
+	.sb-picker:hover:not(:disabled) {
+		border-color: var(--color-slate-600);
+	}
+	.sb-picker:focus-visible {
+		outline: none;
+		border-color: var(--color-coral);
+		box-shadow: 0 0 0 3px
+			color-mix(in oklab, var(--color-coral) 20%, transparent);
+	}
+	.sb-picker:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+	/* Nothing chosen yet — the label is standing in for a value. */
+	.sb-picker.is-empty {
+		color: var(--color-slate-600);
+	}
 
-    /* Command palette --------------------------------------------------------
+	/* Account scope switch --------------------------------------------------
+       The ledger's primary scope control, riding beside the page title. Two
+       lines — the account name bold, the masked number beneath — so a glance
+       tells you whose money you are looking at. Scoped, it wears the coral
+       hairline like an active toolbar button, marking the account as the
+       view's subject rather than just a control. */
+	.sb-account-switch {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+		border: 1px solid var(--color-slate-700);
+		border-radius: var(--radius-2xl);
+		background-color: var(--color-slate-900);
+		padding: 0.4375rem 0.75rem 0.4375rem 0.875rem;
+		text-align: left;
+		cursor: pointer;
+		transition:
+			background-color 0.12s ease,
+			border-color 0.12s ease;
+	}
+	.sb-account-switch:hover {
+		background-color: var(--color-slate-800);
+		border-color: var(--color-slate-600);
+	}
+	.sb-account-switch:focus-visible {
+		outline: none;
+		border-color: var(--color-coral);
+		box-shadow: 0 0 0 3px
+			color-mix(in oklab, var(--color-coral) 20%, transparent);
+	}
+	.sb-account-switch.is-scoped {
+		border-color: color-mix(in oklab, var(--color-coral) 55%, transparent);
+		background-color: color-mix(in oklab, var(--color-coral) 7%, transparent);
+	}
+	.sb-account-switch__text {
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+		max-width: min(15rem, 52vw);
+	}
+	.sb-account-switch__name {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: 0.8125rem;
+		font-weight: 700;
+		line-height: 1.3;
+		color: var(--color-slate-200);
+	}
+	.sb-account-switch.is-scoped .sb-account-switch__name {
+		color: var(--color-coral-ink);
+	}
+	.sb-account-switch__meta {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: 0.6875rem;
+		font-weight: 600;
+		line-height: 1.3;
+		color: var(--color-slate-500);
+	}
+	.sb-account-switch__chevron {
+		display: grid;
+		place-items: center;
+		color: var(--color-slate-600);
+	}
+
+	/* Command palette --------------------------------------------------------
        The single surface every picker opens into. It floats above everything
        (including the ingest modal), so it carries the strongest elevation in
        the system. */
-    .sb-cmd {
-        background-color: var(--color-slate-900);
-        border: 1px solid var(--color-slate-700);
-        border-radius: var(--radius-3xl);
-        box-shadow: var(--shadow-pop);
-        overflow: hidden;
-    }
-    /* Group heading, pinned while its section scrolls under it. */
-    .sb-cmd-heading {
-        position: sticky;
-        top: 0;
-        z-index: 1;
-        background-color: var(--color-slate-900);
-        padding: 0.5rem 0.625rem 0.25rem;
-        font-size: 0.6875rem;
-        font-weight: 700;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
-        color: var(--color-slate-500);
-    }
-    /* One choice. Keyboard and pointer share a single highlight — the arrow
+	.sb-cmd {
+		background-color: var(--color-slate-900);
+		border: 1px solid var(--color-slate-700);
+		border-radius: var(--radius-3xl);
+		box-shadow: var(--shadow-pop);
+		overflow: hidden;
+	}
+	/* Group heading, pinned while its section scrolls under it. */
+	.sb-cmd-heading {
+		position: sticky;
+		top: 0;
+		z-index: 1;
+		background-color: var(--color-slate-900);
+		padding: 0.5rem 0.625rem 0.25rem;
+		font-size: 0.6875rem;
+		font-weight: 700;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		color: var(--color-slate-500);
+	}
+	/* One choice. Keyboard and pointer share a single highlight — the arrow
        keys drive `data-active`, and hovering sets it too, so there is never a
        second competing "selected" row. */
-    .sb-cmd-item {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        border-radius: var(--radius-md);
-        padding: 0.5rem 0.625rem;
-        font-size: 0.875rem;
-        line-height: 1.35;
-        color: var(--color-slate-300);
-        cursor: pointer;
-        scroll-margin: 0.375rem;
-    }
-    .sb-cmd-item[data-active="true"] {
-        background-color: var(--color-slate-800);
-        color: var(--color-slate-200);
-    }
-    .sb-cmd-item[aria-selected="true"] {
-        font-weight: 600;
-        color: var(--color-slate-200);
-    }
-    .sb-cmd-item[aria-disabled="true"] {
-        opacity: 0.45;
-        cursor: not-allowed;
-    }
+	.sb-cmd-item {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		border-radius: var(--radius-md);
+		padding: 0.5rem 0.625rem;
+		font-size: 0.875rem;
+		line-height: 1.35;
+		color: var(--color-slate-300);
+		cursor: pointer;
+		scroll-margin: 0.375rem;
+	}
+	.sb-cmd-item[data-active="true"] {
+		background-color: var(--color-slate-800);
+		color: var(--color-slate-200);
+	}
+	.sb-cmd-item[aria-selected="true"] {
+		font-weight: 600;
+		color: var(--color-slate-200);
+	}
+	.sb-cmd-item[aria-disabled="true"] {
+		opacity: 0.45;
+		cursor: not-allowed;
+	}
 
-    /* Table ------------------------------------------------------------------
+	/* Table ------------------------------------------------------------------
        Header is the recessed surface so the first data row reads as content,
        not as another band of chrome. Rows are separated by hairlines only. */
-    .sb-thead {
-        background-color: var(--color-slate-950);
-    }
-    .sb-th {
-        padding: 0.625rem 1.125rem;
-        font-size: 0.6875rem;
-        font-weight: 700;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
-        color: var(--color-slate-500);
-        white-space: nowrap;
-        user-select: none;
-    }
-    .sb-th-sortable {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.375rem;
-        cursor: pointer;
-        color: inherit;
-        border-radius: var(--radius-sm);
-        transition: color 0.12s ease;
-    }
-    .sb-th-sortable:hover {
-        color: var(--color-slate-300);
-    }
-    .sb-td {
-        padding: 0.6875rem 1.125rem;
-        vertical-align: middle;
-    }
-    /* The row owns its own background rather than carrying a `bg-*` utility:
+	.sb-thead {
+		background-color: var(--color-slate-950);
+	}
+	.sb-th {
+		position: relative;
+		padding: 0.625rem 1.125rem;
+		font-size: 0.6875rem;
+		font-weight: 700;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		color: var(--color-slate-500);
+		white-space: nowrap;
+		user-select: none;
+	}
+	/* Column resize. A wide invisible lane on the header's right edge — it
+       straddles the border so both neighbouring columns share the hit area —
+       whose 1px grip lights up when the header is under the pointer. The lane
+       is quiet by default because every header would otherwise end in a tick. */
+	.sb-col-resize {
+		position: absolute;
+		top: 0;
+		right: -4px;
+		bottom: 0;
+		width: 9px;
+		cursor: col-resize;
+		touch-action: none;
+		z-index: 2;
+	}
+	.sb-col-resize::after {
+		content: "";
+		position: absolute;
+		top: 0.5rem;
+		bottom: 0.5rem;
+		left: 50%;
+		width: 1px;
+		transform: translateX(-50%);
+		background-color: transparent;
+		transition: background-color 0.12s ease;
+	}
+	.sb-th:hover .sb-col-resize::after {
+		background-color: var(--color-slate-700);
+	}
+	.sb-col-resize:hover::after {
+		background-color: var(--color-coral);
+	}
+	.sb-th-sortable {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.375rem;
+		cursor: pointer;
+		color: inherit;
+		border-radius: var(--radius-sm);
+		transition: color 0.12s ease;
+	}
+	.sb-th-sortable:hover {
+		color: var(--color-slate-300);
+	}
+	.sb-td {
+		padding: 0.6875rem 1.125rem;
+		vertical-align: middle;
+	}
+	/* The row owns its own background rather than carrying a `bg-*` utility:
        utilities sit in a later cascade layer, so a utility background would
        win over the hover and selected states below. */
-    .sb-row {
-        border-top: 1px solid var(--color-slate-800);
-        background-color: var(--color-slate-900);
-        transition: background-color 0.12s ease;
-    }
-    .sb-row:hover {
-        background-color: var(--color-slate-950);
-    }
-    .sb-row.is-selected {
-        background-color: color-mix(in oklab, var(--color-coral) 8%, var(--color-slate-900));
-    }
-    .sb-row.is-selected:hover {
-        background-color: color-mix(in oklab, var(--color-coral) 13%, var(--color-slate-900));
-    }
-    /* A row that failed — tinted, but still visibly hoverable. */
-    .sb-row.is-danger {
-        background-color: color-mix(in oklab, var(--color-rose-400) 9%, var(--color-slate-900));
-    }
-    .sb-row.is-danger:hover {
-        background-color: color-mix(in oklab, var(--color-rose-400) 14%, var(--color-slate-900));
-    }
-    /* The checkbox gutter stays put while the table scrolls sideways. */
-    .sb-col-pin {
-        position: sticky;
-        left: 0;
-        z-index: 1;
-        background-color: inherit;
-    }
-    /* The row's actions handle. It was hidden at opacity 0 until hover, which
+	.sb-row {
+		border-top: 1px solid var(--color-slate-800);
+		background-color: var(--color-slate-900);
+		transition: background-color 0.12s ease;
+	}
+	.sb-row:hover {
+		background-color: var(--color-slate-950);
+	}
+	.sb-row.is-selected {
+		background-color: color-mix(
+			in oklab,
+			var(--color-coral) 8%,
+			var(--color-slate-900)
+		);
+	}
+	.sb-row.is-selected:hover {
+		background-color: color-mix(
+			in oklab,
+			var(--color-coral) 13%,
+			var(--color-slate-900)
+		);
+	}
+	/* A row that failed — tinted, but still visibly hoverable. */
+	.sb-row.is-danger {
+		background-color: color-mix(
+			in oklab,
+			var(--color-rose-400) 9%,
+			var(--color-slate-900)
+		);
+	}
+	.sb-row.is-danger:hover {
+		background-color: color-mix(
+			in oklab,
+			var(--color-rose-400) 14%,
+			var(--color-slate-900)
+		);
+	}
+	/* The checkbox gutter stays put while the table scrolls sideways. */
+	.sb-col-pin {
+		position: sticky;
+		left: 0;
+		z-index: 1;
+		background-color: inherit;
+	}
+	/* The row's actions handle. It was hidden at opacity 0 until hover, which
        made every row end in an invisible hit target — you found the buttons by
        pressing one. It is always drawn now, just quiet until the row is under
        the pointer. Touch has no hover at all, so this is the only thing that
        makes row verbs reachable on a phone. */
-    .sb-row-actions {
-        opacity: 0.55;
-        transition: opacity 0.12s ease;
-    }
-    .sb-row:hover .sb-row-actions,
-    .sb-row:focus-within .sb-row-actions,
-    .sb-row-actions:has([aria-expanded="true"]) {
-        opacity: 1;
-    }
-    @media (hover: none) {
-        .sb-row-actions {
-            opacity: 1;
-        }
-    }
+	.sb-row-actions {
+		opacity: 0.55;
+		transition: opacity 0.12s ease;
+	}
+	.sb-row:hover .sb-row-actions,
+	.sb-row:focus-within .sb-row-actions,
+	.sb-row-actions:has([aria-expanded="true"]) {
+		opacity: 1;
+	}
+	@media (hover: none) {
+		.sb-row-actions {
+			opacity: 1;
+		}
+	}
 
-    /* Pagination ------------------------------------------------------------- */
-    .sb-page {
-        display: inline-grid;
-        place-items: center;
-        min-width: 1.9375rem;
-        height: 1.9375rem;
-        padding: 0 0.4375rem;
-        border-radius: var(--radius-md);
-        font-size: 0.8125rem;
-        font-weight: 600;
-        color: var(--color-slate-400);
-        cursor: pointer;
-        transition: background-color 0.12s ease, color 0.12s ease;
-    }
-    .sb-page:hover:not(:disabled):not(.is-current) {
-        background-color: var(--color-slate-800);
-        color: var(--color-slate-200);
-    }
-    .sb-page.is-current {
-        background-color: var(--color-ink);
-        color: var(--color-slate-900);
-        font-weight: 700;
-    }
-    .sb-page:disabled {
-        opacity: 0.4;
-        cursor: not-allowed;
-    }
+	/* Pagination ------------------------------------------------------------- */
+	.sb-page {
+		display: inline-grid;
+		place-items: center;
+		min-width: 1.9375rem;
+		height: 1.9375rem;
+		padding: 0 0.4375rem;
+		border-radius: var(--radius-md);
+		font-size: 0.8125rem;
+		font-weight: 600;
+		color: var(--color-slate-400);
+		cursor: pointer;
+		transition:
+			background-color 0.12s ease,
+			color 0.12s ease;
+	}
+	.sb-page:hover:not(:disabled):not(.is-current) {
+		background-color: var(--color-slate-800);
+		color: var(--color-slate-200);
+	}
+	.sb-page.is-current {
+		background-color: var(--color-ink);
+		color: var(--color-slate-900);
+		font-weight: 700;
+	}
+	.sb-page:disabled {
+		opacity: 0.4;
+		cursor: not-allowed;
+	}
 
-    /* Board drag -------------------------------------------------------------
+	/* Board drag -------------------------------------------------------------
        The card in the air. Pinned to the viewport and driven by inline
        left/top, so it tracks the pointer exactly; the tilt and the deeper
        shadow are what sell it as picked up rather than merely moved. */
-    .sb-lift {
-        position: fixed;
-        z-index: 90;
-        pointer-events: none;
-        transform: rotate(1.6deg) scale(1.03);
-        transform-origin: 50% 50%;
-        filter: drop-shadow(0 18px 30px rgba(25, 29, 36, 0.28));
-        animation: sb-pickup 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
-    }
-    :root.dark .sb-lift {
-        filter: drop-shadow(0 18px 30px rgba(0, 0, 0, 0.55));
-    }
-    @keyframes sb-pickup {
-        from {
-            transform: rotate(0deg) scale(1);
-        }
-    }
+	.sb-lift {
+		position: fixed;
+		z-index: 90;
+		pointer-events: none;
+		transform: rotate(1.6deg) scale(1.03);
+		transform-origin: 50% 50%;
+		filter: drop-shadow(0 18px 30px rgba(25, 29, 36, 0.28));
+		animation: sb-pickup 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
+	}
+	:root.dark .sb-lift {
+		filter: drop-shadow(0 18px 30px rgba(0, 0, 0, 0.55));
+	}
+	@keyframes sb-pickup {
+		from {
+			transform: rotate(0deg) scale(1);
+		}
+	}
 
-    /* The hole the card will drop into. Real layout, not a hint: the cards
+	/* The hole the card will drop into. Real layout, not a hint: the cards
        around it have genuinely moved aside to make this space. */
-    .sb-slot {
-        border-radius: var(--radius-2xl);
-        border: 1.5px dashed color-mix(in oklab, var(--color-coral) 55%, transparent);
-        background-color: color-mix(in oklab, var(--color-coral) 7%, transparent);
-        animation: sb-slot-in 140ms ease-out;
-    }
-    @keyframes sb-slot-in {
-        from {
-            opacity: 0;
-        }
-    }
+	.sb-slot {
+		border-radius: var(--radius-2xl);
+		border: 1.5px dashed
+			color-mix(in oklab, var(--color-coral) 55%, transparent);
+		background-color: color-mix(in oklab, var(--color-coral) 7%, transparent);
+		animation: sb-slot-in 140ms ease-out;
+	}
+	@keyframes sb-slot-in {
+		from {
+			opacity: 0;
+		}
+	}
 
-    /* While something is in the air, nothing else on the page should look
+	/* While something is in the air, nothing else on the page should look
        selectable or take a text cursor. */
-    body.sb-dragging {
-        cursor: grabbing;
-        user-select: none;
-        -webkit-user-select: none;
-    }
-    body.sb-dragging * {
-        cursor: grabbing !important;
-    }
+	body.sb-dragging {
+		cursor: grabbing;
+		user-select: none;
+		-webkit-user-select: none;
+	}
+	body.sb-dragging * {
+		cursor: grabbing !important;
+	}
 
-    /* Loading placeholder bar. ----------------------------------------------- */
-    .sb-skeleton {
-        border-radius: 9999px;
-        background-color: var(--color-slate-800);
-        animation: sb-pulse 1.4s ease-in-out infinite;
-    }
-    @keyframes sb-pulse {
-        0%,
-        100% {
-            opacity: 1;
-        }
-        50% {
-            opacity: 0.45;
-        }
-    }
+	/* Loading placeholder bar. ----------------------------------------------- */
+	.sb-skeleton {
+		border-radius: 9999px;
+		background-color: var(--color-slate-800);
+		animation: sb-pulse 1.4s ease-in-out infinite;
+	}
+	@keyframes sb-pulse {
+		0%,
+		100% {
+			opacity: 1;
+		}
+		50% {
+			opacity: 0.45;
+		}
+	}
 
-    /* Meter track + fill --------------------------------------------------- */
-    .sb-track {
-        background-color: var(--color-track);
-        border-radius: 9999px;
-        overflow: hidden;
-    }
+	/* Meter track + fill --------------------------------------------------- */
+	.sb-track {
+		background-color: var(--color-track);
+		border-radius: 9999px;
+		overflow: hidden;
+	}
 
-    /* Uppercase section eyebrow above a group of rows. ---------------------- */
-    .sb-eyebrow {
-        font-size: 0.71875rem;
-        font-weight: 700;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        color: var(--color-slate-500);
-    }
+	/* Uppercase section eyebrow above a group of rows. ---------------------- */
+	.sb-eyebrow {
+		font-size: 0.71875rem;
+		font-weight: 700;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--color-slate-500);
+	}
 
-    /* Legacy alias kept so untouched pages keep their padded stat tiles. ---- */
-    .sb-stat {
-        border-radius: var(--radius-2xl);
-        padding: 1.125rem 1.25rem;
-        box-shadow: var(--shadow-card);
-    }
+	/* Legacy alias kept so untouched pages keep their padded stat tiles. ---- */
+	.sb-stat {
+		border-radius: var(--radius-2xl);
+		padding: 1.125rem 1.25rem;
+		box-shadow: var(--shadow-card);
+	}
 }
 
 /* Money and any other figure that should not jitter as it updates. */
 @utility tnum {
-    font-variant-numeric: tabular-nums;
+	font-variant-numeric: tabular-nums;
 }
 
 /* The collapsed sidebar rail — desktop only; the mobile drawer stays full
@@ -830,33 +967,33 @@
    values of one property resolve by Tailwind's own sort order rather than by
    the breakpoint, so the collapsed width silently never applied. */
 @layer utilities {
-    @media (min-width: 64rem) {
-        .sb-rail[data-rail="collapsed"] {
-            width: 74px;
-            padding-left: 0.5rem;
-            padding-right: 0.5rem;
-        }
-        [data-rail="collapsed"] .sb-rail-label {
-            display: none;
-        }
-        [data-rail="collapsed"] .sb-rail-brand {
-            flex-direction: column;
-            gap: 0.75rem;
-            padding-left: 0;
-            padding-right: 0;
-        }
-        [data-rail="collapsed"] .sb-rail-toggle {
-            margin-left: 0;
-        }
-        /* Collapsed, the active pill should read as a badge on the icon rather
+	@media (min-width: 64rem) {
+		.sb-rail[data-rail="collapsed"] {
+			width: 74px;
+			padding-left: 0.5rem;
+			padding-right: 0.5rem;
+		}
+		[data-rail="collapsed"] .sb-rail-label {
+			display: none;
+		}
+		[data-rail="collapsed"] .sb-rail-brand {
+			flex-direction: column;
+			gap: 0.75rem;
+			padding-left: 0;
+			padding-right: 0;
+		}
+		[data-rail="collapsed"] .sb-rail-toggle {
+			margin-left: 0;
+		}
+		/* Collapsed, the active pill should read as a badge on the icon rather
            than a full-width bar: size it to the icon and centre it in the rail. */
-        [data-rail="collapsed"] .sb-rail-item {
-            justify-content: center;
-            width: 2.375rem;
-            height: 2.375rem;
-            margin-left: auto;
-            margin-right: auto;
-            padding: 0;
-        }
-    }
+		[data-rail="collapsed"] .sb-rail-item {
+			justify-content: center;
+			width: 2.375rem;
+			height: 2.375rem;
+			margin-left: auto;
+			margin-right: auto;
+			padding: 0;
+		}
+	}
 }
