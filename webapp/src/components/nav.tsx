@@ -33,18 +33,10 @@ export interface NavItem {
 
 export const NAV: NavItem[] = [
 	{ to: "/", label: "Overview", icon: "overview", group: "money" },
-	{ to: "/inbox", label: "Inbox", icon: "inbox", group: "money" },
-	{ to: "/documents", label: "Documents", icon: "documents", group: "money" },
 	{
 		to: "/transactions",
 		label: "Ledger",
 		icon: "transactions",
-		group: "money",
-	},
-	{
-		to: "/duplicates",
-		label: "Duplicates",
-		icon: "duplicates",
 		group: "money",
 	},
 	{ to: "/accounts", label: "Accounts", icon: "accounts", group: "money" },
@@ -61,6 +53,22 @@ export const NAV_GROUPS: Array<{ id: NavGroup; label: string }> = [
 	{ id: "money", label: "Money" },
 	{ id: "plan", label: "Plan" },
 	{ id: "insight", label: "Insight" },
+];
+
+/** The Ledger hub's tabs — the money flow in one place. Each tab is a real
+ *  route under /transactions so deep links (search hits, the ?doc= capture
+ *  link) and the review/duplicate flows keep stable URLs. */
+export interface LedgerTab {
+	to: string;
+	label: string;
+	icon: IconName;
+}
+
+export const LEDGER_TABS: LedgerTab[] = [
+	{ to: "/transactions", label: "Ledger", icon: "transactions" },
+	{ to: "/transactions/review", label: "Needs review", icon: "inbox" },
+	{ to: "/transactions/duplicates", label: "Duplicates", icon: "duplicates" },
+	{ to: "/transactions/documents", label: "Documents", icon: "documents" },
 ];
 
 /** Sections of the Settings sub-app. These configure the pipeline rather than
@@ -85,9 +93,13 @@ export const SETTINGS_NAV: Array<{
 	},
 ];
 
-/** Look up a nav item by its route. */
+/** Look up a nav item by its route. Hub routes resolve to their parent so
+ *  /transactions/review (and the like) read as "Ledger" wherever the label is
+ *  shown — the Sage context line and the rail's active state included. */
 export function navItem(to: string): NavItem | undefined {
-	return NAV.find((n) => n.to === to);
+	const exact = NAV.find((n) => n.to === to);
+	if (exact) return exact;
+	return NAV.find((n) => to.startsWith(n.to + "/"));
 }
 
 export function Svg({

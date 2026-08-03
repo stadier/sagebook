@@ -63,7 +63,7 @@ export default function ImportProgress() {
 				{job.status === "running" && <span>{pct}%</span>}
 				{job.status === "done" && (
 					<Link
-						to="/inbox"
+						to="/transactions/review"
 						className="font-medium text-emerald-400 hover:text-emerald-300"
 					>
 						Review in inbox →

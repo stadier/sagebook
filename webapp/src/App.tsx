@@ -65,6 +65,13 @@ function RulesRedirect() {
 	return <Navigate to={`/settings/rules${search}`} replace />;
 }
 
+/** Old flat ledger URLs → their Ledger-hub tabs, carrying the query string.
+ *  The documents deep link (?doc=…) from search relies on it surviving. */
+function HubRedirect({ to }: { to: string }) {
+	const { search } = useLocation();
+	return <Navigate to={`${to}${search}`} replace />;
+}
+
 export default function App() {
 	const { session, loading } = useSession();
 
@@ -104,10 +111,35 @@ export default function App() {
                                         ingest modal over the dashboard for these paths. */}
 										<Route path="/capture" element={<Overview />} />
 										<Route path="/import" element={<Overview />} />
-										<Route path="/inbox" element={<Inbox />} />
-										<Route path="/documents" element={<Documents />} />
+										{/* The Ledger hub — the money flow in one place. The
+                                        four views are real routes so deep links
+                                        (?doc=, search hits) and the review/duplicate
+                                        flows keep stable URLs. */}
 										<Route path="/transactions" element={<Transactions />} />
-										<Route path="/duplicates" element={<Duplicates />} />
+										<Route path="/transactions/review" element={<Inbox />} />
+										<Route
+											path="/transactions/duplicates"
+											element={<Duplicates />}
+										/>
+										<Route
+											path="/transactions/documents"
+											element={<Documents />}
+										/>
+										{/* The ledger views used to be flat pages — keep the
+                                        old URLs (query strings included) so bookmarks
+                                        and deep links still land. */}
+										<Route
+											path="/inbox"
+											element={<HubRedirect to="/transactions/review" />}
+										/>
+										<Route
+											path="/documents"
+											element={<HubRedirect to="/transactions/documents" />}
+										/>
+										<Route
+											path="/duplicates"
+											element={<HubRedirect to="/transactions/duplicates" />}
+										/>
 										<Route path="/accounts" element={<Accounts />} />
 										<Route path="/categories" element={<Categories />} />
 										{/* Rules moved under Settings; the old path is

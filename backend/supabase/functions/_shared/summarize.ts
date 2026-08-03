@@ -22,38 +22,38 @@ import { generateJson, safeParse } from "./extract.ts";
 export const SUMMARY_BATCH = 25;
 
 export interface SummarizableTx {
-    id: string;
-    kind: string;
-    amount: number;
-    currency: string;
-    occurred_at: string;
-    payee: string | null;
-    memo: string | null;
-    reference?: string | null;
-    category?: string | null;
+	id: string;
+	kind: string;
+	amount: number;
+	currency: string;
+	occurred_at: string;
+	payee: string | null;
+	memo: string | null;
+	reference?: string | null;
+	category?: string | null;
 }
 
 export interface SummaryResult {
-    id: string;
-    summary: string;
+	id: string;
+	summary: string;
 }
 
 const SUMMARY_SCHEMA = {
-    type: "object",
-    properties: {
-        summaries: {
-            type: "array",
-            items: {
-                type: "object",
-                properties: {
-                    i:       { type: "number" },
-                    summary: { type: "string" },
-                },
-                required: ["i", "summary"],
-            },
-        },
-    },
-    required: ["summaries"],
+	type: "object",
+	properties: {
+		summaries: {
+			type: "array",
+			items: {
+				type: "object",
+				properties: {
+					i: { type: "number" },
+					summary: { type: "string" },
+				},
+				required: ["i", "summary"],
+			},
+		},
+	},
+	required: ["summaries"],
 } as const;
 
 export const SUMMARY_SYSTEM = `You write one-line plain-language summaries of ledger transactions.
@@ -104,24 +104,20 @@ Return one entry per input transaction, keyed by its number 'i'.`;
 
 /** Compact one transaction into the prompt line the model reads. */
 function promptLine(tx: SummarizableTx, i: number): string {
-    const date = tx.occurred_at.slice(0, 10);
-    const bits = [
-        `${i}.`,
-        `[${tx.kind}]`,
-        `${tx.amount} ${tx.currency}`,
-        date,
-    ];
-    // The owning account is deliberately withheld. It is the holder's own side
-    // of the movement, and given it the model reaches for it as the
-    // counterparty — "Paid Vycount Estates charge and VAT" for a bank fee that
-    // has no counterparty at all. The ledger already knows which account a row
-    // belongs to, so the summary gains nothing from repeating it.
-    if (tx.category) bits.push(`category="${tx.category}"`);
-    if (tx.payee)    bits.push(`payee="${tx.payee}"`);
-    // The memo carries the raw narration and is the main signal; keep it last
-    // and untruncated unless it is pathological.
-    if (tx.memo && tx.memo !== tx.payee) bits.push(`narration="${tx.memo.slice(0, 400)}"`);
-    return bits.join(" ");
+	const date = tx.occurred_at.slice(0, 10);
+	const bits = [`${i}.`, `[${tx.kind}]`, `${tx.amount} ${tx.currency}`, date];
+	// The owning account is deliberately withheld. It is the holder's own side
+	// of the movement, and given it the model reaches for it as the
+	// counterparty — "Paid Vycount Estates charge and VAT" for a bank fee that
+	// has no counterparty at all. The ledger already knows which account a row
+	// belongs to, so the summary gains nothing from repeating it.
+	if (tx.category) bits.push(`category="${tx.category}"`);
+	if (tx.payee) bits.push(`payee="${tx.payee}"`);
+	// The memo carries the raw narration and is the main signal; keep it last
+	// and untruncated unless it is pathological.
+	if (tx.memo && tx.memo !== tx.payee)
+		bits.push(`narration="${tx.memo.slice(0, 400)}"`);
+	return bits.join(" ");
 }
 
 /**
@@ -131,34 +127,178 @@ function promptLine(tx: SummarizableTx, i: number): string {
  * transaction, or it was invented.
  */
 const SUMMARY_VOCABULARY = new Set([
-    // direction and framing
-    "sent", "paid", "received", "refund", "refunded", "bought", "spent",
-    "transfer", "transferred", "deposit", "deposited", "withdrawal", "withdrew",
-    "payment", "repayment", "from", "into", "with", "this", "that", "their",
-    "self", "own", "back", "each", "over", "under", "about", "plus",
-    // fees and bank furniture
-    "charge", "charges", "fee", "fees", "duty", "stamp", "levy", "alert",
-    "alerts", "maintenance", "commission", "interest", "reversal", "reversed",
-    "bank", "card", "cash", "account", "balance", "opening", "closing",
-    "value", "added", "withholding",
-    // time
-    "january", "february", "march", "april", "june", "july", "august",
-    "september", "october", "november", "december",
-    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
-    "week", "month", "year", "daily", "monthly", "yearly", "annual",
+	// direction and framing
+	"sent",
+	"paid",
+	"received",
+	"refund",
+	"refunded",
+	"bought",
+	"spent",
+	"transfer",
+	"transferred",
+	"deposit",
+	"deposited",
+	"withdrawal",
+	"withdrew",
+	"payment",
+	"repayment",
+	"from",
+	"into",
+	"with",
+	"this",
+	"that",
+	"their",
+	"self",
+	"own",
+	"back",
+	"each",
+	"over",
+	"under",
+	"about",
+	"plus",
+	"between",
+	"during",
+	"through",
+	"until",
+	"since",
+	"other",
+	"others",
+	"grocery",
+	"groceries",
+	"play",
+	"first",
+	"second",
+	"third",
+	"fourth",
+	"fifth",
+	"sixth",
+	"seventh",
+	"eighth",
+	"ninth",
+	"tenth",
+	// fees and bank furniture
+	"charge",
+	"charges",
+	"fee",
+	"fees",
+	"duty",
+	"stamp",
+	"levy",
+	"alert",
+	"alerts",
+	"maintenance",
+	"commission",
+	"interest",
+	"reversal",
+	"reversed",
+	"bank",
+	"card",
+	"cash",
+	"account",
+	"balance",
+	"opening",
+	"closing",
+	"value",
+	"added",
+	"withholding",
+	// generic count / category nouns. These carry no counterparty or purpose
+	// claim, so they are safe to allow even when the narration abbreviates
+	// them ("txns", "instl", "rem") — the model's plain word is the same fact.
+	"transaction",
+	"transactions",
+	"count",
+	"naira",
+	"period",
+	"ending",
+	"subscription",
+	"subscriptions",
+	"registration",
+	"electricity",
+	"bill",
+	"bills",
+	"utility",
+	"utilities",
+	"purchase",
+	"purchased",
+	"instalment",
+	"installment",
+	"remaining",
+	"deduction",
+	"deductions",
+	"banking",
+	"statement",
+	"statements",
+	// time
+	"january",
+	"february",
+	"march",
+	"april",
+	"june",
+	"july",
+	"august",
+	"september",
+	"october",
+	"november",
+	"december",
+	"monday",
+	"tuesday",
+	"wednesday",
+	"thursday",
+	"friday",
+	"saturday",
+	"sunday",
+	"week",
+	"month",
+	"year",
+	"daily",
+	"monthly",
+	"yearly",
+	"annual",
 ]);
+
+/**
+ * Bank narration compresses words the model expands into plain language.
+ * Grounding compares against the source, so an abbreviation the narration
+ * wrote must be expanded back before the model's longer word can match:
+ * "for 11 txns" must ground "transactions", "instl" must ground "instalment".
+ */
+const SOURCE_EXPANSIONS: Array<[RegExp, string]> = [
+	[/\btxns?\b/gi, "transactions"],
+	[/\binstl\b/gi, "instalment"],
+	[/\brem\b/gi, "remaining"],
+	[/\bpymt\b/gi, "payment"],
+	[/\bpmt\b/gi, "payment"],
+	[/\btrf\b/gi, "transfer"],
+	[/\bacct\b/gi, "account"],
+	[/\bbal\b/gi, "balance"],
+	[/\bsupamarket\b/gi, "supermarket"],
+	[/\bg\.co\b/gi, "google"],
+	[/\bcomm\b/gi, "commission"],
+	[/\bmtnc\b/gi, "maintenance"],
+];
+
+function expandSource(text: string): string {
+	let out = text;
+	for (const [re, word] of SOURCE_EXPANSIONS) out = out.replace(re, word);
+	return out;
+}
 
 /** Money figures in a summary: "₦4m", "₦200k", "₦23,000", "4.5m". */
 const FIGURE_RE = /₦\s*([\d][\d,]*(?:\.\d+)?)\s*([mkb])?/gi;
 
 function figureValue(digits: string, suffix?: string): number {
-    const n = Number(digits.replace(/,/g, ""));
-    if (!Number.isFinite(n)) return Number.NaN;
-    const scale = suffix?.toLowerCase() === "b" ? 1e9
-                : suffix?.toLowerCase() === "m" ? 1e6
-                : suffix?.toLowerCase() === "k" ? 1e3
-                : 1;
-    return n * scale;
+	const n = Number(digits.replace(/,/g, ""));
+	if (!Number.isFinite(n)) return Number.NaN;
+	const scale =
+		suffix?.toLowerCase() === "b"
+			? 1e9
+			: suffix?.toLowerCase() === "m"
+				? 1e6
+				: suffix?.toLowerCase() === "k"
+					? 1e3
+					: 1;
+	return n * scale;
 }
 
 /**
@@ -172,16 +312,18 @@ function figureValue(digits: string, suffix?: string): number {
  * ₦4,015,000); picking the wrong number is not.
  */
 export function amountIsFaithful(summary: string, amount: number): boolean {
-    const figures: number[] = [];
-    for (const m of summary.matchAll(FIGURE_RE)) {
-        const v = figureValue(m[1], m[2]);
-        if (Number.isFinite(v)) figures.push(v);
-    }
-    if (!figures.length) return true; // no claim made, nothing to contradict
+	const figures: number[] = [];
+	for (const m of summary.matchAll(FIGURE_RE)) {
+		const v = figureValue(m[1], m[2]);
+		if (Number.isFinite(v)) figures.push(v);
+	}
+	if (!figures.length) return true; // no claim made, nothing to contradict
 
-    // 1.5% covers "₦4.02m" for 4,015,000 and "₦1.2m" for 1,200,000 without
-    // letting a genuinely different figure through.
-    return figures.some((v) => Math.abs(v - amount) <= Math.max(amount * 0.015, 1));
+	// 1.5% covers "₦4.02m" for 4,015,000 and "₦1.2m" for 1,200,000 without
+	// letting a genuinely different figure through.
+	return figures.some(
+		(v) => Math.abs(v - amount) <= Math.max(amount * 0.015, 1),
+	);
 }
 
 /**
@@ -194,22 +336,34 @@ export function amountIsFaithful(summary: string, amount: number): boolean {
  * so the list falls back to the raw narration. A missing summary is recoverable,
  * a confident wrong one is not.
  */
-export function summaryIsGrounded(summary: string, tx: SummarizableTx): boolean {
-    const source = [tx.payee, tx.memo, tx.category, tx.currency, tx.kind]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
+export function summaryIsGrounded(
+	summary: string,
+	tx: SummarizableTx,
+): boolean {
+	// Bank abbreviations expanded to the plain words the model would use
+	// ("txns" → "transactions", "instl" → "instalment") so those words are
+	// traceable to the row instead of looking invented.
+	const source = expandSource(
+		[tx.payee, tx.memo, tx.category, tx.currency, tx.kind]
+			.filter(Boolean)
+			.join(" ")
+			.toLowerCase(),
+	);
 
-    // Words of four letters or more carry the meaning; shorter ones are
-    // articles and prepositions that cannot smuggle in a claim.
-    const words = summary.toLowerCase().match(/[a-z][a-z']{3,}/g) ?? [];
-    return words.every(
-        (w) =>
-            SUMMARY_VOCABULARY.has(w) ||
-            source.includes(w) ||
-            // Tolerate an inflection of a source word ("planning" → "planned").
-            source.includes(w.slice(0, Math.max(4, w.length - 3))),
-    );
+	// Words of four letters or more carry the meaning; shorter ones are
+	// articles and prepositions that cannot smuggle in a claim.
+	const words = summary.toLowerCase().match(/[a-z][a-z']{3,}/g) ?? [];
+	return words.every((w) => {
+		if (SUMMARY_VOCABULARY.has(w)) return true;
+		// "payments" → "payment", "transactions" → "transaction": a plural of a
+		// safe word is the same safe word.
+		if (w.endsWith("s") && SUMMARY_VOCABULARY.has(w.slice(0, -1))) return true;
+		return (
+			source.includes(w) ||
+			// Tolerate an inflection of a source word ("planning" → "planned").
+			source.includes(w.slice(0, Math.max(4, w.length - 3)))
+		);
+	});
 }
 
 /**
@@ -218,43 +372,51 @@ export function summaryIsGrounded(summary: string, tx: SummarizableTx): boolean 
  * so a later run can retry it.
  */
 export async function summarizeBatch(
-    txs: SummarizableTx[],
-): Promise<{ results: SummaryResult[]; model: string }> {
-    if (!txs.length) return { results: [], model: "" };
+	txs: SummarizableTx[],
+): Promise<{ results: SummaryResult[]; model: string; dropped: string[] }> {
+	if (!txs.length) return { results: [], model: "", dropped: [] };
 
-    const user = txs.map((tx, i) => promptLine(tx, i + 1)).join("\n");
-    const { raw, model } = await generateJson({
-        system: SUMMARY_SYSTEM,
-        user,
-        schema: SUMMARY_SCHEMA as unknown as Record<string, unknown>,
-        schemaName: "sagebook_transaction_summaries",
-    });
+	const user = txs.map((tx, i) => promptLine(tx, i + 1)).join("\n");
+	const { raw, model } = await generateJson({
+		system: SUMMARY_SYSTEM,
+		user,
+		schema: SUMMARY_SCHEMA as unknown as Record<string, unknown>,
+		schemaName: "sagebook_transaction_summaries",
+	});
 
-    const parsed = safeParse<{ summaries?: Array<{ i: number; summary: string }> }>(raw);
-    if (!parsed?.summaries) {
-        throw new Error("summary model returned no 'summaries' array");
-    }
+	const parsed = safeParse<{
+		summaries?: Array<{ i: number; summary: string }>;
+	}>(raw);
+	if (!parsed?.summaries) {
+		throw new Error("summary model returned no 'summaries' array");
+	}
 
-    const results: SummaryResult[] = [];
-    let rejected = 0;
-    for (const entry of parsed.summaries) {
-        const tx = txs[Math.round(entry.i) - 1];
-        const summary = (entry.summary ?? "").trim().replace(/\s+/g, " ");
-        if (!tx || !summary) continue;
-        if (!summaryIsGrounded(summary, tx)) {
-            rejected++;
-            console.warn(`[summarize] ungrounded, dropped: "${summary}" for "${tx.payee ?? tx.memo}"`);
-            continue;
-        }
-        if (!amountIsFaithful(summary, tx.amount)) {
-            rejected++;
-            console.warn(`[summarize] wrong figure, dropped: "${summary}" for amount ${tx.amount}`);
-            continue;
-        }
-        results.push({ id: tx.id, summary: summary.slice(0, 200) });
-    }
-    if (rejected) {
-        console.warn(`[summarize] dropped ${rejected}/${parsed.summaries.length} ungrounded summaries`);
-    }
-    return { results, model };
+	const results: SummaryResult[] = [];
+	const dropped: string[] = [];
+	for (const entry of parsed.summaries) {
+		const tx = txs[Math.round(entry.i) - 1];
+		const summary = (entry.summary ?? "").trim().replace(/\s+/g, " ");
+		if (!tx || !summary) continue;
+		if (!summaryIsGrounded(summary, tx)) {
+			dropped.push(summary);
+			console.warn(
+				`[summarize] ungrounded, dropped: "${summary}" for "${tx.payee ?? tx.memo}"`,
+			);
+			continue;
+		}
+		if (!amountIsFaithful(summary, tx.amount)) {
+			dropped.push(summary);
+			console.warn(
+				`[summarize] wrong figure, dropped: "${summary}" for amount ${tx.amount}`,
+			);
+			continue;
+		}
+		results.push({ id: tx.id, summary: summary.slice(0, 200) });
+	}
+	if (dropped.length) {
+		console.warn(
+			`[summarize] dropped ${dropped.length}/${parsed.summaries.length} ungrounded summaries`,
+		);
+	}
+	return { results, model, dropped };
 }

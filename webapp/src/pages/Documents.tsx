@@ -12,6 +12,7 @@ import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import DataTable, { type Column } from "../components/DataTable";
+import LedgerTabs from "../components/LedgerTabs";
 import { DownloadIcon } from "../components/icons";
 import {
 	Field,
@@ -344,6 +345,7 @@ export default function Documents() {
 
 	return (
 		<>
+			<LedgerTabs />
 			<PageHeader
 				title="Documents"
 				subtitle="Every receipt, statement, and capture you've uploaded — expand a row for the original file."

@@ -8,7 +8,7 @@ import {
 	useSearchParams,
 } from "react-router-dom";
 import { STORAGE_KEYS } from "../lib/constants";
-import { usePendingReview } from "../lib/queries";
+import { useDuplicateGroups, usePendingReview } from "../lib/queries";
 import { requireSupabase } from "../lib/supabase";
 import { useTheme } from "../lib/useTheme";
 import { GlobalSearchProvider } from "./GlobalSearch";
@@ -63,6 +63,10 @@ export default function AppShell() {
 
 	const pending = usePendingReview();
 	const pendingCount = pending.data?.length ?? 0;
+	const dups = useDuplicateGroups();
+	const dupCount = dups.data?.length ?? 0;
+	// Work waiting anywhere in the ledger hub: review queue + duplicate scan.
+	const attention = pendingCount + dupCount;
 
 	// A file dropped or pasted anywhere in the app opens capture already holding
 	// it — the shortest path there is from "I have a receipt" to it being filed.
@@ -157,7 +161,7 @@ export default function AppShell() {
 						// The account popover is anchored to the expanded footer.
 						setMenuOpen(false);
 					}}
-					pendingCount={pendingCount}
+					attention={attention}
 					name={name}
 					initial={initial}
 					theme={theme}
@@ -279,7 +283,7 @@ function Sidebar({
 	onToggleCollapsed,
 	sageOpen,
 	onToggleSage,
-	pendingCount,
+	attention,
 	name,
 	initial,
 	theme,
@@ -293,7 +297,7 @@ function Sidebar({
 	onToggleCollapsed: () => void;
 	sageOpen: boolean;
 	onToggleSage: () => void;
-	pendingCount: number;
+	attention: number;
 	name: string;
 	initial: string;
 	theme: string;
@@ -391,14 +395,17 @@ function Sidebar({
 										<span className="sb-rail-label whitespace-nowrap">
 											{item.label}
 										</span>
-										{item.to === "/inbox" && pendingCount > 0 && (
+										{/* The ledger hub surfaces its work here — anything
+                                            waiting in review or flagged as duplicate
+                                            shows as a count on the rail. */}
+										{item.to === "/transactions" && attention > 0 && (
 											<>
 												<span
 													className={`sb-rail-label ml-auto text-[0.6875rem] font-bold ${
 														isActive ? "text-coral-fg" : "text-[#767d8c]"
 													}`}
 												>
-													{pendingCount}
+													{attention}
 												</span>
 												{/* The count has nowhere to go on
                                                     the rail, so it becomes a dot. */}

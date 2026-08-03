@@ -8,6 +8,7 @@ import {
 } from "react";
 import { useConfirm } from "../components/Confirm";
 import DataTable, { type Column } from "../components/DataTable";
+import LedgerTabs from "../components/LedgerTabs";
 import { usePalette } from "../components/CommandPalette";
 import { ChevronDownIcon } from "../components/icons";
 import {
@@ -118,6 +119,39 @@ function applyFilters<Q>(query: Q, filters: Filters): Q {
 		q = q[op](column, value);
 	}
 	return q as Q;
+}
+
+/** PostgREST clamps any single request to this many rows — even an explicit
+ *  `.limit()` — so "everything" queries must walk Range pages instead. */
+const REST_PAGE_SIZE = 1000;
+
+/**
+ * Fetch every row the filters match, paging in Range chunks with a stable
+ * order so offset paging can't skip or repeat rows (several entries share an
+ * `occurred_at`, so the id is the tiebreaker). `truncated` reports whether
+ * the cap cut the walk short — the caller can then mark a figure as a floor
+ * rather than a total.
+ */
+async function fetchAllMatching<T>(
+	select: string,
+	filters: Filters,
+	cap: number,
+): Promise<{ rows: T[]; truncated: boolean }> {
+	const sb = requireSupabase();
+	const out: T[] = [];
+	for (let from = 0; ; from += REST_PAGE_SIZE) {
+		const q = applyFilters(sb.from("transactions").select(select), filters);
+		const { data, error } = await q
+			.order("occurred_at", { ascending: false })
+			.order("id", { ascending: true })
+			.range(from, from + REST_PAGE_SIZE - 1);
+		if (error) throw new Error(error.message);
+		const page = (data ?? []) as T[];
+		out.push(...page);
+		if (page.length < REST_PAGE_SIZE) break;
+		if (out.length >= cap) break;
+	}
+	return { rows: out.slice(0, cap), truncated: out.length >= cap };
 }
 
 /* --- Credits and debits ----------------------------------------------------
@@ -233,20 +267,16 @@ export default function Transactions() {
 
 	// Totals span every matching row, so they stay correct as the table pages.
 	// Only three columns come back, which keeps this cheap next to the table's
-	// own query.
+	// own query. PostgREST clamps a single request to 1000 rows, so the walk
+	// pages in Range chunks — otherwise "all accounts" would sum an arbitrary
+	// slice of the ledger and present it as the total.
 	const totals = useQuery({
 		queryKey: ["transaction-totals", effectiveFilters],
 		queryFn: async () => {
-			const q = applyFilters(
-				requireSupabase().from("transactions").select("kind, amount, currency"),
-				effectiveFilters,
-			);
-			const { data, error } = await q.limit(EXPORT_ROW_LIMIT);
-			if (error) throw new Error(error.message);
-			const records = (data ?? []) as Array<
+			const { rows, truncated } = await fetchAllMatching<
 				Pick<Transaction, "kind" | "amount" | "currency">
-			>;
-			return summarize(records, records.length === EXPORT_ROW_LIMIT);
+			>("kind, amount, currency", effectiveFilters, EXPORT_ROW_LIMIT);
+			return summarize(rows, truncated);
 		},
 	});
 
@@ -270,18 +300,17 @@ export default function Transactions() {
 	}
 
 	// Export everything matching the current filters (not just loaded pages).
+	// Same Range walk as the totals — a plain `.limit()` would silently stop
+	// at PostgREST's 1000-row cap.
 	const exportData = useMutation({
 		mutationFn: async (format: "csv" | "json") => {
-			const q = applyFilters(
-				requireSupabase().from("transactions").select("*, categories(name)"),
+			const { rows } = await fetchAllMatching<TxRow>(
+				"*, categories(name, icon, color)",
 				effectiveFilters,
+				EXPORT_ROW_LIMIT,
 			);
-			const { data, error } = await q
-				.order("occurred_at", { ascending: false })
-				.limit(EXPORT_ROW_LIMIT);
-			if (error) throw new Error(error.message);
 
-			const records = (data ?? []).map((t) => ({
+			const records = rows.map((t) => ({
 				date: t.occurred_at,
 				summary: t.summary ?? "",
 				payee: t.payee ?? "",
@@ -521,6 +550,7 @@ export default function Transactions() {
 
 	return (
 		<>
+			<LedgerTabs />
 			<PageHeader
 				title="Ledger"
 				subtitle={`${rows.length}${maybeMore ? "+" : ""} accepted entr${

@@ -11,6 +11,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { useConfirm } from "../components/Confirm";
 import { WarningIcon } from "../components/icons";
+import LedgerTabs from "../components/LedgerTabs";
 import {
 	Card,
 	Empty,
@@ -154,6 +155,7 @@ export default function Duplicates() {
 
 	return (
 		<>
+			<LedgerTabs />
 			<PageHeader
 				title="Duplicates"
 				subtitle="Charges that hit your ledger twice — the same day, amount, payee and account. Pick the entry to keep, or tell the scan they're different charges."

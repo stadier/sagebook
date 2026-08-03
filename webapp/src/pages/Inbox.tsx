@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { PageHeader, Picker, QueryError } from "../components/ui";
+import LedgerTabs from "../components/LedgerTabs";
 import { PENDING_REVIEW_LIMIT, STORAGE_KEYS } from "../lib/constants";
 import { fmtDateTime, fmtMoney } from "../lib/format";
 import { logEvent } from "../lib/logger";
@@ -185,11 +186,23 @@ export default function Inbox() {
 	}, [rows.length]);
 
 	if (pending.isLoading)
-		return <p className="text-sm text-slate-400">Loading inbox…</p>;
-	if (pending.isError) return <QueryError error={pending.error} />;
+		return (
+			<>
+				<LedgerTabs />
+				<p className="text-sm text-slate-400">Loading inbox…</p>
+			</>
+		);
+	if (pending.isError)
+		return (
+			<>
+				<LedgerTabs />
+				<QueryError error={pending.error} />
+			</>
+		);
 
 	return (
 		<>
+			<LedgerTabs />
 			<PageHeader
 				title="Inbox"
 				subtitle={

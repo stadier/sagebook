@@ -186,7 +186,7 @@ function SearchPanel({ onClose }: { onClose: () => void }) {
 					d.parsed_payload?.summary ??
 					`${d.status}${d.mime_type ? ` · ${d.mime_type}` : ""}`,
 				trailing: d.bytes ? fmtBytes(d.bytes) : d.media_kind,
-				to: `/documents?doc=${d.id}`,
+				to: `/transactions/documents?doc=${d.id}`,
 			});
 		}
 
