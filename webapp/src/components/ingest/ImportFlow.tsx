@@ -233,14 +233,14 @@ export default function ImportFlow({
 		const sb = requireSupabase();
 		const { data: u } = await sb.auth.getUser();
 		if (!u.user) throw new Error("not signed in");
-		// Prefer a name that includes the bank when we have one; fall back to
-		// the holder name the statement prints. The last four digits disambiguate
-		// accounts that share a bank and a holder name.
+		// Personal accounts are named after the holder — statements print the
+		// same legal name at every bank, so the last four digits ride along in
+		// the name as the human-readable disambiguator. The bank stays in the
+		// `institution` field (and is what auto-matching keys on).
 		const last4 = meta.accountNumber?.slice(-4);
 		const accountName = (
-			meta.institution
-				? `${meta.institution}${last4 ? ` ••••${last4}` : ""}`
-				: meta.accountName || "Imported account"
+			`${meta.accountName || meta.institution || "Imported account"}` +
+			(last4 ? ` ••••${last4}` : "")
 		).slice(0, 80);
 		const { data: created, error } = await sb
 			.from("accounts")
