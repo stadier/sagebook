@@ -212,6 +212,70 @@ function accountNames(ctx: LedgerContext): Map<string, string> {
     return new Map(ctx.accounts.map((a) => [a.id, a.name]));
 }
 
+/** Lowercase and collapse punctuation so "USD account" and "usd-account" align. */
+function normaliseName(value: string): string {
+    return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+/**
+ * Resolve account filters permissively:
+ * 1) exact normalised name
+ * 2) contains match either way ("usd account" vs "wise usd")
+ */
+function resolveAccountIds(ctx: LedgerContext, requested: string[]): string[] {
+    const wanted = requested.map((name) => ({
+        normalised: normaliseName(name),
+    }));
+
+    const exact = new Set(
+        ctx.accounts
+            .filter((a) => wanted.some((w) => w.normalised && normaliseName(a.name) === w.normalised))
+            .map((a) => a.id),
+    );
+    if (exact.size > 0) return [...exact];
+
+    const fuzzy = new Set(
+        ctx.accounts
+            .filter((a) => {
+                const name = normaliseName(a.name);
+                return wanted.some((w) => {
+                    if (!w.normalised) return false;
+                    return name.includes(w.normalised) || w.normalised.includes(name);
+                });
+            })
+            .map((a) => a.id),
+    );
+    return [...fuzzy];
+}
+
+/**
+ * Build a safer and more tolerant text search clause for PostgREST.
+ * Includes a compact wildcard variant so NEXTGEN can match NEXT-GEN / NEXT GEN.
+ */
+function textSearchClause(text: string): string {
+    const cleaned = text.replace(/[(),]/g, " ").trim();
+    if (!cleaned) return "";
+
+    const terms = [...new Set(cleaned.split(/\s+/).filter(Boolean))];
+    const clauses: string[] = [];
+
+    for (const term of terms) {
+        for (const field of ["summary", "payee", "memo"]) {
+            clauses.push(`${field}.ilike.%${term}%`);
+        }
+    }
+
+    const compact = cleaned.replace(/[^a-z0-9]/gi, "");
+    if (compact.length >= 4 && compact.length <= 24) {
+        const stitched = compact.split("").join("%");
+        for (const field of ["summary", "payee", "memo"]) {
+            clauses.push(`${field}.ilike.%${stitched}%`);
+        }
+    }
+
+    return clauses.join(",");
+}
+
 async function runQuery(
     admin: SupabaseClient,
     userId: string,
@@ -248,8 +312,7 @@ async function runQuery(
     if (query.to) q = q.lte("occurred_at", `${query.to}T23:59:59`);
 
     if (query.accounts?.length) {
-        const wanted = new Set(query.accounts.map((a) => a.toLowerCase()));
-        const ids = ctx.accounts.filter((a) => wanted.has(a.name.toLowerCase())).map((a) => a.id);
+        const ids = resolveAccountIds(ctx, query.accounts);
         // An account filter that matched nothing must return nothing, rather
         // than silently widening to every account.
         if (ids.length === 0) {
@@ -259,8 +322,8 @@ async function runQuery(
     }
 
     if (query.textContains) {
-        const safe = query.textContains.replace(/[,()]/g, " ");
-        q = q.or(`summary.ilike.%${safe}%,payee.ilike.%${safe}%,memo.ilike.%${safe}%`);
+        const clause = textSearchClause(query.textContains);
+        if (clause) q = q.or(clause);
     }
 
     const { data, error } = await q
